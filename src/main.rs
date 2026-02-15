@@ -6,6 +6,7 @@ use clap::Parser;
 mod classification;
 mod clean;
 mod cli;
+mod config;
 mod dirty;
 mod discovery;
 mod error;
@@ -25,6 +26,18 @@ fn main() {
         process::exit(1);
     }
 
+    // Load config file and resolve noise patterns
+    let (config_extra, config_exclude) = config::default_config_path()
+        .map(|p| config::load_config_file(&p))
+        .unwrap_or_default();
+    let noise_config = config::NoiseConfig {
+        config_extra,
+        config_exclude,
+        cli_extra: cli.noise_patterns.clone(),
+        no_defaults: cli.no_default_noise,
+    };
+    let noise_patterns = noise_config.resolve();
+
     let git = git::RealGit;
     let mut stdout = io::stdout().lock();
 
@@ -35,7 +48,7 @@ fn main() {
                 _ => (false, false),
             };
 
-            match run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
+            match run_scan(&git, &directory, cli.behind_threshold, cli.verbose, &noise_patterns) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -67,6 +80,7 @@ fn run_scan(
     directory: &std::path::Path,
     behind_threshold: usize,
     verbose: bool,
+    noise_patterns: &[String],
 ) -> Result<ScanResult, error::Error> {
     let groups = discovery::discover_worktrees(directory)?;
 
@@ -107,6 +121,7 @@ fn run_scan(
                 &default_branch,
                 behind_threshold,
                 verbose,
+                noise_patterns,
             ) {
                 Ok(info) => {
                     counts.increment(&info.classification);
