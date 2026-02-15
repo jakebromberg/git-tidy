@@ -64,7 +64,7 @@ git-worktree-tidy scan ~/Developer --no-default-noise --noise-pattern "*.swp"
 
 ### Config file
 
-Create `~/.config/git-worktree-tidy/config.toml` to set persistent noise preferences:
+Create `~/.config/git-worktree-tidy/config.toml` (or `$XDG_CONFIG_HOME/git-worktree-tidy/config.toml`) to set persistent noise preferences:
 
 ```toml
 [noise]
