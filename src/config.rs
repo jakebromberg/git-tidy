@@ -87,8 +87,17 @@ pub fn load_config_file(path: &Path) -> (Vec<String>, Vec<String>) {
     }
 }
 
-/// Return the default config file path: `$HOME/.config/git-worktree-tidy/config.toml`.
+/// Return the default config file path.
+///
+/// Respects `$XDG_CONFIG_HOME` if set, otherwise falls back to `$HOME/.config`.
 pub fn default_config_path() -> Option<PathBuf> {
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Some(
+            PathBuf::from(xdg)
+                .join("git-worktree-tidy")
+                .join("config.toml"),
+        );
+    }
     std::env::var_os("HOME").map(|home| {
         PathBuf::from(home)
             .join(".config")
@@ -155,6 +164,18 @@ mod tests {
             config_extra: vec![],
             config_exclude: vec![],
             cli_extra: vec!["*.swp".to_string()],
+            no_defaults: true,
+        };
+        let result = config.resolve();
+        assert_eq!(result, vec!["*.swp".to_string()]);
+    }
+
+    #[test]
+    fn resolve_no_defaults_ignores_excludes() {
+        let config = NoiseConfig {
+            config_extra: vec!["*.swp".to_string()],
+            config_exclude: vec![".DS_Store".to_string()],
+            cli_extra: vec![],
             no_defaults: true,
         };
         let result = config.resolve();
