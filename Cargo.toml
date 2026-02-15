@@ -12,6 +12,7 @@ dialoguer = "0.11"
 console = "0.15"
 thiserror = "2"
 strsim = "0.11"
+toml = "0.8"
 
 [dev-dependencies]
 assert_cmd = "2"

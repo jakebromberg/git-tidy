@@ -1,6 +1,7 @@
 pub mod classification;
 pub mod clean;
 pub mod cli;
+pub mod config;
 pub mod dirty;
 pub mod discovery;
 pub mod error;

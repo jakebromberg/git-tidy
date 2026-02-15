@@ -29,6 +29,7 @@ src/
   main.rs              # CLI dispatch
   lib.rs               # Public module exports for integration tests
   cli.rs               # clap derive definitions
+  config.rs            # Noise pattern configuration (file + CLI + defaults)
   types.rs             # Classification, WorktreeInfo, ScanResult, etc.
   error.rs             # thiserror Error enum
   git.rs               # GitOps trait + RealGit implementation

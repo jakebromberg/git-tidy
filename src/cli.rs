@@ -22,6 +22,14 @@ pub struct Cli {
     /// Show commit-matching details during landed detection
     #[arg(short, long, global = true)]
     pub verbose: bool,
+
+    /// Additional file patterns to treat as noise (can be repeated)
+    #[arg(long = "noise-pattern", global = true)]
+    pub noise_patterns: Vec<String>,
+
+    /// Disable all default noise patterns
+    #[arg(long, global = true)]
+    pub no_default_noise: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -191,5 +199,46 @@ mod tests {
             }
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn noise_pattern_single() {
+        let cli = Cli::parse_from(["git-worktree-tidy", "--noise-pattern", "*.swp"]);
+        assert_eq!(cli.noise_patterns, vec!["*.swp".to_string()]);
+    }
+
+    #[test]
+    fn noise_pattern_multiple() {
+        let cli = Cli::parse_from([
+            "git-worktree-tidy",
+            "--noise-pattern",
+            "*.swp",
+            "--noise-pattern",
+            ".envrc",
+        ]);
+        assert_eq!(
+            cli.noise_patterns,
+            vec!["*.swp".to_string(), ".envrc".to_string()]
+        );
+    }
+
+    #[test]
+    fn no_default_noise_flag() {
+        let cli = Cli::parse_from(["git-worktree-tidy", "--no-default-noise"]);
+        assert!(cli.no_default_noise);
+    }
+
+    #[test]
+    fn noise_flags_with_subcommand() {
+        let cli = Cli::parse_from([
+            "git-worktree-tidy",
+            "--noise-pattern",
+            "*.swp",
+            "--no-default-noise",
+            "scan",
+        ]);
+        assert_eq!(cli.noise_patterns, vec!["*.swp".to_string()]);
+        assert!(cli.no_default_noise);
+        assert!(matches!(cli.command, Some(Command::Scan { .. })));
     }
 }

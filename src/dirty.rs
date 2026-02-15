@@ -3,8 +3,8 @@ use std::path::Path;
 use crate::error::Error;
 use crate::git::GitOps;
 
-/// Files that are always considered noise regardless of gitignore status.
-const NOISE_PATTERNS: &[&str] = &[
+/// Default noise patterns: files that are always considered noise regardless of gitignore status.
+pub const DEFAULT_NOISE_PATTERNS: &[&str] = &[
     ".DS_Store",
     "*.pyc",
     "__pycache__",
@@ -24,7 +24,11 @@ pub struct DirtyResult {
 }
 
 /// Check a worktree for dirty (uncommitted) files, filtering out noise.
-pub fn check_dirty(git: &dyn GitOps, worktree_path: &Path) -> Result<DirtyResult, Error> {
+pub fn check_dirty(
+    git: &dyn GitOps,
+    worktree_path: &Path,
+    noise_patterns: &[String],
+) -> Result<DirtyResult, Error> {
     let lines = git.status_porcelain(worktree_path)?;
 
     let mut all_files = Vec::new();
@@ -44,7 +48,7 @@ pub fn check_dirty(git: &dyn GitOps, worktree_path: &Path) -> Result<DirtyResult
         all_files.push(file_path.to_string());
 
         // Untracked files that match noise patterns are not meaningful
-        if status_code == "??" && is_noise(file_path) {
+        if status_code == "??" && is_noise(file_path, noise_patterns) {
             continue;
         }
 
@@ -59,13 +63,13 @@ pub fn check_dirty(git: &dyn GitOps, worktree_path: &Path) -> Result<DirtyResult
 }
 
 /// Check if a file path matches any noise pattern.
-fn is_noise(file_path: &str) -> bool {
+fn is_noise(file_path: &str, patterns: &[String]) -> bool {
     let basename = Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(file_path);
 
-    for pattern in NOISE_PATTERNS {
+    for pattern in patterns {
         if let Some(suffix) = pattern.strip_prefix('*') {
             // Suffix match: *.pyc matches any file ending in .pyc
             if basename.ends_with(suffix) {
@@ -73,7 +77,7 @@ fn is_noise(file_path: &str) -> bool {
             }
         } else {
             // Exact basename match
-            if basename == *pattern {
+            if basename == pattern.as_str() {
                 return true;
             }
             // Also match as a directory component
@@ -92,38 +96,73 @@ mod tests {
     use super::*;
     use crate::git::tests::MockGitBuilder;
 
+    fn defaults() -> Vec<String> {
+        DEFAULT_NOISE_PATTERNS
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
     #[test]
     fn is_noise_ds_store() {
-        assert!(is_noise(".DS_Store"));
-        assert!(is_noise("subdir/.DS_Store"));
+        let patterns = defaults();
+        assert!(is_noise(".DS_Store", &patterns));
+        assert!(is_noise("subdir/.DS_Store", &patterns));
     }
 
     #[test]
     fn is_noise_pyc() {
-        assert!(is_noise("module.pyc"));
-        assert!(is_noise("src/module.pyc"));
+        let patterns = defaults();
+        assert!(is_noise("module.pyc", &patterns));
+        assert!(is_noise("src/module.pyc", &patterns));
     }
 
     #[test]
     fn is_noise_pycache() {
-        assert!(is_noise("__pycache__"));
-        assert!(is_noise("src/__pycache__/module.cpython-39.pyc"));
+        let patterns = defaults();
+        assert!(is_noise("__pycache__", &patterns));
+        assert!(is_noise("src/__pycache__/module.cpython-39.pyc", &patterns));
     }
 
     #[test]
     fn is_noise_lockfiles() {
-        assert!(is_noise("uv.lock"));
-        assert!(is_noise("package-lock.json"));
-        assert!(is_noise("Podfile.lock"));
-        assert!(is_noise("yarn.lock"));
+        let patterns = defaults();
+        assert!(is_noise("uv.lock", &patterns));
+        assert!(is_noise("package-lock.json", &patterns));
+        assert!(is_noise("Podfile.lock", &patterns));
+        assert!(is_noise("yarn.lock", &patterns));
     }
 
     #[test]
     fn is_not_noise_regular_files() {
-        assert!(!is_noise("main.rs"));
-        assert!(!is_noise("src/lib.rs"));
-        assert!(!is_noise("Cargo.toml"));
-        assert!(!is_noise("README.md"));
+        let patterns = defaults();
+        assert!(!is_noise("main.rs", &patterns));
+        assert!(!is_noise("src/lib.rs", &patterns));
+        assert!(!is_noise("Cargo.toml", &patterns));
+        assert!(!is_noise("README.md", &patterns));
+    }
+
+    #[test]
+    fn is_noise_custom_suffix_pattern() {
+        let patterns = vec!["*.swp".to_string()];
+        assert!(is_noise("file.swp", &patterns));
+        assert!(is_noise("dir/file.swp", &patterns));
+        assert!(!is_noise("file.txt", &patterns));
+    }
+
+    #[test]
+    fn is_noise_custom_exact_pattern() {
+        let patterns = vec![".envrc".to_string()];
+        assert!(is_noise(".envrc", &patterns));
+        assert!(is_noise("subdir/.envrc", &patterns));
+        assert!(!is_noise("envrc", &patterns));
+    }
+
+    #[test]
+    fn is_noise_empty_patterns() {
+        let patterns: Vec<String> = vec![];
+        assert!(!is_noise(".DS_Store", &patterns));
+        assert!(!is_noise("anything", &patterns));
     }
 
     #[test]
@@ -140,7 +179,7 @@ mod tests {
             )
             .build();
 
-        let result = check_dirty(&git, &path).unwrap();
+        let result = check_dirty(&git, &path, &defaults()).unwrap();
         assert_eq!(result.all_files.len(), 3);
         assert!(result.meaningful_files.is_empty());
     }
@@ -159,7 +198,7 @@ mod tests {
             )
             .build();
 
-        let result = check_dirty(&git, &path).unwrap();
+        let result = check_dirty(&git, &path, &defaults()).unwrap();
         assert_eq!(result.all_files.len(), 3);
         assert_eq!(result.meaningful_files.len(), 2);
         assert!(result.meaningful_files.contains(&"src/main.rs".to_string()));
@@ -176,7 +215,7 @@ mod tests {
             )
             .build();
 
-        let result = check_dirty(&git, &path).unwrap();
+        let result = check_dirty(&git, &path, &defaults()).unwrap();
         assert_eq!(result.meaningful_files.len(), 2);
     }
 
@@ -187,8 +226,29 @@ mod tests {
             .with_status_porcelain(&path, vec![])
             .build();
 
-        let result = check_dirty(&git, &path).unwrap();
+        let result = check_dirty(&git, &path, &defaults()).unwrap();
         assert!(result.all_files.is_empty());
         assert!(result.meaningful_files.is_empty());
+    }
+
+    #[test]
+    fn check_dirty_custom_patterns() {
+        let path = PathBuf::from("/worktree");
+        let git = MockGitBuilder::new()
+            .with_status_porcelain(
+                &path,
+                vec![
+                    "?? .envrc".to_string(),
+                    "?? file.swp".to_string(),
+                    "?? important.txt".to_string(),
+                ],
+            )
+            .build();
+
+        let patterns = vec![".envrc".to_string(), "*.swp".to_string()];
+        let result = check_dirty(&git, &path, &patterns).unwrap();
+        assert_eq!(result.all_files.len(), 3);
+        assert_eq!(result.meaningful_files.len(), 1);
+        assert_eq!(result.meaningful_files[0], "important.txt");
     }
 }
