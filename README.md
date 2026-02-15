@@ -1,13 +1,23 @@
-# git-worktree-tidy
+# git-tidy
 
-A CLI tool that scans a directory for linked Git worktrees, classifies them by staleness, and interactively removes the stale ones.
+A Cargo workspace for Git housekeeping tools that share classification logic (merged/landed/active/local) and a common git abstraction layer.
+
+## Tools
+
+### git-worktree-tidy
+
+Scans a directory for linked Git worktrees, classifies them by staleness, and interactively removes the stale ones.
+
+### git-branch-tidy (planned)
+
+Scans and cleans up stale local and remote branches across multiple repos.
 
 ## Installation
 
 Requires Rust 1.85.0 or later (edition 2024).
 
 ```bash
-cargo install --path .
+cargo install --path crates/git-worktree-tidy
 ```
 
 ## Usage
@@ -106,3 +116,11 @@ Options:
 | 0 | Success, or nothing to clean |
 | 1 | Error during scan or removal |
 | 2 | Dirty worktrees blocked removal (rerun with `--force`) |
+
+## Workspace Structure
+
+```
+crates/
+  git-tidy-core/          Shared classification, git abstraction, test utilities
+  git-worktree-tidy/      Worktree scanner/cleaner binary
+```

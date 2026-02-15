@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::Error;
+use git_tidy_core::error::Error;
 
 /// A discovered linked worktree before classification.
 #[derive(Debug, Clone)]

@@ -129,7 +129,7 @@ mod tests {
 
     use super::*;
     use crate::dirty::DEFAULT_NOISE_PATTERNS;
-    use crate::git::tests::MockGitBuilder;
+    use crate::testutil::MockGitBuilder;
 
     fn repo() -> PathBuf {
         PathBuf::from("/repo")
