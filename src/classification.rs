@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::dirty;
 use crate::error::Error;
 use crate::git::GitOps;
+use crate::landed;
 use crate::types::{Annotations, Classification, WorktreeInfo};
 
 /// Detect the default branch for a repo.
@@ -37,6 +38,7 @@ pub fn classify_worktree(
     parent_repo: &Path,
     default_branch: &str,
     behind_threshold: usize,
+    verbose: bool,
 ) -> Result<WorktreeInfo, Error> {
     let branch = git.worktree_branch(worktree_path)?;
     let origin_default = format!("origin/{default_branch}");
@@ -79,17 +81,27 @@ pub fn classify_worktree(
     let classification = if is_merged {
         Classification::Merged
     } else {
-        // Check for landed commits (basic: just count exclusive commits for now)
-        // Full landed detection will be implemented in PR 3
-        let unique_commits = git.log_exclusive(parent_repo, &origin_default, &branch_ref)?;
+        // Try landed detection
+        let landed_result =
+            landed::detect_landed(git, parent_repo, &origin_default, &branch_ref, verbose)?;
 
-        if unique_commits.is_empty() {
-            // No unique commits — effectively merged
-            Classification::Merged
-        } else if has_remote {
-            Classification::Active
-        } else {
-            Classification::Local
+        match &landed_result.classification {
+            Classification::Landed { .. } if landed_result.total > 0 => {
+                landed_result.classification.clone()
+            }
+            Classification::Landed { .. } => {
+                // 0 unique commits — effectively merged
+                Classification::Merged
+            }
+            Classification::LandedPartial { .. } => landed_result.classification.clone(),
+            _ => {
+                // No commits landed — classify as active or local
+                if has_remote {
+                    Classification::Active
+                } else {
+                    Classification::Local
+                }
+            }
         }
     };
 
@@ -181,7 +193,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(!info.annotations.dirty);
         assert!(!info.annotations.remote_deleted);
@@ -203,7 +215,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert_eq!(info.classification, Classification::Active);
         assert_eq!(info.ahead, 3);
         assert_eq!(info.behind, 5);
@@ -225,7 +237,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert_eq!(info.classification, Classification::Local);
         assert!(!info.remote_tracking);
     }
@@ -252,7 +264,7 @@ mod tests {
             )
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert!(info.annotations.dirty);
         assert_eq!(info.annotations.dirty_file_count, 1); // .DS_Store filtered
     }
@@ -273,7 +285,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert!(info.annotations.diverged);
         assert_eq!(info.behind, 150);
     }
@@ -288,7 +300,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(info.annotations.remote_deleted);
     }
@@ -303,7 +315,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(info.branch.is_none());
     }
@@ -324,7 +336,7 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100).unwrap();
+        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false).unwrap();
         assert_eq!(info.classification, Classification::Local);
     }
 }
