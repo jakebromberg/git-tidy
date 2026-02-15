@@ -197,7 +197,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(!info.annotations.dirty);
         assert!(!info.annotations.remote_deleted);
@@ -219,7 +220,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Active);
         assert_eq!(info.ahead, 3);
         assert_eq!(info.behind, 5);
@@ -241,7 +243,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Local);
         assert!(!info.remote_tracking);
     }
@@ -265,7 +268,8 @@ mod tests {
             )
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert!(info.annotations.dirty);
         assert_eq!(info.annotations.dirty_file_count, 1); // .DS_Store filtered
     }
@@ -286,7 +290,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert!(info.annotations.diverged);
         assert_eq!(info.behind, 150);
     }
@@ -301,7 +306,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(info.annotations.remote_deleted);
     }
@@ -316,7 +322,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(info.branch.is_none());
     }
@@ -337,7 +344,8 @@ mod tests {
             .with_status_porcelain(&wt(), vec![])
             .build();
 
-        let info = classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Local);
     }
 }
