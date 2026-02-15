@@ -9,7 +9,12 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
     }
 
     for group in &result.repos {
-        writeln!(out, "\n{} ({} worktrees)", group.name, group.worktrees.len())?;
+        writeln!(
+            out,
+            "\n{} ({} worktrees)",
+            group.name,
+            group.worktrees.len()
+        )?;
 
         for wt in &group.worktrees {
             write_worktree_line(out, wt)?;
@@ -17,7 +22,11 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
             // For partial landings, list unmatched commits
             if let Classification::LandedPartial { unmatched, .. } = &wt.classification {
                 for commit in unmatched {
-                    writeln!(out, "    unmatched: {} {}", commit.short_hash, commit.subject)?;
+                    writeln!(
+                        out,
+                        "    unmatched: {} {}",
+                        commit.short_hash, commit.subject
+                    )?;
                 }
             }
         }
@@ -44,10 +53,7 @@ fn write_worktree_line(out: &mut dyn Write, wt: &WorktreeInfo) -> std::io::Resul
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let branch = wt
-        .branch
-        .as_deref()
-        .unwrap_or("(detached)");
+    let branch = wt.branch.as_deref().unwrap_or("(detached)");
 
     // Landed ratio
     let ratio = match &wt.classification {
@@ -99,8 +105,7 @@ pub fn write_json(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<(
         .map(JsonWorktree::from)
         .collect();
 
-    let json = serde_json::to_string_pretty(&all_worktrees)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(&all_worktrees).map_err(std::io::Error::other)?;
     writeln!(out, "{json}")?;
     Ok(())
 }
@@ -116,7 +121,9 @@ pub fn write_porcelain(out: &mut dyn Write, result: &ScanResult) -> std::io::Res
 
             let ratio = match &wt.classification {
                 Classification::Landed { matched, total } => format!("{matched}/{total}"),
-                Classification::LandedPartial { matched, total, .. } => format!("{matched}/{total}"),
+                Classification::LandedPartial { matched, total, .. } => {
+                    format!("{matched}/{total}")
+                }
                 _ => String::new(),
             };
 
@@ -209,7 +216,10 @@ mod tests {
         assert!(output.contains("active"));
         assert!(output.contains("Backend-parallel"));
         assert!(output.contains("Backend-caps"));
-        assert!(output.contains("2 worktrees scanned: 1 merged, 0 landed, 0 partial, 1 active, 0 local"));
+        assert!(
+            output
+                .contains("2 worktrees scanned: 1 merged, 0 landed, 0 partial, 1 active, 0 local")
+        );
     }
 
     #[test]

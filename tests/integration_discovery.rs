@@ -58,10 +58,16 @@ fn worktrees_grouped_by_parent_repo() {
 
     // Add a worktree for each
     let wt_a = base.join("repo-a-wt");
-    git_cmd(&repo_a, &["worktree", "add", "-b", "br-a", &wt_a.to_string_lossy()]);
+    git_cmd(
+        &repo_a,
+        &["worktree", "add", "-b", "br-a", &wt_a.to_string_lossy()],
+    );
 
     let wt_b = base.join("repo-b-wt");
-    git_cmd(&repo_b, &["worktree", "add", "-b", "br-b", &wt_b.to_string_lossy()]);
+    git_cmd(
+        &repo_b,
+        &["worktree", "add", "-b", "br-b", &wt_b.to_string_lossy()],
+    );
 
     let groups = discovery::discover_worktrees(base).unwrap();
     assert_eq!(groups.len(), 2);

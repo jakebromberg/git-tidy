@@ -35,11 +35,9 @@ pub fn parse_git_file(git_file: &Path) -> Result<PathBuf, Error> {
 pub fn derive_parent_repo(gitdir: &Path) -> Option<PathBuf> {
     // Walk up from gitdir looking for ".git/worktrees"
     let gitdir_str = gitdir.to_string_lossy();
-    if let Some(idx) = gitdir_str.find("/.git/worktrees/") {
-        Some(PathBuf::from(&gitdir_str[..idx]))
-    } else {
-        None
-    }
+    gitdir_str
+        .find("/.git/worktrees/")
+        .map(|idx| PathBuf::from(&gitdir_str[..idx]))
 }
 
 /// Discover all linked worktrees as immediate subdirectories of `directory`.

@@ -2,6 +2,7 @@
 name = "git-worktree-tidy"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85.0"
 description = "Scan, classify, and interactively remove stale Git worktrees"
 
 [dependencies]

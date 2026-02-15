@@ -202,7 +202,11 @@ mod tests {
         assert_eq!(result.all_files.len(), 3);
         assert_eq!(result.meaningful_files.len(), 2);
         assert!(result.meaningful_files.contains(&"src/main.rs".to_string()));
-        assert!(result.meaningful_files.contains(&"new_file.txt".to_string()));
+        assert!(
+            result
+                .meaningful_files
+                .contains(&"new_file.txt".to_string())
+        );
     }
 
     #[test]

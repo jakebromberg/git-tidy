@@ -12,7 +12,10 @@ fn diff_commit_handles_root_commit() {
     let root_hash = common::git(&test.main_repo, &["rev-parse", "HEAD"]);
 
     let diff = git.diff_commit(&test.main_repo, &root_hash).unwrap();
-    assert!(diff.contains("README.md"), "root commit diff should show the added file");
+    assert!(
+        diff.contains("README.md"),
+        "root commit diff should show the added file"
+    );
 }
 
 #[test]
@@ -37,5 +40,8 @@ fn diff_commit_on_ref_handles_root_commit() {
     let root_hash = common::git(&test.main_repo, &["rev-parse", "HEAD"]);
 
     let diff = git.diff_commit_on_ref(&test.main_repo, &root_hash).unwrap();
-    assert!(diff.contains("README.md"), "root commit diff should show the added file");
+    assert!(
+        diff.contains("README.md"),
+        "root commit diff should show the added file"
+    );
 }

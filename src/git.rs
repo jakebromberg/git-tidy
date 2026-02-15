@@ -206,10 +206,7 @@ impl GitOps for RealGit {
         branch_or_ref: &str,
         needle: &str,
     ) -> GitResult<Vec<(String, String)>> {
-        let output = Self::run(
-            repo,
-            &["log", branch_or_ref, "--oneline", "--grep", needle],
-        )?;
+        let output = Self::run(repo, &["log", branch_or_ref, "--oneline", "--grep", needle])?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(Self::parse_log_oneline(&text))
     }
@@ -221,7 +218,14 @@ impl GitOps for RealGit {
     fn diff_commit_files(&self, repo: &Path, commit: &str) -> GitResult<Vec<String>> {
         let text = Self::run_success(
             repo,
-            &["diff-tree", "--root", "--no-commit-id", "-r", "--name-only", commit],
+            &[
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "-r",
+                "--name-only",
+                commit,
+            ],
         )?;
         Ok(text.lines().map(|l| l.to_string()).collect())
     }
@@ -300,10 +304,8 @@ impl GitOps for RealGit {
     fn is_branch_checked_out(&self, repo: &Path, branch: &str) -> GitResult<bool> {
         let output = Self::run_success(repo, &["worktree", "list", "--porcelain"])?;
         for line in output.lines() {
-            if let Some(b) = line.strip_prefix("branch refs/heads/") {
-                if b == branch {
-                    return Ok(true);
-                }
+            if line.strip_prefix("branch refs/heads/") == Some(branch) {
+                return Ok(true);
             }
         }
         Ok(false)
@@ -315,10 +317,7 @@ impl GitOps for RealGit {
         ref_spec: &str,
         file: &str,
     ) -> GitResult<Vec<(String, String)>> {
-        let output = Self::run(
-            repo,
-            &["log", ref_spec, "--oneline", "--all", "--", file],
-        )?;
+        let output = Self::run(repo, &["log", ref_spec, "--oneline", "--all", "--", file])?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(Self::parse_log_oneline(&text))
     }
@@ -734,7 +733,10 @@ pub mod tests {
         }
 
         fn worktree_remove(&self, repo: &Path, worktree_path: &Path) -> GitResult<()> {
-            if let Some(err) = self.worktree_remove_errors.get(&worktree_path.to_path_buf()) {
+            if let Some(err) = self
+                .worktree_remove_errors
+                .get(&worktree_path.to_path_buf())
+            {
                 return Err(Error::RemovalFailed {
                     path: worktree_path.to_path_buf(),
                     reason: err.clone(),
@@ -800,7 +802,10 @@ pub mod tests {
         let output = "abc1234 Fix the bug\ndef5678 Add feature\n";
         let result = RealGit::parse_log_oneline(output);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], ("abc1234".to_string(), "Fix the bug".to_string()));
+        assert_eq!(
+            result[0],
+            ("abc1234".to_string(), "Fix the bug".to_string())
+        );
         assert_eq!(
             result[1],
             ("def5678".to_string(), "Add feature".to_string())

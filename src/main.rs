@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io;
 use std::process;
 
 use clap::Parser;
@@ -129,10 +129,7 @@ fn run_scan(
                     classified.push(info);
                 }
                 Err(e) => {
-                    warnings.push(format!(
-                        "error classifying {}: {e}",
-                        wt.path.display()
-                    ));
+                    warnings.push(format!("error classifying {}: {e}", wt.path.display()));
                 }
             }
         }

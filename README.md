@@ -4,6 +4,8 @@ A CLI tool that scans a directory for linked Git worktrees, classifies them by s
 
 ## Installation
 
+Requires Rust 1.85.0 or later (edition 2024).
+
 ```bash
 cargo install --path .
 ```
