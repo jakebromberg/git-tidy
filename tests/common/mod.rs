@@ -532,7 +532,7 @@ impl TestRepo {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
+pub fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)

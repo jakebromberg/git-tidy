@@ -215,14 +215,13 @@ impl GitOps for RealGit {
     }
 
     fn diff_commit(&self, repo: &Path, commit: &str) -> GitResult<String> {
-        let range = format!("{commit}^..{commit}");
-        Self::run_success(repo, &["diff", &range])
+        Self::run_success(repo, &["diff-tree", "-p", "--root", commit])
     }
 
     fn diff_commit_files(&self, repo: &Path, commit: &str) -> GitResult<Vec<String>> {
         let text = Self::run_success(
             repo,
-            &["diff-tree", "--no-commit-id", "-r", "--name-only", commit],
+            &["diff-tree", "--root", "--no-commit-id", "-r", "--name-only", commit],
         )?;
         Ok(text.lines().map(|l| l.to_string()).collect())
     }
@@ -242,8 +241,7 @@ impl GitOps for RealGit {
     }
 
     fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String> {
-        let range = format!("{commit_hash}^..{commit_hash}");
-        Self::run_success(repo, &["diff", &range])
+        Self::run_success(repo, &["diff-tree", "-p", "--root", commit_hash])
     }
 
     fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>> {
