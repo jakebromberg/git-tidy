@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::process;
 
 use clap::Parser;
@@ -55,9 +55,69 @@ fn main() {
                 }
             }
         }
-        Some(cli::Command::Clean { .. }) => {
-            eprintln!("clean command not yet implemented");
-            process::exit(1);
+        Some(cli::Command::Clean {
+            dry_run,
+            force,
+            yes,
+            merged_only,
+            landed,
+            all,
+            delete_branches,
+            json,
+            porcelain,
+        }) => {
+            match run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
+                Ok(scan_result) => {
+                    // Optionally output scan results first
+                    if *json {
+                        if let Err(e) = output::write_json(&mut stdout, &scan_result) {
+                            eprintln!("error writing output: {e}");
+                            process::exit(1);
+                        }
+                    } else if *porcelain {
+                        if let Err(e) = output::write_porcelain(&mut stdout, &scan_result) {
+                            eprintln!("error writing output: {e}");
+                            process::exit(1);
+                        }
+                    }
+
+                    let interactive = io::stdin().is_terminal();
+                    let opts = clean::CleanOptions {
+                        dry_run: *dry_run,
+                        force: *force,
+                        yes: *yes,
+                        merged_only: *merged_only,
+                        landed: *landed,
+                        all: *all,
+                        delete_branches: *delete_branches,
+                    };
+
+                    match clean::run_clean(
+                        &git,
+                        &scan_result,
+                        &opts,
+                        &mut stdout,
+                        interactive && !*yes,
+                    ) {
+                        Ok(result) => {
+                            if result.dirty_blocked {
+                                process::exit(2);
+                            }
+                            if result.failed > 0 {
+                                process::exit(1);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            process::exit(e.exit_code());
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    process::exit(e.exit_code());
+                }
+            }
         }
     }
 }
