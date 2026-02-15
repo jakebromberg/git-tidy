@@ -133,6 +133,66 @@ impl ScanCounts {
     }
 }
 
+/// Flat JSON representation of a worktree matching the spec.
+#[derive(Debug, Serialize)]
+pub struct JsonWorktree {
+    pub path: PathBuf,
+    pub parent_repo: PathBuf,
+    pub branch: Option<String>,
+    pub default_branch: String,
+    pub classification: String,
+    pub remote_tracking: bool,
+    pub remote_deleted: bool,
+    pub ahead: usize,
+    pub behind: usize,
+    pub dirty: bool,
+    pub dirty_files: Vec<String>,
+    pub meaningful_dirty_files: Vec<String>,
+    pub diverged: bool,
+    pub landed_ratio: Option<String>,
+    pub landed_total: Option<usize>,
+    pub unmatched_commits: Vec<UnmatchedCommit>,
+}
+
+impl From<&WorktreeInfo> for JsonWorktree {
+    fn from(wt: &WorktreeInfo) -> Self {
+        let (landed_ratio, landed_total, unmatched_commits) = match &wt.classification {
+            Classification::Landed { matched, total } => {
+                (Some(format!("{matched}/{total}")), Some(*total), vec![])
+            }
+            Classification::LandedPartial {
+                matched,
+                total,
+                unmatched,
+            } => (
+                Some(format!("{matched}/{total}")),
+                Some(*total),
+                unmatched.clone(),
+            ),
+            _ => (None, None, vec![]),
+        };
+
+        JsonWorktree {
+            path: wt.path.clone(),
+            parent_repo: wt.parent_repo.clone(),
+            branch: wt.branch.clone(),
+            default_branch: wt.default_branch.clone(),
+            classification: wt.classification.label().to_string(),
+            remote_tracking: wt.remote_tracking,
+            remote_deleted: wt.annotations.remote_deleted,
+            ahead: wt.ahead,
+            behind: wt.behind,
+            dirty: wt.annotations.dirty,
+            dirty_files: wt.dirty_files.clone(),
+            meaningful_dirty_files: wt.meaningful_dirty_files.clone(),
+            diverged: wt.annotations.diverged,
+            landed_ratio,
+            landed_total,
+            unmatched_commits,
+        }
+    }
+}
+
 /// Result of a full scan operation.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanResult {
