@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::types::{Classification, JsonWorktree, ScanResult, WorktreeInfo};
+use git_tidy_core::types::{Classification, JsonWorktree, ScanResult, WorktreeInfo};
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
@@ -156,7 +156,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::types::*;
+    use git_tidy_core::types::*;
 
     fn make_scan_result() -> ScanResult {
         ScanResult {

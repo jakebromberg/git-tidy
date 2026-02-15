@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use git_worktree_tidy::error::Error;
-use git_worktree_tidy::git::{GitOps, GitResult};
+use crate::error::Error;
+use crate::git::{GitOps, GitResult};
 
 /// Builder for constructing a MockGit with canned responses.
 #[derive(Default)]
@@ -23,13 +23,11 @@ pub struct MockGitBuilder {
     rev_parse: HashMap<(PathBuf, String), String>,
     is_branch_checked_out: HashMap<(PathBuf, String), bool>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
-    // Track calls for verification
     fetch_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
     remove_calls: std::cell::RefCell<Vec<(PathBuf, PathBuf)>>,
     remove_force_calls: std::cell::RefCell<Vec<(PathBuf, PathBuf)>>,
     prune_calls: std::cell::RefCell<Vec<PathBuf>>,
     branch_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
-    // Error injection
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
 }
@@ -465,6 +463,12 @@ pub struct TestRepo {
     pub main_repo: PathBuf,
 }
 
+impl Default for TestRepo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestRepo {
     /// Create a new test repo with an initial commit and a `main` branch.
     pub fn new() -> Self {
@@ -505,6 +509,7 @@ impl TestRepo {
     }
 }
 
+/// Run a git command in the given directory, panicking on failure.
 pub fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .arg("-C")

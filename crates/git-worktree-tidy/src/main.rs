@@ -2,20 +2,16 @@ use std::io;
 use std::process;
 
 use clap::Parser;
+use git_tidy_core::classification;
+use git_tidy_core::config;
+use git_tidy_core::error;
+use git_tidy_core::git;
+use git_tidy_core::types::{RepoGroup, ScanCounts, ScanResult};
 
-mod classification;
 mod clean;
 mod cli;
-mod config;
-mod dirty;
 mod discovery;
-mod error;
-mod git;
-mod landed;
 mod output;
-mod types;
-
-use types::{RepoGroup, ScanCounts, ScanResult};
 
 fn main() {
     let cli = cli::Cli::parse();

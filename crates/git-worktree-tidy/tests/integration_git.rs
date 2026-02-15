@@ -1,7 +1,7 @@
 mod common;
 
 use common::TestRepo;
-use git_worktree_tidy::git::{GitOps, RealGit};
+use git_tidy_core::git::{GitOps, RealGit};
 
 #[test]
 fn diff_commit_handles_root_commit() {

@@ -94,7 +94,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::git::tests::MockGitBuilder;
+    use crate::testutil::MockGitBuilder;
 
     fn defaults() -> Vec<String> {
         DEFAULT_NOISE_PATTERNS
