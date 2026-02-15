@@ -54,9 +54,7 @@ pub fn classify_worktree(
     };
 
     // Check remote tracking branch
-    let remote_ref = branch
-        .as_ref()
-        .map(|b| format!("refs/remotes/origin/{b}"));
+    let remote_ref = branch.as_ref().map(|b| format!("refs/remotes/origin/{b}"));
     let has_remote = match &remote_ref {
         Some(rr) => git.rev_parse_verify(parent_repo, rr)?,
         None => false,
@@ -67,11 +65,8 @@ pub fn classify_worktree(
     let remote_deleted = branch.is_some() && !has_remote;
 
     // Ahead/behind counts
-    let (behind, ahead) = git.rev_list_left_right_count(
-        parent_repo,
-        &origin_default,
-        &branch_ref,
-    )?;
+    let (behind, ahead) =
+        git.rev_list_left_right_count(parent_repo, &origin_default, &branch_ref)?;
 
     // Dirty detection
     let dirty_result = dirty::check_dirty(git, worktree_path, noise_patterns)?;
@@ -266,10 +261,7 @@ mod tests {
             )
             .with_status_porcelain(
                 &wt(),
-                vec![
-                    " M src/main.rs".to_string(),
-                    "?? .DS_Store".to_string(),
-                ],
+                vec![" M src/main.rs".to_string(), "?? .DS_Store".to_string()],
             )
             .build();
 

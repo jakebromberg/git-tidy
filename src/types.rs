@@ -9,10 +9,7 @@ pub enum Classification {
     /// Branch tip is an ancestor of the default branch.
     Merged,
     /// All branch commits have matching commits on the default branch.
-    Landed {
-        matched: usize,
-        total: usize,
-    },
+    Landed { matched: usize, total: usize },
     /// Some but not all branch commits matched.
     LandedPartial {
         matched: usize,

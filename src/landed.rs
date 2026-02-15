@@ -421,14 +421,16 @@ mod tests {
             )
             .build();
 
-        let result =
-            detect_landed(&git, &repo(), "origin/main", "feature/done", false).unwrap();
+        let result = detect_landed(&git, &repo(), "origin/main", "feature/done", false).unwrap();
         assert_eq!(result.matched, 2);
         assert_eq!(result.total, 2);
         assert!(result.unmatched.is_empty());
         assert!(matches!(
             result.classification,
-            Classification::Landed { matched: 2, total: 2 }
+            Classification::Landed {
+                matched: 2,
+                total: 2
+            }
         ));
     }
 
@@ -453,15 +455,18 @@ mod tests {
             // "Add unique feature X" — no exact match, no fuzzy match, no patch match
             .build();
 
-        let result =
-            detect_landed(&git, &repo(), "origin/main", "feature/partial", false).unwrap();
+        let result = detect_landed(&git, &repo(), "origin/main", "feature/partial", false).unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 2);
         assert_eq!(result.unmatched.len(), 1);
         assert_eq!(result.unmatched[0].subject, "Add unique feature X");
         assert!(matches!(
             result.classification,
-            Classification::LandedPartial { matched: 1, total: 2, .. }
+            Classification::LandedPartial {
+                matched: 1,
+                total: 2,
+                ..
+            }
         ));
     }
 
@@ -476,8 +481,7 @@ mod tests {
             )
             .build();
 
-        let result =
-            detect_landed(&git, &repo(), "origin/main", "feature/none", false).unwrap();
+        let result = detect_landed(&git, &repo(), "origin/main", "feature/none", false).unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 1);
     }
@@ -488,13 +492,15 @@ mod tests {
             .with_log_exclusive(&repo(), "origin/main", "feature/empty", vec![])
             .build();
 
-        let result =
-            detect_landed(&git, &repo(), "origin/main", "feature/empty", false).unwrap();
+        let result = detect_landed(&git, &repo(), "origin/main", "feature/empty", false).unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 0);
         assert!(matches!(
             result.classification,
-            Classification::Landed { matched: 0, total: 0 }
+            Classification::Landed {
+                matched: 0,
+                total: 0
+            }
         ));
     }
 
@@ -510,11 +516,7 @@ mod tests {
             )
             // No exact match, no fuzzy match
             // But patch similarity should match
-            .with_diff_commit_files(
-                &repo(),
-                "aaa1111",
-                vec!["src/main.rs".into()],
-            )
+            .with_diff_commit_files(&repo(), "aaa1111", vec!["src/main.rs".into()])
             .with_log_touching_files(
                 &repo(),
                 "origin/main",
@@ -524,8 +526,7 @@ mod tests {
             .with_diff_commit_on_ref(&repo(), "bbb2222", diff_content) // identical patch
             .build();
 
-        let result =
-            detect_landed(&git, &repo(), "origin/main", "feature/patch", false).unwrap();
+        let result = detect_landed(&git, &repo(), "origin/main", "feature/patch", false).unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 1);
     }

@@ -59,11 +59,7 @@ impl MockGitBuilder {
         result: bool,
     ) -> Self {
         self.is_ancestor.insert(
-            (
-                repo.to_path_buf(),
-                branch.to_string(),
-                target.to_string(),
-            ),
+            (repo.to_path_buf(), branch.to_string(), target.to_string()),
             result,
         );
         self
@@ -112,8 +108,7 @@ impl MockGitBuilder {
     }
 
     pub fn with_status_porcelain(mut self, path: &Path, lines: Vec<String>) -> Self {
-        self.status_porcelain
-            .insert(path.to_path_buf(), lines);
+        self.status_porcelain.insert(path.to_path_buf(), lines);
         self
     }
 
@@ -140,12 +135,7 @@ impl MockGitBuilder {
         self
     }
 
-    pub fn with_diff_commit_files(
-        mut self,
-        repo: &Path,
-        commit: &str,
-        files: Vec<String>,
-    ) -> Self {
+    pub fn with_diff_commit_files(mut self, repo: &Path, commit: &str, files: Vec<String>) -> Self {
         self.diff_commit_files
             .insert((repo.to_path_buf(), commit.to_string()), files);
         self
@@ -182,11 +172,7 @@ impl MockGitBuilder {
         results: Vec<(String, String)>,
     ) -> Self {
         self.log_file_history.insert(
-            (
-                repo.to_path_buf(),
-                ref_spec.to_string(),
-                file.to_string(),
-            ),
+            (repo.to_path_buf(), ref_spec.to_string(), file.to_string()),
             results,
         );
         self
@@ -277,9 +263,7 @@ impl MockGit {
 
 impl GitOps for MockGit {
     fn fetch_prune(&self, repo: &Path) -> GitResult<()> {
-        self.fetch_prune_calls
-            .borrow_mut()
-            .push(repo.to_path_buf());
+        self.fetch_prune_calls.borrow_mut().push(repo.to_path_buf());
         Ok(())
     }
 
@@ -301,11 +285,7 @@ impl GitOps for MockGit {
     fn is_ancestor(&self, repo: &Path, branch: &str, target: &str) -> GitResult<bool> {
         Ok(*self
             .is_ancestor
-            .get(&(
-                repo.to_path_buf(),
-                branch.to_string(),
-                target.to_string(),
-            ))
+            .get(&(repo.to_path_buf(), branch.to_string(), target.to_string()))
             .unwrap_or(&false))
     }
 
@@ -415,7 +395,10 @@ impl GitOps for MockGit {
     }
 
     fn worktree_remove(&self, repo: &Path, worktree_path: &Path) -> GitResult<()> {
-        if let Some(err) = self.worktree_remove_errors.get(&worktree_path.to_path_buf()) {
+        if let Some(err) = self
+            .worktree_remove_errors
+            .get(&worktree_path.to_path_buf())
+        {
             return Err(Error::RemovalFailed {
                 path: worktree_path.to_path_buf(),
                 reason: err.clone(),
@@ -470,11 +453,7 @@ impl GitOps for MockGit {
     ) -> GitResult<Vec<(String, String)>> {
         Ok(self
             .log_file_history
-            .get(&(
-                repo.to_path_buf(),
-                ref_spec.to_string(),
-                file.to_string(),
-            ))
+            .get(&(repo.to_path_buf(), ref_spec.to_string(), file.to_string()))
             .cloned()
             .unwrap_or_default())
     }
@@ -512,13 +491,7 @@ impl TestRepo {
         let wt_path = self.dir.path().join(name);
         git(
             &self.main_repo,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                branch,
-                &wt_path.to_string_lossy(),
-            ],
+            &["worktree", "add", "-b", branch, &wt_path.to_string_lossy()],
         );
         wt_path
     }
@@ -541,12 +514,7 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
         .expect("failed to run git");
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!(
-            "git {:?} failed in {}: {}",
-            args,
-            dir.display(),
-            stderr
-        );
+        panic!("git {:?} failed in {}: {}", args, dir.display(), stderr);
     }
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
