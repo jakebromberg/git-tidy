@@ -48,7 +48,13 @@ fn main() {
                 _ => (false, false),
             };
 
-            match run_scan(&git, &directory, cli.behind_threshold, cli.verbose, &noise_patterns) {
+            match run_scan(
+                &git,
+                &directory,
+                cli.behind_threshold,
+                cli.verbose,
+                &noise_patterns,
+            ) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
