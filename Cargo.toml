@@ -8,8 +8,6 @@ description = "Scan, classify, and interactively remove stale Git worktrees"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-dialoguer = "0.11"
-console = "0.15"
 thiserror = "2"
 strsim = "0.11"
 

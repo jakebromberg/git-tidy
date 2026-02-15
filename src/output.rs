@@ -58,7 +58,7 @@ fn write_worktree_line(out: &mut dyn Write, wt: &WorktreeInfo) -> std::io::Resul
 
     // Ahead/behind
     let ahead_behind = if wt.ahead > 0 || wt.behind > 0 {
-        format!("+{}/{}-0", wt.ahead, wt.behind)
+        format!("+{}/-{}", wt.ahead, wt.behind)
     } else {
         String::new()
     };

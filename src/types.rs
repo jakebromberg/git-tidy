@@ -118,10 +118,6 @@ pub struct ScanCounts {
 }
 
 impl ScanCounts {
-    pub fn total(&self) -> usize {
-        self.merged + self.landed + self.partial + self.active + self.local
-    }
-
     pub fn increment(&mut self, classification: &Classification) {
         match classification {
             Classification::Merged => self.merged += 1,

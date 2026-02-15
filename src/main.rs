@@ -1,23 +1,12 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::process;
 
 use clap::Parser;
 
-mod classification;
-mod clean;
-mod cli;
-mod dirty;
-mod discovery;
-mod error;
-mod git;
-mod landed;
-mod output;
-mod types;
-
-use types::{RepoGroup, ScanCounts, ScanResult};
+use git_worktree_tidy::{clean, git, output, scan};
 
 fn main() {
-    let cli = cli::Cli::parse();
+    let cli = git_worktree_tidy::cli::Cli::parse();
     let directory = cli.target_directory();
 
     if !directory.is_dir() {
@@ -29,13 +18,15 @@ fn main() {
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
-        None | Some(cli::Command::Scan { .. }) => {
+        None | Some(git_worktree_tidy::cli::Command::Scan { .. }) => {
             let (json, porcelain) = match &cli.command {
-                Some(cli::Command::Scan { json, porcelain }) => (*json, *porcelain),
+                Some(git_worktree_tidy::cli::Command::Scan { json, porcelain }) => {
+                    (*json, *porcelain)
+                }
                 _ => (false, false),
             };
 
-            match run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
+            match scan::run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -55,7 +46,7 @@ fn main() {
                 }
             }
         }
-        Some(cli::Command::Clean {
+        Some(git_worktree_tidy::cli::Command::Clean {
             dry_run,
             force,
             yes,
@@ -66,7 +57,7 @@ fn main() {
             json,
             porcelain,
         }) => {
-            match run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
+            match scan::run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
                 Ok(scan_result) => {
                     // Optionally output scan results first
                     if *json {
@@ -120,84 +111,4 @@ fn main() {
             }
         }
     }
-}
-
-fn run_scan(
-    git: &dyn git::GitOps,
-    directory: &std::path::Path,
-    behind_threshold: usize,
-    verbose: bool,
-) -> Result<ScanResult, error::Error> {
-    let groups = discovery::discover_worktrees(directory)?;
-
-    let mut repos = Vec::new();
-    let mut counts = ScanCounts::default();
-    let mut warnings = Vec::new();
-    let mut total_scanned = 0;
-
-    for (repo_path, worktrees) in &groups {
-        // Fetch to get current remote state
-        if let Err(e) = git.fetch_prune(repo_path) {
-            warnings.push(format!("fetch failed for {}: {e}", repo_path.display()));
-        }
-
-        // Detect default branch
-        let default_branch = match classification::detect_default_branch(git, repo_path) {
-            Ok(b) => b,
-            Err(_) => {
-                warnings.push(format!(
-                    "could not determine default branch for {} -- skipping",
-                    repo_path.display()
-                ));
-                continue;
-            }
-        };
-
-        let repo_name = repo_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo_path.display().to_string());
-
-        let mut classified = Vec::new();
-        for wt in worktrees {
-            match classification::classify_worktree(
-                git,
-                &wt.path,
-                repo_path,
-                &default_branch,
-                behind_threshold,
-                verbose,
-            ) {
-                Ok(info) => {
-                    counts.increment(&info.classification);
-                    total_scanned += 1;
-                    classified.push(info);
-                }
-                Err(e) => {
-                    warnings.push(format!(
-                        "error classifying {}: {e}",
-                        wt.path.display()
-                    ));
-                }
-            }
-        }
-
-        // Sort by classification priority
-        classified.sort_by_key(|wt| wt.classification.priority());
-
-        if !classified.is_empty() {
-            repos.push(RepoGroup {
-                repo_path: repo_path.clone(),
-                name: repo_name,
-                worktrees: classified,
-            });
-        }
-    }
-
-    Ok(ScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
 }

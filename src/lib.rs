@@ -7,4 +7,5 @@ pub mod error;
 pub mod git;
 pub mod landed;
 pub mod output;
+pub mod scan;
 pub mod types;

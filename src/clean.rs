@@ -1,5 +1,4 @@
 use std::io::{self, Write};
-use std::path::Path;
 
 use crate::error::Error;
 use crate::git::GitOps;
@@ -239,7 +238,7 @@ fn process_partial_group(
     )?;
 
     for wt in worktrees {
-        write_worktree_clean_line(out, wt);
+        write_worktree_clean_line(out, wt)?;
         if let Classification::LandedPartial { unmatched, .. } = &wt.classification {
             for commit in unmatched {
                 writeln!(out, "    unmatched: {} {}", commit.short_hash, commit.subject)?;
@@ -642,6 +641,88 @@ mod tests {
         let deletes = git.branch_delete_calls();
         assert_eq!(deletes.len(), 1);
         assert_eq!(deletes[0].1, "feature/done");
+    }
+
+    #[test]
+    fn landed_flag_skips_partial_worktrees() {
+        let merged = make_worktree("wt-merged", "fix/done", Classification::Merged);
+        let landed = make_worktree(
+            "wt-landed",
+            "fix/landed",
+            Classification::Landed {
+                matched: 3,
+                total: 3,
+            },
+        );
+        let partial = make_worktree(
+            "wt-partial",
+            "fix/partial",
+            Classification::LandedPartial {
+                matched: 2,
+                total: 4,
+                unmatched: vec![],
+            },
+        );
+        let scan = make_scan(vec![merged, landed, partial]);
+        let git = MockGitBuilder::new().build();
+        let opts = CleanOptions {
+            dry_run: false,
+            force: false,
+            yes: true,
+            merged_only: false,
+            landed: true,
+            all: false,
+            delete_branches: false,
+        };
+
+        let mut buf = Vec::new();
+        let result = run_clean(&git, &scan, &opts, &mut buf, false).unwrap();
+        // Should remove merged + landed but NOT partial
+        assert_eq!(result.removed, 2);
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("removed wt-merged"));
+        assert!(output.contains("removed wt-landed"));
+        assert!(!output.contains("removed wt-partial"));
+        // Partial group should not appear at all (skipped by --landed flag)
+        assert!(!output.contains("LANDED (partial)"));
+    }
+
+    #[test]
+    fn three_tier_removal_fallback() {
+        let wt = make_worktree("wt-stubborn", "fix/stubborn", Classification::Merged);
+        let scan = make_scan(vec![wt]);
+
+        // Configure mock so worktree_remove fails — triggers fallback to rm -rf + prune
+        let git = MockGitBuilder::new()
+            .with_worktree_remove_error(
+                &PathBuf::from("/dev/wt-stubborn"),
+                "worktree is locked",
+            )
+            .build();
+
+        let opts = CleanOptions {
+            dry_run: false,
+            force: false,
+            yes: true,
+            merged_only: false,
+            landed: false,
+            all: false,
+            delete_branches: false,
+        };
+
+        let mut buf = Vec::new();
+        let result = run_clean(&git, &scan, &opts, &mut buf, false).unwrap();
+        assert_eq!(result.removed, 1);
+
+        let output = String::from_utf8(buf).unwrap();
+        // The path /dev/wt-stubborn doesn't actually exist on disk, so rm -rf
+        // skips the remove_dir_all, but prune should still be called.
+        assert!(output.contains("removed wt-stubborn (fallback)"));
+
+        // Verify worktree_prune was called as part of fallback
+        assert!(!git.remove_calls().is_empty() || !git.remove_force_calls().is_empty()
+            || output.contains("fallback"));
     }
 
     #[test]

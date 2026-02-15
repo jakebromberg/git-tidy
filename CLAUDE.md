@@ -10,7 +10,7 @@ cargo test -- --test-threads=1  # if tests interfere with each other
 
 ## Architecture
 
-- **`GitOps` trait** (`git.rs`): All git operations go through this trait. `RealGit` shells out to `git`; `MockGit` (in `tests/common/mod.rs`) returns canned data.
+- **`GitOps` trait** (`git.rs`): All git operations go through this trait. `RealGit` shells out to `git`; `MockGitBuilder` (in `git.rs` under `#[cfg(test)]`) returns canned data.
 - **Output to `&mut dyn Write`**: Enables unit testing output formatters without process capture.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
 - **Sequential repo processing**: No parallelism needed for typical workloads (~9 repos, ~39 worktrees).
@@ -31,14 +31,15 @@ src/
   cli.rs               # clap derive definitions
   types.rs             # Classification, WorktreeInfo, ScanResult, etc.
   error.rs             # thiserror Error enum
-  git.rs               # GitOps trait + RealGit implementation
+  git.rs               # GitOps trait + RealGit + MockGitBuilder (#[cfg(test)])
   discovery.rs         # .git file parsing, parent repo derivation
   classification.rs    # Classification pipeline
   dirty.rs             # Status parsing with noise filtering
   landed.rs            # Subject matching, fuzzy, patch similarity
+  scan.rs              # Full scan pipeline (discover -> fetch -> classify)
   output.rs            # Human-readable, JSON, porcelain formatters
   clean.rs             # Interactive prompting and removal
 tests/
-  common/mod.rs        # MockGit builder, TestRepo scaffolding
+  common/mod.rs        # TestRepo scaffolding for integration tests
   integration_*.rs     # Real git repos in tempdirs
 ```
