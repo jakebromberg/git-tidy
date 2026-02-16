@@ -66,6 +66,23 @@ pub struct Annotations {
     pub dirty_file_count: usize,
 }
 
+/// Classification result for a branch (without worktree-specific fields like dirty status).
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchClassification {
+    /// Primary classification (merged, landed, active, local, etc.)
+    pub classification: Classification,
+    /// Whether the branch has a remote tracking branch on origin.
+    pub remote_tracking: bool,
+    /// Whether the remote tracking branch was deleted (pruned).
+    pub remote_deleted: bool,
+    /// Commits ahead of the default branch.
+    pub ahead: usize,
+    /// Commits behind the default branch.
+    pub behind: usize,
+    /// Whether the branch is more than the threshold behind.
+    pub diverged: bool,
+}
+
 /// Information about a single linked worktree.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorktreeInfo {

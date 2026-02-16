@@ -4,7 +4,7 @@ use crate::dirty;
 use crate::error::Error;
 use crate::git::GitOps;
 use crate::landed;
-use crate::types::{Annotations, Classification, WorktreeInfo};
+use crate::types::{Annotations, BranchClassification, Classification, WorktreeInfo};
 
 /// Detect the default branch for a repo.
 /// 1. Try `git symbolic-ref refs/remotes/origin/HEAD`
@@ -31,55 +31,36 @@ pub fn detect_default_branch(git: &dyn GitOps, repo: &Path) -> Result<String, Er
     })
 }
 
-/// Classify a single worktree.
-pub fn classify_worktree(
+/// Classify a branch by name without worktree-specific concerns (dirty detection).
+///
+/// This is the core classification logic shared by both worktree and branch tools.
+pub fn classify_branch(
     git: &dyn GitOps,
-    worktree_path: &Path,
-    parent_repo: &Path,
+    repo: &Path,
+    branch_name: &str,
     default_branch: &str,
     behind_threshold: usize,
     verbose: bool,
-    noise_patterns: &[String],
-) -> Result<WorktreeInfo, Error> {
-    let branch = git.worktree_branch(worktree_path)?;
+) -> Result<BranchClassification, Error> {
     let origin_default = format!("origin/{default_branch}");
 
-    // Determine the ref to compare against
-    let branch_ref = match &branch {
-        Some(b) => b.clone(),
-        None => {
-            // Detached HEAD — use the HEAD commit directly
-            git.rev_parse(worktree_path, "HEAD")?
-        }
-    };
-
     // Check remote tracking branch
-    let remote_ref = branch.as_ref().map(|b| format!("refs/remotes/origin/{b}"));
-    let has_remote = match &remote_ref {
-        Some(rr) => git.rev_parse_verify(parent_repo, rr)?,
-        None => false,
-    };
-
-    // Remote deleted: had a tracking branch that no longer exists after fetch --prune
-    // (We check after fetch, so if it doesn't exist, it was pruned)
-    let remote_deleted = branch.is_some() && !has_remote;
+    let remote_ref = format!("refs/remotes/origin/{branch_name}");
+    let has_remote = git.rev_parse_verify(repo, &remote_ref)?;
+    let remote_deleted = !has_remote;
 
     // Ahead/behind counts
-    let (behind, ahead) =
-        git.rev_list_left_right_count(parent_repo, &origin_default, &branch_ref)?;
-
-    // Dirty detection
-    let dirty_result = dirty::check_dirty(git, worktree_path, noise_patterns)?;
+    let (behind, ahead) = git.rev_list_left_right_count(repo, &origin_default, branch_name)?;
 
     // Check if merged
-    let is_merged = git.is_ancestor(parent_repo, &branch_ref, &origin_default)?;
+    let is_merged = git.is_ancestor(repo, branch_name, &origin_default)?;
 
     let classification = if is_merged {
         Classification::Merged
     } else {
         // Try landed detection
         let landed_result =
-            landed::detect_landed(git, parent_repo, &origin_default, &branch_ref, verbose)?;
+            landed::detect_landed(git, repo, &origin_default, branch_name, verbose)?;
 
         match &landed_result.classification {
             Classification::Landed { .. } if landed_result.total > 0 => {
@@ -101,9 +82,61 @@ pub fn classify_worktree(
         }
     };
 
-    let annotations = Annotations {
+    Ok(BranchClassification {
+        classification,
+        remote_tracking: has_remote,
         remote_deleted,
+        ahead,
+        behind,
         diverged: behind > behind_threshold,
+    })
+}
+
+/// Classify a single worktree.
+///
+/// Resolves the branch from the worktree, delegates to `classify_branch` for
+/// the core classification, then layers on worktree-specific concerns (dirty detection).
+pub fn classify_worktree(
+    git: &dyn GitOps,
+    worktree_path: &Path,
+    parent_repo: &Path,
+    default_branch: &str,
+    behind_threshold: usize,
+    verbose: bool,
+    noise_patterns: &[String],
+) -> Result<WorktreeInfo, Error> {
+    let branch = git.worktree_branch(worktree_path)?;
+
+    // Determine the ref to compare against
+    let branch_ref = match &branch {
+        Some(b) => b.clone(),
+        None => {
+            // Detached HEAD — use the HEAD commit directly
+            git.rev_parse(worktree_path, "HEAD")?
+        }
+    };
+
+    // For detached HEAD, remote_deleted doesn't apply
+    let is_detached = branch.is_none();
+
+    // Use classify_branch for the core classification logic
+    let bc = classify_branch(
+        git,
+        parent_repo,
+        &branch_ref,
+        default_branch,
+        behind_threshold,
+        verbose,
+    )?;
+
+    // Dirty detection (worktree-specific)
+    let dirty_result = dirty::check_dirty(git, worktree_path, noise_patterns)?;
+
+    let annotations = Annotations {
+        // For detached HEAD, there's no branch so remote_deleted doesn't apply.
+        // For named branches, remote_deleted is set by classify_branch.
+        remote_deleted: !is_detached && bc.remote_deleted,
+        diverged: bc.diverged,
         dirty: !dirty_result.meaningful_files.is_empty(),
         dirty_file_count: dirty_result.meaningful_files.len(),
     };
@@ -113,11 +146,11 @@ pub fn classify_worktree(
         parent_repo: parent_repo.to_path_buf(),
         branch,
         default_branch: default_branch.to_string(),
-        classification,
+        classification: bc.classification,
         annotations,
-        remote_tracking: has_remote,
-        ahead,
-        behind,
+        remote_tracking: bc.remote_tracking,
+        ahead: bc.ahead,
+        behind: bc.behind,
         dirty_files: dirty_result.all_files,
         meaningful_dirty_files: dirty_result.meaningful_files,
     })
@@ -326,6 +359,95 @@ mod tests {
             classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Merged);
         assert!(info.branch.is_none());
+    }
+
+    // --- classify_branch tests ---
+
+    #[test]
+    fn classify_branch_merged() {
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/done", true)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/done", (0, 0))
+            .with_is_ancestor(&repo(), "feature/done", "origin/main", true)
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/done", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Merged);
+        assert!(result.remote_tracking);
+        assert!(!result.remote_deleted);
+        assert!(!result.diverged);
+    }
+
+    #[test]
+    fn classify_branch_active() {
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/wip", true)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/wip", (5, 3))
+            .with_is_ancestor(&repo(), "feature/wip", "origin/main", false)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/wip",
+                vec![("abc".into(), "add feature".into())],
+            )
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/wip", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Active);
+        assert!(result.remote_tracking);
+        assert_eq!(result.ahead, 3);
+        assert_eq!(result.behind, 5);
+    }
+
+    #[test]
+    fn classify_branch_local() {
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/local", false)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/local", (10, 2))
+            .with_is_ancestor(&repo(), "feature/local", "origin/main", false)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/local",
+                vec![("def".into(), "local work".into())],
+            )
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/local", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Local);
+        assert!(!result.remote_tracking);
+    }
+
+    #[test]
+    fn classify_branch_remote_deleted() {
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/gone", false)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/gone", (0, 0))
+            .with_is_ancestor(&repo(), "feature/gone", "origin/main", true)
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/gone", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Merged);
+        assert!(result.remote_deleted);
+    }
+
+    #[test]
+    fn classify_branch_diverged() {
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/old", true)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/old", (150, 5))
+            .with_is_ancestor(&repo(), "feature/old", "origin/main", false)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/old",
+                vec![("jkl".into(), "old work".into())],
+            )
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/old", "main", 100, false).unwrap();
+        assert!(result.diverged);
+        assert_eq!(result.behind, 150);
     }
 
     #[test]
