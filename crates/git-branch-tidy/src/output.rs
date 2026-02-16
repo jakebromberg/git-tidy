@@ -1,14 +1,13 @@
 use std::io::Write;
 
+use git_tidy_core::output as shared;
 use git_tidy_core::types::Classification;
 
 use crate::types::{BranchInfo, BranchScanResult, JsonBranch};
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
-    for warning in &result.warnings {
-        writeln!(out, "warning: {warning}")?;
-    }
+    shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
         writeln!(out, "\n{} ({} branches)", group.name, group.branches.len())?;
@@ -29,16 +28,7 @@ pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::R
         }
     }
 
-    writeln!(
-        out,
-        "\n{} branches scanned: {} merged, {} landed, {} partial, {} active, {} local",
-        result.total_scanned,
-        result.counts.merged,
-        result.counts.landed,
-        result.counts.partial,
-        result.counts.active,
-        result.counts.local,
-    )?;
+    shared::write_summary_line(out, result.total_scanned, &result.counts, "branches")?;
 
     Ok(())
 }
@@ -52,28 +42,18 @@ fn write_branch_line(out: &mut dyn Write, branch: &BranchInfo) -> std::io::Resul
         format!("  {}", branch.name)
     };
 
-    // Landed ratio
-    let ratio = match &branch.classification {
-        Classification::Landed { matched, total } => format!("{matched}/{total}"),
-        Classification::LandedPartial { matched, total, .. } => format!("{matched}/{total}"),
-        _ => String::new(),
-    };
-
-    // Ahead/behind
-    let ahead_behind = if branch.ahead > 0 || branch.behind > 0 {
-        format!("+{}/-{}", branch.ahead, branch.behind)
-    } else {
-        String::new()
-    };
+    let ratio = shared::format_landed_ratio(&branch.classification);
+    let ahead_behind = shared::format_ahead_behind(branch.ahead, branch.behind);
 
     // Annotations
-    let mut annotations = Vec::new();
+    let mut ann_strs = Vec::new();
     if branch.diverged {
-        annotations.push("diverged".to_string());
+        ann_strs.push("diverged");
     }
     if branch.remote_deleted {
-        annotations.push("remote deleted".to_string());
+        ann_strs.push("remote deleted");
     }
+    let annotations = shared::format_annotations(&ann_strs);
 
     write!(out, "  {label} {name:<34}")?;
     if !ratio.is_empty() {
@@ -82,8 +62,8 @@ fn write_branch_line(out: &mut dyn Write, branch: &BranchInfo) -> std::io::Resul
     if !ahead_behind.is_empty() {
         write!(out, " {ahead_behind:<10}")?;
     }
-    for ann in &annotations {
-        write!(out, "  {ann}")?;
+    if !annotations.is_empty() {
+        write!(out, "  {annotations}")?;
     }
     writeln!(out)?;
 
@@ -111,14 +91,7 @@ pub fn write_porcelain(out: &mut dyn Write, result: &BranchScanResult) -> std::i
             let repo = branch.repo_path.display();
             let name = &branch.name;
             let class = branch.classification.label();
-
-            let ratio = match &branch.classification {
-                Classification::Landed { matched, total } => format!("{matched}/{total}"),
-                Classification::LandedPartial { matched, total, .. } => {
-                    format!("{matched}/{total}")
-                }
-                _ => String::new(),
-            };
+            let ratio = shared::format_landed_ratio(&branch.classification);
 
             let mut anns = Vec::new();
             if branch.remote_deleted {
@@ -288,14 +261,14 @@ mod tests {
 
         let fields: Vec<&str> = lines[0].split('\t').collect();
         assert_eq!(fields.len(), 8);
-        assert_eq!(fields[0], "/repos/Backend"); // repo
-        assert_eq!(fields[1], "fix/skip-db-init"); // branch name
-        assert_eq!(fields[2], "merged"); // classification
-        assert_eq!(fields[7], "remote_deleted"); // annotations
+        assert_eq!(fields[0], "/repos/Backend");
+        assert_eq!(fields[1], "fix/skip-db-init");
+        assert_eq!(fields[2], "merged");
+        assert_eq!(fields[7], "remote_deleted");
 
         let fields2: Vec<&str> = lines[1].split('\t').collect();
         assert_eq!(fields2[2], "active");
-        assert_eq!(fields2[6], "true"); // is_current
+        assert_eq!(fields2[6], "true");
     }
 
     #[test]
