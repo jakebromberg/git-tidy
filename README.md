@@ -8,9 +8,9 @@ A Cargo workspace for Git housekeeping tools that share classification logic (me
 
 Scans a directory for linked Git worktrees, classifies them by staleness, and interactively removes the stale ones.
 
-### git-branch-tidy (planned)
+### git-branch-tidy
 
-Scans and cleans up stale local and remote branches across multiple repos.
+Scans a directory of Git repos, classifies local branches by staleness, and interactively removes stale branches.
 
 ## Installation
 
@@ -18,26 +18,42 @@ Requires Rust 1.85.0 or later (edition 2024).
 
 ```bash
 cargo install --path crates/git-worktree-tidy
+cargo install --path crates/git-branch-tidy
 ```
 
 ## Usage
 
-### Scan worktrees (default command)
+### git-worktree-tidy
 
 ```bash
+# Scan worktrees (default command)
 git-worktree-tidy scan ~/Developer
 git-worktree-tidy ~/Developer              # scan is the default
 git-worktree-tidy scan ~/Developer --json   # JSON output
 git-worktree-tidy scan ~/Developer --porcelain  # machine-readable
-```
 
-### Clean stale worktrees
-
-```bash
+# Clean stale worktrees
 git-worktree-tidy clean ~/Developer                    # interactive
 git-worktree-tidy clean ~/Developer --merged-only --yes  # non-interactive, merged only
 git-worktree-tidy clean ~/Developer --landed --yes       # merged + fully landed
 git-worktree-tidy clean ~/Developer --dry-run            # preview removals
+```
+
+### git-branch-tidy
+
+```bash
+# Scan branches (default command)
+git-branch-tidy scan ~/Developer
+git-branch-tidy ~/Developer                # scan is the default
+git-branch-tidy scan ~/Developer --json     # JSON output
+git-branch-tidy scan ~/Developer --porcelain  # machine-readable
+
+# Clean stale branches
+git-branch-tidy clean ~/Developer                         # delete merged + landed
+git-branch-tidy clean ~/Developer --merged-only --yes      # non-interactive, merged only
+git-branch-tidy clean ~/Developer --all --force            # force-delete all classifications
+git-branch-tidy clean ~/Developer --dry-run                # preview deletions
+git-branch-tidy clean ~/Developer --include-remote --yes   # also delete remote branches
 ```
 
 ## Classifications
@@ -54,7 +70,7 @@ git-worktree-tidy clean ~/Developer --dry-run            # preview removals
 
 - **remote deleted**: Remote tracking branch no longer exists after `fetch --prune`
 - **diverged**: Branch is more than `--behind-threshold` (default: 100) commits behind
-- **dirty**: Working tree has meaningful uncommitted changes
+- **dirty** (worktree-tidy only): Working tree has meaningful uncommitted changes
 
 ## Noise Configuration
 
@@ -89,26 +105,6 @@ exclude = ["package-lock.json"]
 
 Merge order: `(defaults - exclude) + config extra + CLI extra`. The `--no-default-noise` flag clears all defaults, keeping only config extras and CLI extras.
 
-## CLI Flags
-
-```
-Options:
-  -n, --dry-run              Show what would be removed without removing
-  -f, --force                Remove worktrees with meaningful uncommitted changes
-  -y, --yes                  Skip confirmation prompts (accept all defaults)
-      --merged-only          Only target merged worktrees
-      --landed               Target merged and fully landed worktrees (not partial)
-      --all                  Include active and local worktrees in interactive clean
-      --behind-threshold N   Commit count for diverged annotation (default: 100)
-      --delete-branches      Delete local branches after removing their worktrees
-      --noise-pattern PAT    Additional file pattern to treat as noise (repeatable)
-      --no-default-noise     Disable all built-in noise patterns
-      --json                 Output scan results as JSON
-      --porcelain            Machine-readable tab-delimited output
-  -v, --verbose              Show commit-matching details during landed detection
-  -h, --help                 Show help
-```
-
 ## Exit Codes
 
 | Code | Meaning |
@@ -121,6 +117,7 @@ Options:
 
 ```
 crates/
-  git-tidy-core/          Shared classification, git abstraction, test utilities
+  git-tidy-core/          Shared classification, git abstraction, output helpers, test utilities
   git-worktree-tidy/      Worktree scanner/cleaner binary
+  git-branch-tidy/        Branch scanner/cleaner binary
 ```

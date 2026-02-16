@@ -641,6 +641,44 @@ impl TestRepo {
     }
 }
 
+impl TestRepo {
+    /// Create a local branch (without checking it out).
+    pub fn create_branch(&self, name: &str) {
+        git(&self.main_repo, &["branch", name]);
+    }
+
+    /// Create a branch with a commit, then merge it into main.
+    pub fn create_merged_branch(&self, name: &str) {
+        git(&self.main_repo, &["checkout", "-b", name]);
+        let filename = format!("{name}.txt");
+        self.commit_file(
+            &self.main_repo,
+            &filename,
+            "merged content",
+            &format!("work on {name}"),
+        );
+        git(&self.main_repo, &["checkout", "main"]);
+        git(
+            &self.main_repo,
+            &["merge", "--no-ff", name, "-m", &format!("Merge {name}")],
+        );
+    }
+
+    /// Set up a bare remote and push main to it.
+    /// Returns the path to the bare repo.
+    pub fn set_up_remote(&self) -> PathBuf {
+        let bare = self.dir.path().join("remote.git");
+        std::fs::create_dir_all(&bare).unwrap();
+        git(&bare, &["init", "--bare"]);
+        git(
+            &self.main_repo,
+            &["remote", "add", "origin", &bare.to_string_lossy()],
+        );
+        git(&self.main_repo, &["push", "-u", "origin", "main"]);
+        bare
+    }
+}
+
 /// Run a git command in the given directory, panicking on failure.
 pub fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
