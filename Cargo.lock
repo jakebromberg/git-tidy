@@ -246,6 +246,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-branch-tidy"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "console",
+ "dialoguer",
+ "git-tidy-core",
+ "predicates",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "git-tidy-core"
 version = "0.1.0"
 dependencies = [
