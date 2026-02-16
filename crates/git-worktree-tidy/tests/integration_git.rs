@@ -92,7 +92,8 @@ fn branch_delete_safe_deletes_merged_branch() {
     common::git(&test.main_repo, &["branch", "merged-feature"]);
     // It's already at main's tip so it's considered merged
 
-    git.branch_delete_safe(&test.main_repo, "merged-feature").unwrap();
+    git.branch_delete_safe(&test.main_repo, "merged-feature")
+        .unwrap();
 
     let branches = git.list_local_branches(&test.main_repo).unwrap();
     assert!(!branches.contains(&"merged-feature".to_string()));
@@ -109,5 +110,8 @@ fn branch_delete_safe_refuses_unmerged_branch() {
     common::git(&test.main_repo, &["checkout", "main"]);
 
     let result = git.branch_delete_safe(&test.main_repo, "unmerged-feature");
-    assert!(result.is_err(), "branch -d should refuse to delete unmerged branch");
+    assert!(
+        result.is_err(),
+        "branch -d should refuse to delete unmerged branch"
+    );
 }

@@ -103,12 +103,7 @@ pub trait GitOps {
     fn upstream_branch(&self, repo: &Path, branch: &str) -> GitResult<Option<String>>;
 
     /// Delete a remote branch: `git push <remote> --delete <branch>`.
-    fn delete_remote_branch(
-        &self,
-        repo: &Path,
-        remote: &str,
-        branch: &str,
-    ) -> GitResult<()>;
+    fn delete_remote_branch(&self, repo: &Path, remote: &str, branch: &str) -> GitResult<()>;
 
     /// Check the history of a file on a ref. Returns commits touching the file.
     fn log_file_history(
@@ -352,7 +347,11 @@ impl GitOps for RealGit {
     fn upstream_branch(&self, repo: &Path, branch: &str) -> GitResult<Option<String>> {
         let output = Self::run(
             repo,
-            &["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")],
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                &format!("{branch}@{{upstream}}"),
+            ],
         )?;
         if !output.status.success() {
             return Ok(None);
@@ -365,12 +364,7 @@ impl GitOps for RealGit {
         }
     }
 
-    fn delete_remote_branch(
-        &self,
-        repo: &Path,
-        remote: &str,
-        branch: &str,
-    ) -> GitResult<()> {
+    fn delete_remote_branch(&self, repo: &Path, remote: &str, branch: &str) -> GitResult<()> {
         Self::run_success(repo, &["push", remote, "--delete", branch])?;
         Ok(())
     }
