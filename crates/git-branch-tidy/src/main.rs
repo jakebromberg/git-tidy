@@ -4,6 +4,7 @@ use std::process;
 use clap::Parser;
 use git_tidy_core::git;
 
+mod clean;
 mod cli;
 mod discovery;
 mod output;
@@ -49,9 +50,46 @@ fn main() {
                 }
             }
         }
-        Some(cli::Command::Clean { .. }) => {
-            eprintln!("clean command not yet implemented");
-            process::exit(1);
+        Some(cli::Command::Clean {
+            dry_run,
+            force,
+            yes,
+            merged_only,
+            landed,
+            all,
+            include_remote,
+            ..
+        }) => {
+            // First, scan to get the current state
+            match scan::run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
+                Ok(scan_result) => {
+                    let options = clean::CleanOptions {
+                        dry_run: *dry_run,
+                        force: *force,
+                        yes: *yes,
+                        merged_only: *merged_only,
+                        landed: *landed,
+                        all: *all,
+                        include_remote: *include_remote,
+                    };
+
+                    match clean::run_clean(&git, &scan_result, &options, &mut stdout) {
+                        Ok(result) => {
+                            if !result.failed.is_empty() {
+                                process::exit(1);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            process::exit(e.exit_code());
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    process::exit(e.exit_code());
+                }
+            }
         }
     }
 }

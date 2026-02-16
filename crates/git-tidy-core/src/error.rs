@@ -19,6 +19,13 @@ pub enum Error {
     #[error("worktree removal failed: {path}: {reason}")]
     RemovalFailed { path: PathBuf, reason: String },
 
+    #[error("branch deletion failed: {branch} in {repo}: {reason}")]
+    BranchDeletionFailed {
+        repo: PathBuf,
+        branch: String,
+        reason: String,
+    },
+
     #[error("dirty worktrees blocked removal (rerun with --force)")]
     DirtyBlocked,
 
