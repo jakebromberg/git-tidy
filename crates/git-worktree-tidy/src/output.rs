@@ -1,12 +1,11 @@
 use std::io::Write;
 
+use git_tidy_core::output as shared;
 use git_tidy_core::types::{Classification, JsonWorktree, ScanResult, WorktreeInfo};
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
-    for warning in &result.warnings {
-        writeln!(out, "warning: {warning}")?;
-    }
+    shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
         writeln!(
@@ -32,16 +31,7 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
         }
     }
 
-    writeln!(
-        out,
-        "\n{} worktrees scanned: {} merged, {} landed, {} partial, {} active, {} local",
-        result.total_scanned,
-        result.counts.merged,
-        result.counts.landed,
-        result.counts.partial,
-        result.counts.active,
-        result.counts.local,
-    )?;
+    shared::write_summary_line(out, result.total_scanned, &result.counts, "worktrees")?;
 
     Ok(())
 }
@@ -55,19 +45,8 @@ fn write_worktree_line(out: &mut dyn Write, wt: &WorktreeInfo) -> std::io::Resul
         .unwrap_or_default();
     let branch = wt.branch.as_deref().unwrap_or("(detached)");
 
-    // Landed ratio
-    let ratio = match &wt.classification {
-        Classification::Landed { matched, total } => format!("{matched}/{total}"),
-        Classification::LandedPartial { matched, total, .. } => format!("{matched}/{total}"),
-        _ => String::new(),
-    };
-
-    // Ahead/behind
-    let ahead_behind = if wt.ahead > 0 || wt.behind > 0 {
-        format!("+{}/{}-0", wt.ahead, wt.behind)
-    } else {
-        String::new()
-    };
+    let ratio = shared::format_landed_ratio(&wt.classification);
+    let ahead_behind = shared::format_ahead_behind(wt.ahead, wt.behind);
 
     // Annotations
     let mut annotations = Vec::new();
@@ -118,15 +97,7 @@ pub fn write_porcelain(out: &mut dyn Write, result: &ScanResult) -> std::io::Res
             let parent = wt.parent_repo.display();
             let branch = wt.branch.as_deref().unwrap_or("");
             let class = wt.classification.label();
-
-            let ratio = match &wt.classification {
-                Classification::Landed { matched, total } => format!("{matched}/{total}"),
-                Classification::LandedPartial { matched, total, .. } => {
-                    format!("{matched}/{total}")
-                }
-                _ => String::new(),
-            };
-
+            let ratio = shared::format_landed_ratio(&wt.classification);
             let dirty_count = wt.annotations.dirty_file_count;
 
             let mut anns = Vec::new();
