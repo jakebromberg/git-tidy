@@ -184,8 +184,7 @@ impl MockGitBuilder {
     }
 
     pub fn with_local_branches(mut self, repo: &Path, branches: Vec<String>) -> Self {
-        self.local_branches
-            .insert(repo.to_path_buf(), branches);
+        self.local_branches.insert(repo.to_path_buf(), branches);
         self
     }
 
@@ -208,16 +207,9 @@ impl MockGitBuilder {
         self
     }
 
-    pub fn with_branch_delete_safe_error(
-        mut self,
-        repo: &Path,
-        branch: &str,
-        error: &str,
-    ) -> Self {
-        self.branch_delete_safe_errors.insert(
-            (repo.to_path_buf(), branch.to_string()),
-            error.to_string(),
-        );
+    pub fn with_branch_delete_safe_error(mut self, repo: &Path, branch: &str, error: &str) -> Self {
+        self.branch_delete_safe_errors
+            .insert((repo.to_path_buf(), branch.to_string()), error.to_string());
         self
     }
 
@@ -229,11 +221,7 @@ impl MockGitBuilder {
         error: &str,
     ) -> Self {
         self.delete_remote_branch_errors.insert(
-            (
-                repo.to_path_buf(),
-                remote.to_string(),
-                branch.to_string(),
-            ),
+            (repo.to_path_buf(), remote.to_string(), branch.to_string()),
             error.to_string(),
         );
         self
@@ -581,12 +569,7 @@ impl GitOps for MockGit {
             .unwrap_or(None))
     }
 
-    fn delete_remote_branch(
-        &self,
-        repo: &Path,
-        remote: &str,
-        branch: &str,
-    ) -> GitResult<()> {
+    fn delete_remote_branch(&self, repo: &Path, remote: &str, branch: &str) -> GitResult<()> {
         if let Some(err) = self.delete_remote_branch_errors.get(&(
             repo.to_path_buf(),
             remote.to_string(),

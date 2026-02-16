@@ -80,9 +80,9 @@ pub enum Command {
 impl Cli {
     /// Resolve the target directory, defaulting to the current directory.
     pub fn target_directory(&self) -> PathBuf {
-        self.directory
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().expect("could not determine current directory"))
+        self.directory.clone().unwrap_or_else(|| {
+            std::env::current_dir().expect("could not determine current directory")
+        })
     }
 }
 
