@@ -30,6 +30,13 @@ pub struct MockGitBuilder {
     branch_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
+    local_branches: HashMap<PathBuf, Vec<String>>,
+    current_branch: HashMap<PathBuf, Option<String>>,
+    upstream_branch: HashMap<(PathBuf, String), Option<String>>,
+    branch_delete_safe_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    branch_delete_safe_errors: HashMap<(PathBuf, String), String>,
+    delete_remote_branch_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    delete_remote_branch_errors: HashMap<(PathBuf, String, String), String>,
 }
 
 impl MockGitBuilder {
@@ -176,6 +183,62 @@ impl MockGitBuilder {
         self
     }
 
+    pub fn with_local_branches(mut self, repo: &Path, branches: Vec<String>) -> Self {
+        self.local_branches
+            .insert(repo.to_path_buf(), branches);
+        self
+    }
+
+    pub fn with_current_branch(mut self, repo: &Path, branch: Option<&str>) -> Self {
+        self.current_branch
+            .insert(repo.to_path_buf(), branch.map(|s| s.to_string()));
+        self
+    }
+
+    pub fn with_upstream_branch(
+        mut self,
+        repo: &Path,
+        branch: &str,
+        upstream: Option<&str>,
+    ) -> Self {
+        self.upstream_branch.insert(
+            (repo.to_path_buf(), branch.to_string()),
+            upstream.map(|s| s.to_string()),
+        );
+        self
+    }
+
+    pub fn with_branch_delete_safe_error(
+        mut self,
+        repo: &Path,
+        branch: &str,
+        error: &str,
+    ) -> Self {
+        self.branch_delete_safe_errors.insert(
+            (repo.to_path_buf(), branch.to_string()),
+            error.to_string(),
+        );
+        self
+    }
+
+    pub fn with_delete_remote_branch_error(
+        mut self,
+        repo: &Path,
+        remote: &str,
+        branch: &str,
+        error: &str,
+    ) -> Self {
+        self.delete_remote_branch_errors.insert(
+            (
+                repo.to_path_buf(),
+                remote.to_string(),
+                branch.to_string(),
+            ),
+            error.to_string(),
+        );
+        self
+    }
+
     pub fn with_worktree_remove_error(mut self, path: &Path, error: &str) -> Self {
         self.worktree_remove_errors
             .insert(path.to_path_buf(), error.to_string());
@@ -212,6 +275,13 @@ impl MockGitBuilder {
             branch_delete_calls: self.branch_delete_calls,
             worktree_remove_errors: self.worktree_remove_errors,
             worktree_remove_force_errors: self.worktree_remove_force_errors,
+            local_branches: self.local_branches,
+            current_branch: self.current_branch,
+            upstream_branch: self.upstream_branch,
+            branch_delete_safe_calls: self.branch_delete_safe_calls,
+            branch_delete_safe_errors: self.branch_delete_safe_errors,
+            delete_remote_branch_calls: self.delete_remote_branch_calls,
+            delete_remote_branch_errors: self.delete_remote_branch_errors,
         }
     }
 }
@@ -239,6 +309,13 @@ pub struct MockGit {
     branch_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
+    local_branches: HashMap<PathBuf, Vec<String>>,
+    current_branch: HashMap<PathBuf, Option<String>>,
+    upstream_branch: HashMap<(PathBuf, String), Option<String>>,
+    branch_delete_safe_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    branch_delete_safe_errors: HashMap<(PathBuf, String), String>,
+    delete_remote_branch_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    delete_remote_branch_errors: HashMap<(PathBuf, String, String), String>,
 }
 
 impl MockGit {
@@ -256,6 +333,14 @@ impl MockGit {
 
     pub fn branch_delete_calls(&self) -> Vec<(PathBuf, String)> {
         self.branch_delete_calls.borrow().clone()
+    }
+
+    pub fn branch_delete_safe_calls(&self) -> Vec<(PathBuf, String)> {
+        self.branch_delete_safe_calls.borrow().clone()
+    }
+
+    pub fn delete_remote_branch_calls(&self) -> Vec<(PathBuf, String, String)> {
+        self.delete_remote_branch_calls.borrow().clone()
     }
 }
 
@@ -454,6 +539,70 @@ impl GitOps for MockGit {
             .get(&(repo.to_path_buf(), ref_spec.to_string(), file.to_string()))
             .cloned()
             .unwrap_or_default())
+    }
+
+    fn list_local_branches(&self, repo: &Path) -> GitResult<Vec<String>> {
+        Ok(self
+            .local_branches
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn branch_delete_safe(&self, repo: &Path, branch: &str) -> GitResult<()> {
+        if let Some(err) = self
+            .branch_delete_safe_errors
+            .get(&(repo.to_path_buf(), branch.to_string()))
+        {
+            return Err(Error::GitCommand {
+                command: format!("branch -d {branch}"),
+                message: err.clone(),
+            });
+        }
+        self.branch_delete_safe_calls
+            .borrow_mut()
+            .push((repo.to_path_buf(), branch.to_string()));
+        Ok(())
+    }
+
+    fn current_branch(&self, repo: &Path) -> GitResult<Option<String>> {
+        Ok(self
+            .current_branch
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or(None))
+    }
+
+    fn upstream_branch(&self, repo: &Path, branch: &str) -> GitResult<Option<String>> {
+        Ok(self
+            .upstream_branch
+            .get(&(repo.to_path_buf(), branch.to_string()))
+            .cloned()
+            .unwrap_or(None))
+    }
+
+    fn delete_remote_branch(
+        &self,
+        repo: &Path,
+        remote: &str,
+        branch: &str,
+    ) -> GitResult<()> {
+        if let Some(err) = self.delete_remote_branch_errors.get(&(
+            repo.to_path_buf(),
+            remote.to_string(),
+            branch.to_string(),
+        )) {
+            return Err(Error::GitCommand {
+                command: format!("push {remote} --delete {branch}"),
+                message: err.clone(),
+            });
+        }
+        self.delete_remote_branch_calls.borrow_mut().push((
+            repo.to_path_buf(),
+            remote.to_string(),
+            branch.to_string(),
+        ));
+        Ok(())
     }
 }
 

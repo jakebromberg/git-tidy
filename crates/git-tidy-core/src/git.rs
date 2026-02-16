@@ -89,6 +89,27 @@ pub trait GitOps {
     /// Check if a branch is checked out in any worktree of the repo.
     fn is_branch_checked_out(&self, repo: &Path, branch: &str) -> GitResult<bool>;
 
+    /// List all local branches in a repo.
+    fn list_local_branches(&self, repo: &Path) -> GitResult<Vec<String>>;
+
+    /// Delete a local branch safely: `git branch -d <branch>` (refuses unmerged).
+    fn branch_delete_safe(&self, repo: &Path, branch: &str) -> GitResult<()>;
+
+    /// Get the currently checked-out branch. Returns None for detached HEAD.
+    fn current_branch(&self, repo: &Path) -> GitResult<Option<String>>;
+
+    /// Get the upstream (tracking) branch for a local branch.
+    /// Returns the full upstream ref (e.g. "origin/feature-x") or None.
+    fn upstream_branch(&self, repo: &Path, branch: &str) -> GitResult<Option<String>>;
+
+    /// Delete a remote branch: `git push <remote> --delete <branch>`.
+    fn delete_remote_branch(
+        &self,
+        repo: &Path,
+        remote: &str,
+        branch: &str,
+    ) -> GitResult<()>;
+
     /// Check the history of a file on a ref. Returns commits touching the file.
     fn log_file_history(
         &self,
@@ -298,6 +319,59 @@ impl GitOps for RealGit {
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {
         Self::run_success(repo, &["branch", "-D", branch])?;
+        Ok(())
+    }
+
+    fn list_local_branches(&self, repo: &Path) -> GitResult<Vec<String>> {
+        let text = Self::run_success(repo, &["branch", "--format=%(refname:short)"])?;
+        Ok(text
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect())
+    }
+
+    fn branch_delete_safe(&self, repo: &Path, branch: &str) -> GitResult<()> {
+        Self::run_success(repo, &["branch", "-d", branch])?;
+        Ok(())
+    }
+
+    fn current_branch(&self, repo: &Path) -> GitResult<Option<String>> {
+        let output = Self::run(repo, &["symbolic-ref", "--short", "HEAD"])?;
+        if !output.status.success() {
+            return Ok(None); // detached HEAD
+        }
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(branch))
+        }
+    }
+
+    fn upstream_branch(&self, repo: &Path, branch: &str) -> GitResult<Option<String>> {
+        let output = Self::run(
+            repo,
+            &["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")],
+        )?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let upstream = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if upstream.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(upstream))
+        }
+    }
+
+    fn delete_remote_branch(
+        &self,
+        repo: &Path,
+        remote: &str,
+        branch: &str,
+    ) -> GitResult<()> {
+        Self::run_success(repo, &["push", remote, "--delete", branch])?;
         Ok(())
     }
 
