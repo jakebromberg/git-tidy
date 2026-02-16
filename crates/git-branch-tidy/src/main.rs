@@ -6,6 +6,7 @@ use git_tidy_core::git;
 
 mod cli;
 mod discovery;
+mod output;
 mod scan;
 mod types;
 
@@ -19,20 +20,27 @@ fn main() {
     }
 
     let git = git::RealGit;
-    let _stdout = io::stdout().lock();
+    let mut stdout = io::stdout().lock();
 
     match &cli.command {
         None | Some(cli::Command::Scan { .. }) => {
+            let (json, porcelain) = match &cli.command {
+                Some(cli::Command::Scan { json, porcelain }) => (*json, *porcelain),
+                _ => (false, false),
+            };
+
             match scan::run_scan(&git, &directory, cli.behind_threshold, cli.verbose) {
                 Ok(result) => {
-                    // Output formatting will be added in PR 5
-                    eprintln!(
-                        "{} branches scanned across {} repos",
-                        result.total_scanned,
-                        result.repos.len()
-                    );
-                    for warning in &result.warnings {
-                        eprintln!("warning: {warning}");
+                    let write_result = if json {
+                        output::write_json(&mut stdout, &result)
+                    } else if porcelain {
+                        output::write_porcelain(&mut stdout, &result)
+                    } else {
+                        output::write_human(&mut stdout, &result)
+                    };
+                    if let Err(e) = write_result {
+                        eprintln!("error writing output: {e}");
+                        process::exit(1);
                     }
                 }
                 Err(e) => {
