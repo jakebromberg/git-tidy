@@ -1,0 +1,107 @@
+use std::path::PathBuf;
+
+use git_tidy_core::types::{Classification, ScanCounts, UnmatchedCommit};
+use serde::Serialize;
+
+/// Information about a single local branch.
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchInfo {
+    /// Path to the repo containing this branch.
+    pub repo_path: PathBuf,
+    /// Branch name.
+    pub name: String,
+    /// Default branch of the repo (e.g. "main").
+    pub default_branch: String,
+    /// Primary classification.
+    pub classification: Classification,
+    /// Whether the branch has a remote tracking branch on origin.
+    pub remote_tracking: bool,
+    /// Whether the remote tracking branch was deleted (pruned).
+    pub remote_deleted: bool,
+    /// Commits ahead of the default branch.
+    pub ahead: usize,
+    /// Commits behind the default branch.
+    pub behind: usize,
+    /// Whether the branch is more than the threshold behind.
+    pub diverged: bool,
+    /// Whether this branch is currently checked out.
+    pub is_current: bool,
+}
+
+/// A group of branches in the same repo.
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchRepoGroup {
+    /// Path to the repo.
+    pub repo_path: PathBuf,
+    /// Display name (directory basename).
+    pub name: String,
+    /// Branches belonging to this repo, sorted by classification priority.
+    pub branches: Vec<BranchInfo>,
+}
+
+/// Result of a full branch scan.
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchScanResult {
+    /// Branches grouped by repo.
+    pub repos: Vec<BranchRepoGroup>,
+    /// Total branches scanned (excluding default branches).
+    pub total_scanned: usize,
+    /// Summary counts by classification.
+    pub counts: ScanCounts,
+    /// Warnings encountered during scanning.
+    pub warnings: Vec<String>,
+}
+
+/// Flat JSON representation of a branch.
+#[derive(Debug, Serialize)]
+pub struct JsonBranch {
+    pub repo_path: PathBuf,
+    pub name: String,
+    pub default_branch: String,
+    pub classification: String,
+    pub remote_tracking: bool,
+    pub remote_deleted: bool,
+    pub ahead: usize,
+    pub behind: usize,
+    pub diverged: bool,
+    pub is_current: bool,
+    pub landed_ratio: Option<String>,
+    pub landed_total: Option<usize>,
+    pub unmatched_commits: Vec<UnmatchedCommit>,
+}
+
+impl From<&BranchInfo> for JsonBranch {
+    fn from(b: &BranchInfo) -> Self {
+        let (landed_ratio, landed_total, unmatched_commits) = match &b.classification {
+            Classification::Landed { matched, total } => {
+                (Some(format!("{matched}/{total}")), Some(*total), vec![])
+            }
+            Classification::LandedPartial {
+                matched,
+                total,
+                unmatched,
+            } => (
+                Some(format!("{matched}/{total}")),
+                Some(*total),
+                unmatched.clone(),
+            ),
+            _ => (None, None, vec![]),
+        };
+
+        JsonBranch {
+            repo_path: b.repo_path.clone(),
+            name: b.name.clone(),
+            default_branch: b.default_branch.clone(),
+            classification: b.classification.label().to_string(),
+            remote_tracking: b.remote_tracking,
+            remote_deleted: b.remote_deleted,
+            ahead: b.ahead,
+            behind: b.behind,
+            diverged: b.diverged,
+            is_current: b.is_current,
+            landed_ratio,
+            landed_total,
+            unmatched_commits,
+        }
+    }
+}
