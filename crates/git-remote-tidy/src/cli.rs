@@ -1,0 +1,149 @@
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "git-remote-tidy",
+    about = "Scan, classify, and remove stale Git remotes and orphaned tracking refs"
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    /// Directory to scan (default: current directory)
+    #[arg(global = true)]
+    pub directory: Option<PathBuf>,
+
+    /// Skip reachability checks (no network access)
+    #[arg(long, global = true)]
+    pub offline: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Read-only analysis of configured and orphaned remotes
+    Scan {
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Machine-readable tab-delimited output
+        #[arg(long)]
+        porcelain: bool,
+    },
+
+    /// Scan and interactively remove stale remotes
+    Clean {
+        /// Show what would be removed without removing
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompts
+        #[arg(short = 'y', long)]
+        yes: bool,
+
+        /// Allow removing the origin remote
+        #[arg(short = 'f', long)]
+        force: bool,
+
+        /// Include orphaned remotes (default: unreachable only)
+        #[arg(long)]
+        all: bool,
+
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Machine-readable tab-delimited output
+        #[arg(long)]
+        porcelain: bool,
+    },
+}
+
+impl Cli {
+    /// Resolve the target directory, defaulting to the current directory.
+    pub fn target_directory(&self) -> PathBuf {
+        self.directory.clone().unwrap_or_else(|| {
+            std::env::current_dir().expect("could not determine current directory")
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn default_command_is_scan() {
+        let cli = Cli::parse_from(["git-remote-tidy"]);
+        assert!(cli.command.is_none());
+        assert!(!cli.offline);
+    }
+
+    #[test]
+    fn scan_with_directory() {
+        let cli = Cli::parse_from(["git-remote-tidy", "scan", "/tmp/dev"]);
+        assert!(matches!(cli.command, Some(Command::Scan { .. })));
+        assert_eq!(cli.directory, Some(PathBuf::from("/tmp/dev")));
+    }
+
+    #[test]
+    fn scan_json_flag() {
+        let cli = Cli::parse_from(["git-remote-tidy", "scan", "--json"]);
+        match cli.command {
+            Some(Command::Scan { json, porcelain }) => {
+                assert!(json);
+                assert!(!porcelain);
+            }
+            _ => panic!("expected Scan command"),
+        }
+    }
+
+    #[test]
+    fn clean_with_flags() {
+        let cli = Cli::parse_from(["git-remote-tidy", "clean", "--dry-run", "--yes", "--force"]);
+        match cli.command {
+            Some(Command::Clean {
+                dry_run,
+                yes,
+                force,
+                ..
+            }) => {
+                assert!(dry_run);
+                assert!(yes);
+                assert!(force);
+            }
+            _ => panic!("expected Clean command"),
+        }
+    }
+
+    #[test]
+    fn clean_all_flag() {
+        let cli = Cli::parse_from(["git-remote-tidy", "clean", "--all"]);
+        match cli.command {
+            Some(Command::Clean { all, .. }) => {
+                assert!(all);
+            }
+            _ => panic!("expected Clean command"),
+        }
+    }
+
+    #[test]
+    fn offline_flag() {
+        let cli = Cli::parse_from(["git-remote-tidy", "--offline", "scan"]);
+        assert!(cli.offline);
+    }
+
+    #[test]
+    fn offline_flag_with_clean() {
+        let cli = Cli::parse_from(["git-remote-tidy", "--offline", "clean", "--dry-run"]);
+        assert!(cli.offline);
+        match cli.command {
+            Some(Command::Clean { dry_run, .. }) => assert!(dry_run),
+            _ => panic!("expected Clean command"),
+        }
+    }
+}
