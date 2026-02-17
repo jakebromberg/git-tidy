@@ -1,6 +1,7 @@
 pub mod classification;
 pub mod config;
 pub mod dirty;
+pub mod discovery;
 pub mod error;
 pub mod git;
 pub mod landed;
