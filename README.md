@@ -24,6 +24,10 @@ Scans a directory of Git repos, classifies remotes by reachability (unreachable,
 
 Scans a directory of Git repos, classifies tags by staleness and sync status (stale, local_only, remote_only, synced), and interactively removes stale or local-only tags.
 
+### git-repo-tidy
+
+Scans a directory of Git repos, classifies them by activity (stale, orphaned, active), and removes stale or orphaned repos. This is the most destructive tool in the suite -- dirty repos require `--force` to delete.
+
 ## Installation
 
 Requires Rust 1.93.0 or later (edition 2024).
@@ -34,6 +38,7 @@ cargo install --path crates/git-branch-tidy
 cargo install --path crates/git-stash-tidy
 cargo install --path crates/git-remote-tidy
 cargo install --path crates/git-tag-tidy
+cargo install --path crates/git-repo-tidy
 ```
 
 ## Usage
@@ -128,6 +133,29 @@ git-tag-tidy clean ~/Developer --include-remote    # also delete from remote
 git-tag-tidy clean ~/Developer --dry-run           # preview removals
 ```
 
+### git-repo-tidy
+
+```bash
+# Scan repos (default command)
+git-repo-tidy scan ~/Developer
+git-repo-tidy ~/Developer                # scan is the default
+git-repo-tidy scan ~/Developer --json     # JSON output
+git-repo-tidy scan ~/Developer --porcelain  # machine-readable
+
+# Offline mode (skip reachability checks)
+git-repo-tidy --offline scan ~/Developer
+
+# Custom stale threshold (12 months instead of 6)
+git-repo-tidy --stale-months 12 scan ~/Developer
+
+# Clean stale repos
+git-repo-tidy clean ~/Developer                  # remove stale + orphaned repos
+git-repo-tidy clean ~/Developer --stale-only      # only stale repos
+git-repo-tidy clean ~/Developer --orphaned-only   # only orphaned repos
+git-repo-tidy clean ~/Developer --force            # allow deleting dirty repos
+git-repo-tidy clean ~/Developer --dry-run          # preview deletions
+```
+
 ## Classifications
 
 ### Worktree and branch classifications
@@ -165,6 +193,16 @@ git-tag-tidy clean ~/Developer --dry-run           # preview removals
 | **unreachable** | `git ls-remote` fails or times out (10s) | Safe |
 | **orphaned** | Tracking refs exist but remote is not configured | Safe (refs pruned) |
 | **active** | Remote is reachable | Keep |
+
+### Repo classifications
+
+| Classification | Meaning | Removal safety |
+|----------------|---------|----------------|
+| **stale** | No commits in N months (default 6), has reachable remote | Safe (can re-clone) |
+| **orphaned** | No remote, or all remotes unreachable | Review recommended |
+| **active** | Recent commits and/or reachable remote | Keep |
+
+Dirty status is tracked independently; dirty repos require `--force` to delete regardless of classification.
 
 ## Annotations
 
@@ -231,4 +269,5 @@ crates/
   git-stash-tidy/         Stash scanner/cleaner binary
   git-remote-tidy/        Remote scanner/cleaner binary
   git-tag-tidy/           Tag scanner/cleaner binary
+  git-repo-tidy/          Repo scanner/cleaner binary
 ```

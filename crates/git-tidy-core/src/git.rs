@@ -176,6 +176,12 @@ pub trait GitOps {
 
     /// Get the tagger/creator date for a tag (ISO 8601).
     fn tag_date(&self, repo: &Path, tag: &str) -> GitResult<Option<String>>;
+
+    // --- Repo-level operations ---
+
+    /// Get the author date of the most recent commit.
+    /// Returns an ISO 8601 date string, or `None` for empty repos.
+    fn last_commit_date(&self, repo: &Path) -> GitResult<Option<String>>;
 }
 
 /// Real git implementation that shells out to the `git` binary.
@@ -702,6 +708,18 @@ impl GitOps for RealGit {
             Ok(None)
         } else {
             Ok(Some(trimmed.to_string()))
+        }
+    }
+
+    // --- Repo-level operations ---
+
+    fn last_commit_date(&self, repo: &Path) -> GitResult<Option<String>> {
+        let output = Self::run(repo, &["log", "-1", "--format=%aI"])?;
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(text))
         }
     }
 }
