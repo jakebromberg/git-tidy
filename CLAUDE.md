@@ -57,6 +57,7 @@ crates/
       classification.rs                       # classify_branch + classify_worktree
       config.rs                               # Noise pattern configuration (file + CLI + defaults)
       dirty.rs                                # Status parsing with noise filtering
+      discovery.rs                            # Repo discovery (shared by all tools)
       landed.rs                               # Subject matching, fuzzy, patch similarity
       output.rs                               # Shared output helpers (summary, warnings, formatting)
       testutil.rs                             # MockGitBuilder, MockGit, TestRepo, git() helper
@@ -77,7 +78,7 @@ crates/
       main.rs                                 # CLI dispatch
       lib.rs                                  # Public module exports for integration tests
       cli.rs                                  # clap derive definitions
-      discovery.rs                            # Repo discovery (finds .git directories)
+      discovery.rs                            # Re-exports git_tidy_core::discovery::discover_repos
       scan.rs                                 # Branch enumeration and classification
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Branch deletion with safety guards

@@ -269,7 +269,7 @@ fn jaccard_similarity(a: &str, b: &str) -> f64 {
 }
 
 /// Simple diff similarity: compare the added/removed lines as token sets.
-fn diff_similarity(diff_a: &str, diff_b: &str) -> f64 {
+pub fn diff_similarity(diff_a: &str, diff_b: &str) -> f64 {
     let lines_a: HashSet<&str> = diff_a
         .lines()
         .filter(|l| l.starts_with('+') || l.starts_with('-'))
