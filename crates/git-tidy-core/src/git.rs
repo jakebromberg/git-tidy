@@ -182,6 +182,16 @@ pub trait GitOps {
     /// Get the author date of the most recent commit.
     /// Returns an ISO 8601 date string, or `None` for empty repos.
     fn last_commit_date(&self, repo: &Path) -> GitResult<Option<String>>;
+    // --- Config operations ---
+
+    /// List all local config key=value pairs.
+    fn config_list_local(&self, repo: &Path) -> GitResult<Vec<(String, String)>>;
+
+    /// Remove an entire config section (e.g., `branch.foo`).
+    fn config_remove_section(&self, repo: &Path, section: &str) -> GitResult<()>;
+
+    /// List built-in git command names (global, not repo-specific).
+    fn list_builtin_commands(&self) -> GitResult<Vec<String>>;
 }
 
 /// Real git implementation that shells out to the `git` binary.
@@ -257,6 +267,25 @@ impl RealGit {
                 }
             }
         }
+    }
+
+    /// Run a global git command (no `-C <repo>` prefix).
+    fn run_global(args: &[&str]) -> GitResult<String> {
+        let output = Command::new("git")
+            .args(args)
+            .output()
+            .map_err(|e| Error::GitCommand {
+                command: format!("git {}", args.join(" ")),
+                message: e.to_string(),
+            })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(Error::GitCommand {
+                command: format!("git {}", args.join(" ")),
+                message: stderr,
+            });
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
     fn parse_log_oneline(output: &str) -> Vec<(String, String)> {
@@ -721,6 +750,42 @@ impl GitOps for RealGit {
         } else {
             Ok(Some(text))
         }
+    // --- Config operations ---
+
+    fn config_list_local(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {
+        let output = Self::run(repo, &["config", "--list", "--local"])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut result = Vec::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            // Split on first `=` only, since values can contain `=`
+            if let Some((key, value)) = line.split_once('=') {
+                result.push((key.to_string(), value.to_string()));
+            }
+        }
+        Ok(result)
+    }
+
+    fn config_remove_section(&self, repo: &Path, section: &str) -> GitResult<()> {
+        Self::run_success(repo, &["config", "--remove-section", section]).map_err(|_| {
+            Error::ConfigRemoveSectionFailed {
+                repo: repo.to_path_buf(),
+                section: section.to_string(),
+                reason: "git config --remove-section failed".to_string(),
+            }
+        })?;
+        Ok(())
+    }
+
+    fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
+        let text = Self::run_global(&["--list-cmds=main,others"])?;
+        Ok(text
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect())
     }
 }
 

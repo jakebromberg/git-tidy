@@ -47,6 +47,13 @@ pub enum Error {
         reason: String,
     },
 
+    #[error("config section removal failed: {section} in {repo}: {reason}")]
+    ConfigRemoveSectionFailed {
+        repo: PathBuf,
+        section: String,
+        reason: String,
+    },
+
     #[error("dirty worktrees blocked removal (rerun with --force)")]
     DirtyBlocked,
 
