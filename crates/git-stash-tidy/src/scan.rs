@@ -20,7 +20,6 @@ use crate::types::{
 /// 4. Otherwise -> Active
 ///
 /// When the branch name is unparseable, skip committed/orphaned checks; fall through to age check.
-#[allow(clippy::collapsible_if)]
 pub fn classify_stash(
     git: &dyn GitOps,
     repo: &Path,
@@ -39,14 +38,12 @@ pub fn classify_stash(
 
         if branch_exists {
             // Compare stash diff to branch tip diff
-            if let Ok(stash_d) = git.stash_diff(repo, stash_ref) {
-                if let Ok(tip_hash) = git.rev_parse(repo, branch_name) {
-                    if let Ok(tip_d) = git.diff_commit(repo, &tip_hash) {
-                        if diff_similarity(&stash_d, &tip_d) >= 0.5 {
-                            return StashClassification::Committed;
-                        }
-                    }
-                }
+            if let Ok(stash_d) = git.stash_diff(repo, stash_ref)
+                && let Ok(tip_hash) = git.rev_parse(repo, branch_name)
+                && let Ok(tip_d) = git.diff_commit(repo, &tip_hash)
+                && diff_similarity(&stash_d, &tip_d) >= 0.5
+            {
+                return StashClassification::Committed;
             }
         } else {
             return StashClassification::Orphaned;
@@ -54,10 +51,10 @@ pub fn classify_stash(
     }
 
     // Age check
-    if let Some(days) = age_days {
-        if days >= age_threshold {
-            return StashClassification::Aged;
-        }
+    if let Some(days) = age_days
+        && days >= age_threshold
+    {
+        return StashClassification::Aged;
     }
 
     StashClassification::Active
