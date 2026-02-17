@@ -1,5 +1,6 @@
 pub mod classification;
 pub mod config;
+pub mod date;
 pub mod dirty;
 pub mod discovery;
 pub mod error;
