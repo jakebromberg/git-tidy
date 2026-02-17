@@ -12,6 +12,10 @@ Scans a directory for linked Git worktrees, classifies them by staleness, and in
 
 Scans a directory of Git repos, classifies local branches by staleness, and interactively removes stale branches.
 
+### git-stash-tidy
+
+Scans a directory of Git repos, classifies stash entries by staleness (committed, orphaned, aged, active), and interactively drops stale stashes.
+
 ## Installation
 
 Requires Rust 1.93.0 or later (edition 2024).
@@ -19,6 +23,7 @@ Requires Rust 1.93.0 or later (edition 2024).
 ```bash
 cargo install --path crates/git-worktree-tidy
 cargo install --path crates/git-branch-tidy
+cargo install --path crates/git-stash-tidy
 ```
 
 ## Usage
@@ -56,7 +61,26 @@ git-branch-tidy clean ~/Developer --dry-run                # preview deletions
 git-branch-tidy clean ~/Developer --include-remote --yes   # also delete remote branches
 ```
 
+### git-stash-tidy
+
+```bash
+# Scan stashes (default command)
+git-stash-tidy scan ~/Developer
+git-stash-tidy ~/Developer                # scan is the default
+git-stash-tidy scan ~/Developer --json     # JSON output
+git-stash-tidy scan ~/Developer --porcelain  # machine-readable
+
+# Clean stale stashes
+git-stash-tidy clean ~/Developer                         # drop committed + orphaned
+git-stash-tidy clean ~/Developer --committed-only --yes   # non-interactive, committed only
+git-stash-tidy clean ~/Developer --all                    # drop everything except active
+git-stash-tidy clean ~/Developer --dry-run                # preview drops
+git-stash-tidy clean ~/Developer --age-threshold 30       # custom age threshold (default 90)
+```
+
 ## Classifications
+
+### Worktree and branch classifications
 
 | Classification | Meaning | Removal safety |
 |----------------|---------|----------------|
@@ -65,6 +89,15 @@ git-branch-tidy clean ~/Developer --include-remote --yes   # also delete remote 
 | **partial** | Some branch commits matched (reports ratio like "4/6 landed") | Review required |
 | **active** | Has a remote tracking branch; not merged or landed | Keep |
 | **local** | No remote tracking branch; not merged or landed | Keep |
+
+### Stash classifications
+
+| Classification | Meaning | Drop safety |
+|----------------|---------|-------------|
+| **committed** | Stash diff matches the branch tip (content already committed) | Safe |
+| **orphaned** | Branch from stash message no longer exists locally | Safe |
+| **aged** | Older than `--age-threshold` days (default 90) | Review recommended |
+| **active** | None of the above; still relevant | Keep |
 
 ## Annotations
 
@@ -120,4 +153,5 @@ crates/
   git-tidy-core/          Shared classification, git abstraction, output helpers, test utilities
   git-worktree-tidy/      Worktree scanner/cleaner binary
   git-branch-tidy/        Branch scanner/cleaner binary
+  git-stash-tidy/         Stash scanner/cleaner binary
 ```

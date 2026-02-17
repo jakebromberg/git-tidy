@@ -1,0 +1,17 @@
+[package]
+name = "git-stash-tidy"
+version = "0.1.0"
+edition = "2024"
+description = "Scan, classify, and interactively drop stale Git stashes"
+
+[dependencies]
+git-tidy-core = { path = "../git-tidy-core" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dialoguer = "0.11"
+console = "0.15"
+
+[dev-dependencies]
+git-tidy-core = { path = "../git-tidy-core", features = ["testutil"] }
+tempfile = "3"

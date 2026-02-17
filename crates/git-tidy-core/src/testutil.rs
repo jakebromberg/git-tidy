@@ -37,6 +37,11 @@ pub struct MockGitBuilder {
     branch_delete_safe_errors: HashMap<(PathBuf, String), String>,
     delete_remote_branch_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
     delete_remote_branch_errors: HashMap<(PathBuf, String, String), String>,
+    // Stash operations
+    stash_list: HashMap<PathBuf, Vec<(String, String, String)>>,
+    stash_diff: HashMap<(PathBuf, String), String>,
+    stash_drop_errors: HashMap<(PathBuf, String), String>,
+    stash_drop_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
 }
 
 impl MockGitBuilder {
@@ -239,6 +244,29 @@ impl MockGitBuilder {
         self
     }
 
+    // --- Stash builder methods ---
+
+    pub fn with_stash_list(mut self, repo: &Path, stashes: Vec<(String, String, String)>) -> Self {
+        self.stash_list.insert(repo.to_path_buf(), stashes);
+        self
+    }
+
+    pub fn with_stash_diff(mut self, repo: &Path, stash_ref: &str, diff: &str) -> Self {
+        self.stash_diff.insert(
+            (repo.to_path_buf(), stash_ref.to_string()),
+            diff.to_string(),
+        );
+        self
+    }
+
+    pub fn with_stash_drop_error(mut self, repo: &Path, stash_ref: &str, error: &str) -> Self {
+        self.stash_drop_errors.insert(
+            (repo.to_path_buf(), stash_ref.to_string()),
+            error.to_string(),
+        );
+        self
+    }
+
     pub fn build(self) -> MockGit {
         MockGit {
             symbolic_ref: self.symbolic_ref,
@@ -270,6 +298,10 @@ impl MockGitBuilder {
             branch_delete_safe_errors: self.branch_delete_safe_errors,
             delete_remote_branch_calls: self.delete_remote_branch_calls,
             delete_remote_branch_errors: self.delete_remote_branch_errors,
+            stash_list: self.stash_list,
+            stash_diff: self.stash_diff,
+            stash_drop_errors: self.stash_drop_errors,
+            stash_drop_calls: self.stash_drop_calls,
         }
     }
 }
@@ -304,6 +336,11 @@ pub struct MockGit {
     branch_delete_safe_errors: HashMap<(PathBuf, String), String>,
     delete_remote_branch_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
     delete_remote_branch_errors: HashMap<(PathBuf, String, String), String>,
+    // Stash operations
+    stash_list: HashMap<PathBuf, Vec<(String, String, String)>>,
+    stash_diff: HashMap<(PathBuf, String), String>,
+    stash_drop_errors: HashMap<(PathBuf, String), String>,
+    stash_drop_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
 }
 
 impl MockGit {
@@ -329,6 +366,10 @@ impl MockGit {
 
     pub fn delete_remote_branch_calls(&self) -> Vec<(PathBuf, String, String)> {
         self.delete_remote_branch_calls.borrow().clone()
+    }
+
+    pub fn stash_drop_calls(&self) -> Vec<(PathBuf, String)> {
+        self.stash_drop_calls.borrow().clone()
     }
 }
 
@@ -587,6 +628,41 @@ impl GitOps for MockGit {
         ));
         Ok(())
     }
+
+    // --- Stash operations ---
+
+    fn list_stashes(&self, repo: &Path) -> GitResult<Vec<(String, String, String)>> {
+        Ok(self
+            .stash_list
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn stash_diff(&self, repo: &Path, stash_ref: &str) -> GitResult<String> {
+        Ok(self
+            .stash_diff
+            .get(&(repo.to_path_buf(), stash_ref.to_string()))
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn stash_drop(&self, repo: &Path, stash_ref: &str) -> GitResult<()> {
+        if let Some(err) = self
+            .stash_drop_errors
+            .get(&(repo.to_path_buf(), stash_ref.to_string()))
+        {
+            return Err(Error::StashDropFailed {
+                repo: repo.to_path_buf(),
+                stash_ref: stash_ref.to_string(),
+                reason: err.clone(),
+            });
+        }
+        self.stash_drop_calls
+            .borrow_mut()
+            .push((repo.to_path_buf(), stash_ref.to_string()));
+        Ok(())
+    }
 }
 
 /// Helper to set up a real git repo with worktrees in a tempdir for integration tests.
@@ -676,6 +752,24 @@ impl TestRepo {
         );
         git(&self.main_repo, &["push", "-u", "origin", "main"]);
         bare
+    }
+
+    /// Create a stash by writing a file and running `git stash`.
+    pub fn create_stash(&self, filename: &str, content: &str) {
+        let file = self.main_repo.join(filename);
+        std::fs::write(&file, content).unwrap();
+        git(&self.main_repo, &["add", filename]);
+        git(&self.main_repo, &["stash"]);
+    }
+
+    /// Create a stash on a specific branch.
+    pub fn create_stash_on_branch(&self, branch: &str, filename: &str, content: &str) {
+        git(&self.main_repo, &["checkout", "-b", branch]);
+        let file = self.main_repo.join(filename);
+        std::fs::write(&file, content).unwrap();
+        git(&self.main_repo, &["add", filename]);
+        git(&self.main_repo, &["stash"]);
+        git(&self.main_repo, &["checkout", "main"]);
     }
 }
 

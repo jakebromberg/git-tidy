@@ -112,6 +112,18 @@ pub trait GitOps {
         ref_spec: &str,
         file: &str,
     ) -> GitResult<Vec<(String, String)>>;
+
+    // --- Stash operations ---
+
+    /// List stashes in a repo.
+    /// Returns `Vec<(stash_ref, message, iso_date)>`, e.g. `("stash@{0}", "WIP on main: abc Fix", "2024-01-15T...")`.
+    fn list_stashes(&self, repo: &Path) -> GitResult<Vec<(String, String, String)>>;
+
+    /// Get the diff for a stash entry.
+    fn stash_diff(&self, repo: &Path, stash_ref: &str) -> GitResult<String>;
+
+    /// Drop a stash entry.
+    fn stash_drop(&self, repo: &Path, stash_ref: &str) -> GitResult<()>;
 }
 
 /// Real git implementation that shells out to the `git` binary.
@@ -388,6 +400,44 @@ impl GitOps for RealGit {
         let output = Self::run(repo, &["log", ref_spec, "--oneline", "--all", "--", file])?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(Self::parse_log_oneline(&text))
+    }
+
+    // --- Stash operations ---
+
+    fn list_stashes(&self, repo: &Path) -> GitResult<Vec<(String, String, String)>> {
+        let output = Self::run(repo, &["stash", "list", "--format=%gd%x00%gs%x00%aI"])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut result = Vec::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = line.splitn(3, '\0').collect();
+            if parts.len() == 3 {
+                result.push((
+                    parts[0].to_string(),
+                    parts[1].to_string(),
+                    parts[2].to_string(),
+                ));
+            }
+        }
+        Ok(result)
+    }
+
+    fn stash_diff(&self, repo: &Path, stash_ref: &str) -> GitResult<String> {
+        let output = Self::run(repo, &["stash", "show", "-p", stash_ref])?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    fn stash_drop(&self, repo: &Path, stash_ref: &str) -> GitResult<()> {
+        Self::run_success(repo, &["stash", "drop", stash_ref]).map_err(|_| {
+            Error::StashDropFailed {
+                repo: repo.to_path_buf(),
+                stash_ref: stash_ref.to_string(),
+                reason: "git stash drop failed".to_string(),
+            }
+        })?;
+        Ok(())
     }
 }
 

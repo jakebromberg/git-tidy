@@ -26,6 +26,13 @@ pub enum Error {
         reason: String,
     },
 
+    #[error("stash drop failed: {stash_ref} in {repo}: {reason}")]
+    StashDropFailed {
+        repo: PathBuf,
+        stash_ref: String,
+        reason: String,
+    },
+
     #[error("dirty worktrees blocked removal (rerun with --force)")]
     DirtyBlocked,
 

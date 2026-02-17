@@ -10,11 +10,12 @@ cargo test --workspace -- --test-threads=1  # if tests interfere with each other
 
 ## Architecture
 
-This is a Cargo workspace with a shared core library and two binary crates.
+This is a Cargo workspace with a shared core library and three binary crates.
 
 - **`git-tidy-core`**: Shared library containing git abstraction, classification logic, output helpers, and test utilities.
 - **`git-worktree-tidy`**: Binary crate for scanning and cleaning stale git worktrees.
 - **`git-branch-tidy`**: Binary crate for scanning and cleaning stale local git branches.
+- **`git-stash-tidy`**: Binary crate for scanning and cleaning stale git stashes.
 
 ### Core patterns
 
@@ -27,11 +28,13 @@ This is a Cargo workspace with a shared core library and two binary crates.
 
 ### CLI pattern (documented convention, not shared code)
 
-Both tools follow the same CLI shape:
-- **Global args**: `directory` (positional, default cwd), `--behind-threshold` (default 100), `--verbose` / `-v`
+All tools follow a similar CLI shape:
+- **Global args**: `directory` (positional, default cwd), plus tool-specific thresholds
 - **Scan subcommand** (default): `--json`, `--porcelain`
-- **Clean subcommand**: `--dry-run` / `-n`, `--force` / `-f`, `--yes` / `-y`, `--merged-only`, `--landed`, `--all`, `--json`, `--porcelain`
-- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`
+- **Clean subcommand**: `--dry-run` / `-n`, `--yes` / `-y`, classification filters, `--all`, `--json`, `--porcelain`
+- Worktree/branch-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`
+- Stash-tidy global arg: `--age-threshold` (default 90) instead of `--behind-threshold`/`--verbose`
+- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`
 
 ## Conventions
 
@@ -87,4 +90,17 @@ crates/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with branch scanning
       integration_clean.rs                    # Real git repos with branch cleanup
+  git-stash-tidy/                            # Stash scanner/cleaner binary
+    src/
+      main.rs                                 # CLI dispatch
+      lib.rs                                  # Public module exports for integration tests
+      cli.rs                                  # clap derive definitions
+      scan.rs                                 # Stash classification and scanning
+      output.rs                               # Human-readable, JSON, porcelain formatters
+      clean.rs                                # Stash drop logic (descending index order)
+      types.rs                                # StashInfo, StashRepoGroup, StashScanResult
+    tests/
+      common/mod.rs                           # Re-exports from git_tidy_core::testutil
+      integration_scan.rs                     # Real git repos with stash scanning
+      integration_clean.rs                    # Real git repos with stash cleanup
 ```
