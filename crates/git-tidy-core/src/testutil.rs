@@ -42,6 +42,15 @@ pub struct MockGitBuilder {
     stash_diff: HashMap<(PathBuf, String), String>,
     stash_drop_errors: HashMap<(PathBuf, String), String>,
     stash_drop_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    // Remote operations
+    list_remotes: HashMap<PathBuf, Vec<String>>,
+    remote_url: HashMap<(PathBuf, String), String>,
+    ls_remote_check: HashMap<(PathBuf, String), bool>,
+    remote_remove_errors: HashMap<(PathBuf, String), String>,
+    remote_remove_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    remote_tracking_refs: HashMap<PathBuf, Vec<(String, String)>>,
+    prune_remote_refs_result: HashMap<(PathBuf, String), usize>,
+    prune_remote_refs_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
 }
 
 impl MockGitBuilder {
@@ -267,6 +276,47 @@ impl MockGitBuilder {
         self
     }
 
+    // --- Remote builder methods ---
+
+    pub fn with_list_remotes(mut self, repo: &Path, remotes: Vec<String>) -> Self {
+        self.list_remotes.insert(repo.to_path_buf(), remotes);
+        self
+    }
+
+    pub fn with_remote_url(mut self, repo: &Path, remote: &str, url: &str) -> Self {
+        self.remote_url
+            .insert((repo.to_path_buf(), remote.to_string()), url.to_string());
+        self
+    }
+
+    pub fn with_ls_remote_check(mut self, repo: &Path, remote: &str, reachable: bool) -> Self {
+        self.ls_remote_check
+            .insert((repo.to_path_buf(), remote.to_string()), reachable);
+        self
+    }
+
+    pub fn with_remote_remove_error(mut self, repo: &Path, remote: &str, error: &str) -> Self {
+        self.remote_remove_errors
+            .insert((repo.to_path_buf(), remote.to_string()), error.to_string());
+        self
+    }
+
+    pub fn with_remote_tracking_refs(mut self, repo: &Path, refs: Vec<(String, String)>) -> Self {
+        self.remote_tracking_refs.insert(repo.to_path_buf(), refs);
+        self
+    }
+
+    pub fn with_prune_remote_refs_result(
+        mut self,
+        repo: &Path,
+        remote: &str,
+        count: usize,
+    ) -> Self {
+        self.prune_remote_refs_result
+            .insert((repo.to_path_buf(), remote.to_string()), count);
+        self
+    }
+
     pub fn build(self) -> MockGit {
         MockGit {
             symbolic_ref: self.symbolic_ref,
@@ -302,6 +352,14 @@ impl MockGitBuilder {
             stash_diff: self.stash_diff,
             stash_drop_errors: self.stash_drop_errors,
             stash_drop_calls: self.stash_drop_calls,
+            list_remotes: self.list_remotes,
+            remote_url: self.remote_url,
+            ls_remote_check: self.ls_remote_check,
+            remote_remove_errors: self.remote_remove_errors,
+            remote_remove_calls: self.remote_remove_calls,
+            remote_tracking_refs: self.remote_tracking_refs,
+            prune_remote_refs_result: self.prune_remote_refs_result,
+            prune_remote_refs_calls: self.prune_remote_refs_calls,
         }
     }
 }
@@ -341,6 +399,15 @@ pub struct MockGit {
     stash_diff: HashMap<(PathBuf, String), String>,
     stash_drop_errors: HashMap<(PathBuf, String), String>,
     stash_drop_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    // Remote operations
+    list_remotes: HashMap<PathBuf, Vec<String>>,
+    remote_url: HashMap<(PathBuf, String), String>,
+    ls_remote_check: HashMap<(PathBuf, String), bool>,
+    remote_remove_errors: HashMap<(PathBuf, String), String>,
+    remote_remove_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    remote_tracking_refs: HashMap<PathBuf, Vec<(String, String)>>,
+    prune_remote_refs_result: HashMap<(PathBuf, String), usize>,
+    prune_remote_refs_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
 }
 
 impl MockGit {
@@ -370,6 +437,14 @@ impl MockGit {
 
     pub fn stash_drop_calls(&self) -> Vec<(PathBuf, String)> {
         self.stash_drop_calls.borrow().clone()
+    }
+
+    pub fn remote_remove_calls(&self) -> Vec<(PathBuf, String)> {
+        self.remote_remove_calls.borrow().clone()
+    }
+
+    pub fn prune_remote_refs_calls(&self) -> Vec<(PathBuf, String)> {
+        self.prune_remote_refs_calls.borrow().clone()
     }
 }
 
@@ -629,6 +704,68 @@ impl GitOps for MockGit {
         Ok(())
     }
 
+    // --- Remote operations ---
+
+    fn list_remotes(&self, repo: &Path) -> GitResult<Vec<String>> {
+        Ok(self
+            .list_remotes
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn remote_url(&self, repo: &Path, remote: &str) -> GitResult<String> {
+        self.remote_url
+            .get(&(repo.to_path_buf(), remote.to_string()))
+            .cloned()
+            .ok_or_else(|| Error::GitCommand {
+                command: format!("remote get-url {remote}"),
+                message: "not found in mock".to_string(),
+            })
+    }
+
+    fn ls_remote_check(&self, repo: &Path, remote: &str) -> GitResult<bool> {
+        Ok(*self
+            .ls_remote_check
+            .get(&(repo.to_path_buf(), remote.to_string()))
+            .unwrap_or(&false))
+    }
+
+    fn remote_remove(&self, repo: &Path, remote: &str) -> GitResult<()> {
+        if let Some(err) = self
+            .remote_remove_errors
+            .get(&(repo.to_path_buf(), remote.to_string()))
+        {
+            return Err(Error::RemoteRemovalFailed {
+                repo: repo.to_path_buf(),
+                remote: remote.to_string(),
+                reason: err.clone(),
+            });
+        }
+        self.remote_remove_calls
+            .borrow_mut()
+            .push((repo.to_path_buf(), remote.to_string()));
+        Ok(())
+    }
+
+    fn list_remote_tracking_refs(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {
+        Ok(self
+            .remote_tracking_refs
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn prune_remote_refs(&self, repo: &Path, remote: &str) -> GitResult<usize> {
+        self.prune_remote_refs_calls
+            .borrow_mut()
+            .push((repo.to_path_buf(), remote.to_string()));
+        Ok(*self
+            .prune_remote_refs_result
+            .get(&(repo.to_path_buf(), remote.to_string()))
+            .unwrap_or(&0))
+    }
+
     // --- Stash operations ---
 
     fn list_stashes(&self, repo: &Path) -> GitResult<Vec<(String, String, String)>> {
@@ -752,6 +889,11 @@ impl TestRepo {
         );
         git(&self.main_repo, &["push", "-u", "origin", "main"]);
         bare
+    }
+
+    /// Add a remote to the repo.
+    pub fn add_remote(&self, name: &str, url: &str) {
+        git(&self.main_repo, &["remote", "add", name, url]);
     }
 
     /// Create a stash by writing a file and running `git stash`.

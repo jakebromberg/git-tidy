@@ -16,6 +16,10 @@ Scans a directory of Git repos, classifies local branches by staleness, and inte
 
 Scans a directory of Git repos, classifies stash entries by staleness (committed, orphaned, aged, active), and interactively drops stale stashes.
 
+### git-remote-tidy
+
+Scans a directory of Git repos, classifies remotes by reachability (unreachable, orphaned, active), and interactively removes stale remotes and orphaned tracking refs.
+
 ## Installation
 
 Requires Rust 1.93.0 or later (edition 2024).
@@ -24,6 +28,7 @@ Requires Rust 1.93.0 or later (edition 2024).
 cargo install --path crates/git-worktree-tidy
 cargo install --path crates/git-branch-tidy
 cargo install --path crates/git-stash-tidy
+cargo install --path crates/git-remote-tidy
 ```
 
 ## Usage
@@ -78,6 +83,25 @@ git-stash-tidy clean ~/Developer --dry-run                # preview drops
 git-stash-tidy clean ~/Developer --age-threshold 30       # custom age threshold (default 90)
 ```
 
+### git-remote-tidy
+
+```bash
+# Scan remotes (default command)
+git-remote-tidy scan ~/Developer
+git-remote-tidy ~/Developer                # scan is the default
+git-remote-tidy scan ~/Developer --json     # JSON output
+git-remote-tidy scan ~/Developer --porcelain  # machine-readable
+
+# Offline mode (skip reachability checks)
+git-remote-tidy --offline scan ~/Developer
+
+# Clean stale remotes
+git-remote-tidy clean ~/Developer                  # remove unreachable remotes
+git-remote-tidy clean ~/Developer --all             # also prune orphaned tracking refs
+git-remote-tidy clean ~/Developer --force            # allow removing origin
+git-remote-tidy clean ~/Developer --dry-run          # preview removals
+```
+
 ## Classifications
 
 ### Worktree and branch classifications
@@ -98,6 +122,14 @@ git-stash-tidy clean ~/Developer --age-threshold 30       # custom age threshold
 | **orphaned** | Branch from stash message no longer exists locally | Safe |
 | **aged** | Older than `--age-threshold` days (default 90) | Review recommended |
 | **active** | None of the above; still relevant | Keep |
+
+### Remote classifications
+
+| Classification | Meaning | Removal safety |
+|----------------|---------|----------------|
+| **unreachable** | `git ls-remote` fails or times out (10s) | Safe |
+| **orphaned** | Tracking refs exist but remote is not configured | Safe (refs pruned) |
+| **active** | Remote is reachable | Keep |
 
 ## Annotations
 
@@ -154,4 +186,5 @@ crates/
   git-worktree-tidy/      Worktree scanner/cleaner binary
   git-branch-tidy/        Branch scanner/cleaner binary
   git-stash-tidy/         Stash scanner/cleaner binary
+  git-remote-tidy/        Remote scanner/cleaner binary
 ```

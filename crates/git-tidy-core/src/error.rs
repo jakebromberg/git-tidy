@@ -33,6 +33,13 @@ pub enum Error {
         reason: String,
     },
 
+    #[error("remote removal failed: {remote} in {repo}: {reason}")]
+    RemoteRemovalFailed {
+        repo: PathBuf,
+        remote: String,
+        reason: String,
+    },
+
     #[error("dirty worktrees blocked removal (rerun with --force)")]
     DirtyBlocked,
 

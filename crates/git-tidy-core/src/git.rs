@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use crate::error::Error;
 
@@ -113,6 +114,29 @@ pub trait GitOps {
         file: &str,
     ) -> GitResult<Vec<(String, String)>>;
 
+    // --- Remote operations ---
+
+    /// List configured remotes in a repo.
+    fn list_remotes(&self, repo: &Path) -> GitResult<Vec<String>>;
+
+    /// Get the URL for a configured remote.
+    fn remote_url(&self, repo: &Path, remote: &str) -> GitResult<String>;
+
+    /// Check if a remote is reachable via `ls-remote` with a timeout.
+    /// Returns `true` if the remote responds, `false` if unreachable or timed out.
+    fn ls_remote_check(&self, repo: &Path, remote: &str) -> GitResult<bool>;
+
+    /// Remove a configured remote: `git remote remove <remote>`.
+    fn remote_remove(&self, repo: &Path, remote: &str) -> GitResult<()>;
+
+    /// List all remote tracking refs under `refs/remotes/`.
+    /// Returns `(short_name, full_refname)` pairs.
+    fn list_remote_tracking_refs(&self, repo: &Path) -> GitResult<Vec<(String, String)>>;
+
+    /// Prune tracking refs belonging to a specific remote name.
+    /// Returns the number of refs successfully deleted.
+    fn prune_remote_refs(&self, repo: &Path, remote: &str) -> GitResult<usize>;
+
     // --- Stash operations ---
 
     /// List stashes in a repo.
@@ -153,6 +177,52 @@ impl RealGit {
             });
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    /// Run a git command with a timeout. Returns `None` if timed out.
+    fn run_with_timeout(
+        repo: &Path,
+        args: &[&str],
+        timeout: Duration,
+    ) -> GitResult<Option<std::process::Output>> {
+        let mut child = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| Error::GitCommand {
+                command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                message: e.to_string(),
+            })?;
+
+        let start = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_status)) => {
+                    let output = child.wait_with_output().map_err(|e| Error::GitCommand {
+                        command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                        message: e.to_string(),
+                    })?;
+                    return Ok(Some(output));
+                }
+                Ok(None) => {
+                    if start.elapsed() >= timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Ok(None);
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(e) => {
+                    return Err(Error::GitCommand {
+                        command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                        message: e.to_string(),
+                    });
+                }
+            }
+        }
     }
 
     fn parse_log_oneline(output: &str) -> Vec<(String, String)> {
@@ -400,6 +470,80 @@ impl GitOps for RealGit {
         let output = Self::run(repo, &["log", ref_spec, "--oneline", "--all", "--", file])?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(Self::parse_log_oneline(&text))
+    }
+
+    // --- Remote operations ---
+
+    fn list_remotes(&self, repo: &Path) -> GitResult<Vec<String>> {
+        let text = Self::run_success(repo, &["remote"])?;
+        Ok(text
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect())
+    }
+
+    fn remote_url(&self, repo: &Path, remote: &str) -> GitResult<String> {
+        Self::run_success(repo, &["remote", "get-url", remote])
+    }
+
+    fn ls_remote_check(&self, repo: &Path, remote: &str) -> GitResult<bool> {
+        let timeout = Duration::from_secs(10);
+        match Self::run_with_timeout(
+            repo,
+            &["ls-remote", "--exit-code", "--heads", remote],
+            timeout,
+        )? {
+            Some(output) => Ok(output.status.success()),
+            None => Ok(false), // timed out
+        }
+    }
+
+    fn remote_remove(&self, repo: &Path, remote: &str) -> GitResult<()> {
+        Self::run_success(repo, &["remote", "remove", remote]).map_err(|_| {
+            Error::RemoteRemovalFailed {
+                repo: repo.to_path_buf(),
+                remote: remote.to_string(),
+                reason: "git remote remove failed".to_string(),
+            }
+        })?;
+        Ok(())
+    }
+
+    fn list_remote_tracking_refs(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {
+        let output = Self::run(
+            repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname:short)%00%(refname)",
+                "refs/remotes/",
+            ],
+        )?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut result = Vec::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            if let Some((short, full)) = line.split_once('\0') {
+                result.push((short.to_string(), full.to_string()));
+            }
+        }
+        Ok(result)
+    }
+
+    fn prune_remote_refs(&self, repo: &Path, remote: &str) -> GitResult<usize> {
+        let refs = self.list_remote_tracking_refs(repo)?;
+        let prefix = format!("{remote}/");
+        let mut deleted = 0;
+        for (short, full) in &refs {
+            if (short.starts_with(&prefix) || short == remote)
+                && Self::run_success(repo, &["update-ref", "-d", full]).is_ok()
+            {
+                deleted += 1;
+            }
+        }
+        Ok(deleted)
     }
 
     // --- Stash operations ---
