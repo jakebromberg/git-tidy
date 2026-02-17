@@ -62,6 +62,8 @@ pub struct MockGitBuilder {
     tag_delete_remote_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
     is_tag_annotated: HashMap<(PathBuf, String), bool>,
     tag_date: HashMap<(PathBuf, String), Option<String>>,
+    // Repo-level operations
+    last_commit_date: HashMap<PathBuf, Option<String>>,
 }
 
 impl MockGitBuilder {
@@ -392,6 +394,14 @@ impl MockGitBuilder {
         self
     }
 
+    // --- Repo-level builder methods ---
+
+    pub fn with_last_commit_date(mut self, repo: &Path, date: Option<&str>) -> Self {
+        self.last_commit_date
+            .insert(repo.to_path_buf(), date.map(|s| s.to_string()));
+        self
+    }
+
     pub fn build(self) -> MockGit {
         MockGit {
             symbolic_ref: self.symbolic_ref,
@@ -445,6 +455,7 @@ impl MockGitBuilder {
             tag_delete_remote_calls: self.tag_delete_remote_calls,
             is_tag_annotated: self.is_tag_annotated,
             tag_date: self.tag_date,
+            last_commit_date: self.last_commit_date,
         }
     }
 }
@@ -504,6 +515,8 @@ pub struct MockGit {
     tag_delete_remote_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
     is_tag_annotated: HashMap<(PathBuf, String), bool>,
     tag_date: HashMap<(PathBuf, String), Option<String>>,
+    // Repo-level operations
+    last_commit_date: HashMap<PathBuf, Option<String>>,
 }
 
 impl MockGit {
@@ -988,6 +1001,16 @@ impl GitOps for MockGit {
         Ok(self
             .tag_date
             .get(&(repo.to_path_buf(), tag.to_string()))
+            .cloned()
+            .unwrap_or(None))
+    }
+
+    // --- Repo-level operations ---
+
+    fn last_commit_date(&self, repo: &Path) -> GitResult<Option<String>> {
+        Ok(self
+            .last_commit_date
+            .get(&repo.to_path_buf())
             .cloned()
             .unwrap_or(None))
     }

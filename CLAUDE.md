@@ -18,7 +18,7 @@ git config core.hooksPath .githooks
 
 ## Architecture
 
-This is a Cargo workspace with a shared core library and five binary crates.
+This is a Cargo workspace with a shared core library and six binary crates.
 
 - **`git-tidy-core`**: Shared library containing git abstraction, classification logic, output helpers, and test utilities.
 - **`git-worktree-tidy`**: Binary crate for scanning and cleaning stale git worktrees.
@@ -26,6 +26,7 @@ This is a Cargo workspace with a shared core library and five binary crates.
 - **`git-stash-tidy`**: Binary crate for scanning and cleaning stale git stashes.
 - **`git-remote-tidy`**: Binary crate for scanning and removing stale git remotes and orphaned tracking refs.
 - **`git-tag-tidy`**: Binary crate for scanning, classifying, and removing stale git tags.
+- **`git-repo-tidy`**: Binary crate for scanning, classifying, and removing stale or orphaned git repos. Most destructive tool in the suite (`rm -rf` on entire repos).
 
 ### Core patterns
 
@@ -49,7 +50,8 @@ All tools follow a similar CLI shape:
 - Stash-tidy global arg: `--age-threshold` (default 90) instead of `--behind-threshold`/`--verbose`
 - Remote-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
-- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`
+- Repo-tidy global args: `--stale-months` (default 6), `--offline`
+- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`
 
 ## Conventions
 
@@ -60,6 +62,8 @@ All tools follow a similar CLI shape:
 - Shared test utilities (MockGitBuilder, TestRepo, git helper) live in `git-tidy-core/src/testutil.rs`, gated behind the `testutil` feature. Binary crates depend on `git-tidy-core = { features = ["testutil"] }` in `[dev-dependencies]`.
 - `classify_branch` is the core classification function shared by both tools. `classify_worktree` is a thin wrapper that adds dirty detection.
 - Discovery is inverted between tools: worktree discovery finds `.git` files (linked worktrees), branch discovery finds `.git` directories (repos).
+- `delete_fn` pattern: `run_clean` takes `&dyn Fn(&Path) -> io::Result<()>` so tests can verify deletion logic without `rm -rf`. Used in repo-tidy.
+- Injectable `du_fn`: `run_scan_with_du` takes a disk-usage function parameter so unit tests can provide canned sizes without hitting the filesystem. Used in repo-tidy.
 
 ## Project Layout
 
@@ -145,4 +149,17 @@ crates/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with tag scanning
       integration_clean.rs                    # Real git repos with tag cleanup
+  git-repo-tidy/                             # Repo scanner/cleaner binary
+    src/
+      main.rs                                 # CLI dispatch
+      lib.rs                                  # Public module exports for integration tests
+      cli.rs                                  # clap derive definitions
+      scan.rs                                 # Repo classification and scanning (with injectable du_fn)
+      output.rs                               # Human-readable, JSON, porcelain formatters
+      clean.rs                                # Repo deletion with delete_fn injection
+      types.rs                                # RepoInfo, RepoCounts, RepoScanResult
+    tests/
+      common/mod.rs                           # Re-exports from git_tidy_core::testutil
+      integration_scan.rs                     # Real git repos with repo scanning
+      integration_clean.rs                    # Real git repos with repo cleanup
 ```

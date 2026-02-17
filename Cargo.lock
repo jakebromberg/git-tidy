@@ -274,6 +274,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-repo-tidy"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "console",
+ "dialoguer",
+ "git-tidy-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "git-stash-tidy"
 version = "0.1.0"
 dependencies = [
