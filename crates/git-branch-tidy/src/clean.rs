@@ -101,23 +101,22 @@ pub fn run_clean(
                     let mut remote_deleted = false;
 
                     // Delete remote branch if requested
-                    #[allow(clippy::collapsible_if)]
-                    if options.include_remote && branch.remote_tracking && !branch.remote_deleted {
-                        if let Some(remote) =
+                    if options.include_remote
+                        && branch.remote_tracking
+                        && !branch.remote_deleted
+                        && let Some(remote) =
                             derive_remote_name(git, &branch.repo_path, &branch.name)
-                        {
-                            match git.delete_remote_branch(&branch.repo_path, &remote, &branch.name)
-                            {
-                                Ok(()) => {
-                                    remote_deleted = true;
-                                }
-                                Err(e) => {
-                                    writeln!(
-                                        out,
-                                        "warning: could not delete remote branch {}/{}: {e}",
-                                        remote, branch.name
-                                    )?;
-                                }
+                    {
+                        match git.delete_remote_branch(&branch.repo_path, &remote, &branch.name) {
+                            Ok(()) => {
+                                remote_deleted = true;
+                            }
+                            Err(e) => {
+                                writeln!(
+                                    out,
+                                    "warning: could not delete remote branch {}/{}: {e}",
+                                    remote, branch.name
+                                )?;
                             }
                         }
                     }
