@@ -750,6 +750,7 @@ impl GitOps for RealGit {
         } else {
             Ok(Some(text))
         }
+    }
     // --- Config operations ---
 
     fn config_list_local(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {

@@ -73,11 +73,7 @@ pub fn run_fix(
             }
 
             if options.dry_run {
-                writeln!(
-                    out,
-                    "would remove section [{section}] in {}",
-                    group.name,
-                )?;
+                writeln!(out, "would remove section [{section}] in {}", group.name,)?;
                 fixed.push(FixedIssue {
                     repo: group.repo_path.clone(),
                     section: section.clone(),
@@ -88,11 +84,7 @@ pub fn run_fix(
 
             match git.config_remove_section(&group.repo_path, section) {
                 Ok(()) => {
-                    writeln!(
-                        out,
-                        "removed section [{section}] in {}",
-                        group.name,
-                    )?;
+                    writeln!(out, "removed section [{section}] in {}", group.name,)?;
                     fixed.push(FixedIssue {
                         repo: group.repo_path.clone(),
                         section: section.clone(),
@@ -257,10 +249,7 @@ mod tests {
     #[test]
     fn fix_mixed_fixable_and_non_fixable() {
         let git = MockGitBuilder::new().build();
-        let lint = make_lint_result(vec![
-            orphaned_issue("gone"),
-            alias_issue("log"),
-        ]);
+        let lint = make_lint_result(vec![orphaned_issue("gone"), alias_issue("log")]);
         let mut buf = Vec::new();
 
         let result = run_fix(&git, &lint, &default_options(), &mut buf).unwrap();
