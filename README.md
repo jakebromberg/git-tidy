@@ -213,6 +213,14 @@ Merge order: `(defaults - exclude) + config extra + CLI extra`. The `--no-defaul
 | 1 | Error during scan or removal |
 | 2 | Dirty worktrees blocked removal (rerun with `--force`) |
 
+## Development
+
+After cloning, enable the pre-commit hook (runs `cargo fmt --check`):
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Workspace Structure
 
 ```

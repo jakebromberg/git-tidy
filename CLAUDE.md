@@ -8,6 +8,14 @@ cargo test --workspace
 cargo test --workspace -- --test-threads=1  # if tests interfere with each other
 ```
 
+## Git Hooks
+
+After cloning, enable the pre-commit hook (runs `cargo fmt --check`):
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Architecture
 
 This is a Cargo workspace with a shared core library and five binary crates.
