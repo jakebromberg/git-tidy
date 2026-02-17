@@ -20,6 +20,10 @@ Scans a directory of Git repos, classifies stash entries by staleness (committed
 
 Scans a directory of Git repos, classifies remotes by reachability (unreachable, orphaned, active), and interactively removes stale remotes and orphaned tracking refs.
 
+### git-tag-tidy
+
+Scans a directory of Git repos, classifies tags by staleness and sync status (stale, local_only, remote_only, synced), and interactively removes stale or local-only tags.
+
 ## Installation
 
 Requires Rust 1.93.0 or later (edition 2024).
@@ -29,6 +33,7 @@ cargo install --path crates/git-worktree-tidy
 cargo install --path crates/git-branch-tidy
 cargo install --path crates/git-stash-tidy
 cargo install --path crates/git-remote-tidy
+cargo install --path crates/git-tag-tidy
 ```
 
 ## Usage
@@ -102,6 +107,27 @@ git-remote-tidy clean ~/Developer --force            # allow removing origin
 git-remote-tidy clean ~/Developer --dry-run          # preview removals
 ```
 
+### git-tag-tidy
+
+```bash
+# Scan tags (default command)
+git-tag-tidy scan ~/Developer
+git-tag-tidy ~/Developer                # scan is the default
+git-tag-tidy scan ~/Developer --json     # JSON output
+git-tag-tidy scan ~/Developer --porcelain  # machine-readable
+
+# Offline mode (skip remote tag queries)
+git-tag-tidy --offline scan ~/Developer
+
+# Clean stale tags
+git-tag-tidy clean ~/Developer                    # remove stale + local-only
+git-tag-tidy clean ~/Developer --stale-only        # only stale tags
+git-tag-tidy clean ~/Developer --local-only        # only local-only tags
+git-tag-tidy clean ~/Developer --all               # stale + local-only + remote-only
+git-tag-tidy clean ~/Developer --include-remote    # also delete from remote
+git-tag-tidy clean ~/Developer --dry-run           # preview removals
+```
+
 ## Classifications
 
 ### Worktree and branch classifications
@@ -122,6 +148,15 @@ git-remote-tidy clean ~/Developer --dry-run          # preview removals
 | **orphaned** | Branch from stash message no longer exists locally | Safe |
 | **aged** | Older than `--age-threshold` days (default 90) | Review recommended |
 | **active** | None of the above; still relevant | Keep |
+
+### Tag classifications
+
+| Classification | Meaning | Removal safety |
+|----------------|---------|----------------|
+| **stale** | Tag points at a commit not reachable from any branch | Safe |
+| **local_only** | Tag exists locally but not on any configured remote | Safe |
+| **remote_only** | Tag exists on remote but not locally | Info only |
+| **synced** | Tag exists both locally and on remote, commit is reachable | Keep |
 
 ### Remote classifications
 
@@ -187,4 +222,5 @@ crates/
   git-branch-tidy/        Branch scanner/cleaner binary
   git-stash-tidy/         Stash scanner/cleaner binary
   git-remote-tidy/        Remote scanner/cleaner binary
+  git-tag-tidy/           Tag scanner/cleaner binary
 ```

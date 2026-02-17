@@ -148,6 +148,34 @@ pub trait GitOps {
 
     /// Drop a stash entry.
     fn stash_drop(&self, repo: &Path, stash_ref: &str) -> GitResult<()>;
+
+    // --- Tag operations ---
+
+    /// List all local tags in a repo.
+    fn list_local_tags(&self, repo: &Path) -> GitResult<Vec<String>>;
+
+    /// List tags on a remote.
+    /// Returns `Vec<(tag_name, commit_sha)>`.
+    /// For annotated tags, prefers the dereferenced (`^{}`) commit SHA.
+    fn list_remote_tags(&self, repo: &Path, remote: &str) -> GitResult<Vec<(String, String)>>;
+
+    /// Get the commit SHA a tag points at (dereferencing annotated tags).
+    fn tag_commit(&self, repo: &Path, tag: &str) -> GitResult<String>;
+
+    /// Check if a commit is reachable from any branch.
+    fn is_commit_reachable(&self, repo: &Path, commit: &str) -> GitResult<bool>;
+
+    /// Delete a local tag.
+    fn tag_delete(&self, repo: &Path, tag: &str) -> GitResult<()>;
+
+    /// Delete a tag on a remote.
+    fn tag_delete_remote(&self, repo: &Path, remote: &str, tag: &str) -> GitResult<()>;
+
+    /// Check if a tag is annotated (vs lightweight).
+    fn is_tag_annotated(&self, repo: &Path, tag: &str) -> GitResult<bool>;
+
+    /// Get the tagger/creator date for a tag (ISO 8601).
+    fn tag_date(&self, repo: &Path, tag: &str) -> GitResult<Option<String>>;
 }
 
 /// Real git implementation that shells out to the `git` binary.
@@ -582,6 +610,99 @@ impl GitOps for RealGit {
             }
         })?;
         Ok(())
+    }
+
+    // --- Tag operations ---
+
+    fn list_local_tags(&self, repo: &Path) -> GitResult<Vec<String>> {
+        let text = Self::run_success(repo, &["tag", "-l"])?;
+        Ok(text
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect())
+    }
+
+    fn list_remote_tags(&self, repo: &Path, remote: &str) -> GitResult<Vec<(String, String)>> {
+        let output = Self::run(repo, &["ls-remote", "--tags", remote])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let Some((sha, refname)) = line.split_once('\t') else {
+                continue;
+            };
+            let refname = refname.trim();
+            let Some(tag_ref) = refname.strip_prefix("refs/tags/") else {
+                continue;
+            };
+            if let Some(tag_name) = tag_ref.strip_suffix("^{}") {
+                // Dereferenced annotated tag -- overwrite entry
+                map.insert(tag_name.to_string(), sha.to_string());
+            } else {
+                // Only insert if we haven't seen a ^{} entry yet
+                map.entry(tag_ref.to_string())
+                    .or_insert_with(|| sha.to_string());
+            }
+        }
+        Ok(map.into_iter().collect())
+    }
+
+    fn tag_commit(&self, repo: &Path, tag: &str) -> GitResult<String> {
+        let refspec = format!("{tag}^{{commit}}");
+        Self::run_success(repo, &["rev-parse", &refspec])
+    }
+
+    fn is_commit_reachable(&self, repo: &Path, commit: &str) -> GitResult<bool> {
+        let output = Self::run(repo, &["branch", "--contains", commit])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        Ok(!text.trim().is_empty())
+    }
+
+    fn tag_delete(&self, repo: &Path, tag: &str) -> GitResult<()> {
+        Self::run_success(repo, &["tag", "-d", tag]).map_err(|_| Error::TagDeletionFailed {
+            repo: repo.to_path_buf(),
+            tag: tag.to_string(),
+            reason: "git tag -d failed".to_string(),
+        })?;
+        Ok(())
+    }
+
+    fn tag_delete_remote(&self, repo: &Path, remote: &str, tag: &str) -> GitResult<()> {
+        let refspec = format!("refs/tags/{tag}");
+        Self::run_success(repo, &["push", remote, "--delete", &refspec]).map_err(|_| {
+            Error::TagDeletionFailed {
+                repo: repo.to_path_buf(),
+                tag: tag.to_string(),
+                reason: format!("git push {remote} --delete refs/tags/{tag} failed"),
+            }
+        })?;
+        Ok(())
+    }
+
+    fn is_tag_annotated(&self, repo: &Path, tag: &str) -> GitResult<bool> {
+        let text = Self::run_success(repo, &["cat-file", "-t", tag])?;
+        Ok(text.trim() == "tag")
+    }
+
+    fn tag_date(&self, repo: &Path, tag: &str) -> GitResult<Option<String>> {
+        let refspec = format!("refs/tags/{tag}");
+        let text = Self::run_success(
+            repo,
+            &[
+                "for-each-ref",
+                "--format=%(creatordate:iso-strict)",
+                &refspec,
+            ],
+        )?;
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(trimmed.to_string()))
+        }
     }
 }
 

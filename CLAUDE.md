@@ -10,13 +10,14 @@ cargo test --workspace -- --test-threads=1  # if tests interfere with each other
 
 ## Architecture
 
-This is a Cargo workspace with a shared core library and four binary crates.
+This is a Cargo workspace with a shared core library and five binary crates.
 
 - **`git-tidy-core`**: Shared library containing git abstraction, classification logic, output helpers, and test utilities.
 - **`git-worktree-tidy`**: Binary crate for scanning and cleaning stale git worktrees.
 - **`git-branch-tidy`**: Binary crate for scanning and cleaning stale local git branches.
 - **`git-stash-tidy`**: Binary crate for scanning and cleaning stale git stashes.
 - **`git-remote-tidy`**: Binary crate for scanning and removing stale git remotes and orphaned tracking refs.
+- **`git-tag-tidy`**: Binary crate for scanning, classifying, and removing stale git tags.
 
 ### Core patterns
 
@@ -39,7 +40,8 @@ All tools follow a similar CLI shape:
 - Worktree/branch-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`
 - Stash-tidy global arg: `--age-threshold` (default 90) instead of `--behind-threshold`/`--verbose`
 - Remote-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
-- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned)
+- Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
+- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`
 
 ## Conventions
 
@@ -122,4 +124,17 @@ crates/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with remote scanning
       integration_clean.rs                    # Real git repos with remote cleanup
+  git-tag-tidy/                              # Tag scanner/cleaner binary
+    src/
+      main.rs                                 # CLI dispatch
+      lib.rs                                  # Public module exports for integration tests
+      cli.rs                                  # clap derive definitions
+      scan.rs                                 # Tag classification and scanning
+      output.rs                               # Human-readable, JSON, porcelain formatters
+      clean.rs                                # Tag deletion with safety guards
+      types.rs                                # TagInfo, TagRepoGroup, TagScanResult
+    tests/
+      common/mod.rs                           # Re-exports from git_tidy_core::testutil
+      integration_scan.rs                     # Real git repos with tag scanning
+      integration_clean.rs                    # Real git repos with tag cleanup
 ```
