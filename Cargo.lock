@@ -267,6 +267,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-config-tidy"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "console",
+ "dialoguer",
+ "git-tidy-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "git-remote-tidy"
 version = "0.1.0"
 dependencies = [

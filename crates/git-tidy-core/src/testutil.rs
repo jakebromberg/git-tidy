@@ -7,6 +7,7 @@ use crate::git::{GitOps, GitResult};
 
 /// Builder for constructing a MockGit with canned responses.
 #[derive(Default)]
+#[allow(clippy::type_complexity)]
 pub struct MockGitBuilder {
     symbolic_ref: HashMap<PathBuf, Option<String>>,
     rev_parse_verify: HashMap<(PathBuf, String), bool>,
@@ -64,6 +65,11 @@ pub struct MockGitBuilder {
     tag_date: HashMap<(PathBuf, String), Option<String>>,
     // Repo-level operations
     last_commit_date: HashMap<PathBuf, Option<String>>,
+    // Config operations
+    config_list_local: HashMap<PathBuf, Vec<(String, String)>>,
+    config_remove_section_errors: HashMap<(PathBuf, String), String>,
+    config_remove_section_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    builtin_commands: Vec<String>,
 }
 
 impl MockGitBuilder {
@@ -399,6 +405,32 @@ impl MockGitBuilder {
     pub fn with_last_commit_date(mut self, repo: &Path, date: Option<&str>) -> Self {
         self.last_commit_date
             .insert(repo.to_path_buf(), date.map(|s| s.to_string()));
+    // --- Config builder methods ---
+
+    pub fn with_config_list_local(
+        mut self,
+        repo: &Path,
+        entries: Vec<(String, String)>,
+    ) -> Self {
+        self.config_list_local.insert(repo.to_path_buf(), entries);
+        self
+    }
+
+    pub fn with_config_remove_section_error(
+        mut self,
+        repo: &Path,
+        section: &str,
+        error: &str,
+    ) -> Self {
+        self.config_remove_section_errors.insert(
+            (repo.to_path_buf(), section.to_string()),
+            error.to_string(),
+        );
+        self
+    }
+
+    pub fn with_builtin_commands(mut self, commands: Vec<String>) -> Self {
+        self.builtin_commands = commands;
         self
     }
 
@@ -456,10 +488,15 @@ impl MockGitBuilder {
             is_tag_annotated: self.is_tag_annotated,
             tag_date: self.tag_date,
             last_commit_date: self.last_commit_date,
+            config_list_local: self.config_list_local,
+            config_remove_section_errors: self.config_remove_section_errors,
+            config_remove_section_calls: self.config_remove_section_calls,
+            builtin_commands: self.builtin_commands,
         }
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub struct MockGit {
     symbolic_ref: HashMap<PathBuf, Option<String>>,
     rev_parse_verify: HashMap<(PathBuf, String), bool>,
@@ -517,6 +554,11 @@ pub struct MockGit {
     tag_date: HashMap<(PathBuf, String), Option<String>>,
     // Repo-level operations
     last_commit_date: HashMap<PathBuf, Option<String>>,
+    // Config operations
+    config_list_local: HashMap<PathBuf, Vec<(String, String)>>,
+    config_remove_section_errors: HashMap<(PathBuf, String), String>,
+    config_remove_section_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    builtin_commands: Vec<String>,
 }
 
 impl MockGit {
@@ -562,6 +604,10 @@ impl MockGit {
 
     pub fn tag_delete_remote_calls(&self) -> Vec<(PathBuf, String, String)> {
         self.tag_delete_remote_calls.borrow().clone()
+    }
+
+    pub fn config_remove_section_calls(&self) -> Vec<(PathBuf, String)> {
+        self.config_remove_section_calls.borrow().clone()
     }
 }
 
@@ -1013,6 +1059,35 @@ impl GitOps for MockGit {
             .get(&repo.to_path_buf())
             .cloned()
             .unwrap_or(None))
+    // --- Config operations ---
+
+    fn config_list_local(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {
+        Ok(self
+            .config_list_local
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn config_remove_section(&self, repo: &Path, section: &str) -> GitResult<()> {
+        if let Some(err) = self
+            .config_remove_section_errors
+            .get(&(repo.to_path_buf(), section.to_string()))
+        {
+            return Err(Error::ConfigRemoveSectionFailed {
+                repo: repo.to_path_buf(),
+                section: section.to_string(),
+                reason: err.clone(),
+            });
+        }
+        self.config_remove_section_calls
+            .borrow_mut()
+            .push((repo.to_path_buf(), section.to_string()));
+        Ok(())
+    }
+
+    fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
+        Ok(self.builtin_commands.clone())
     }
 }
 

@@ -18,7 +18,7 @@ git config core.hooksPath .githooks
 
 ## Architecture
 
-This is a Cargo workspace with a shared core library and six binary crates.
+This is a Cargo workspace with a shared core library and seven binary crates.
 
 - **`git-tidy`**: Audit runner binary that discovers installed `git-*-tidy` tools and produces a consolidated summary. No dependency on `git-tidy-core`.
 - **`git-tidy-core`**: Shared library containing git abstraction, classification logic, output helpers, and test utilities.
@@ -28,6 +28,7 @@ This is a Cargo workspace with a shared core library and six binary crates.
 - **`git-remote-tidy`**: Binary crate for scanning and removing stale git remotes and orphaned tracking refs.
 - **`git-tag-tidy`**: Binary crate for scanning, classifying, and removing stale git tags.
 - **`git-repo-tidy`**: Binary crate for scanning, classifying, and removing stale or orphaned git repos. Most destructive tool in the suite (`rm -rf` on entire repos).
+- **`git-config-tidy`**: Binary crate for linting and fixing common git config issues (orphaned branch config, alias shadowing).
 
 ### Core patterns
 
@@ -54,6 +55,7 @@ All tools follow a similar CLI shape:
 - Repo-tidy global args: `--stale-months` (default 6), `--offline`
 - Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`
 - git-tidy (audit runner): `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`. Uses `ToolRunner` trait instead of `GitOps`. No dependency on `git-tidy-core`.
+- Config-tidy uses **lint/fix** subcommands instead of scan/clean (config issues are "lint findings")
 
 ## Conventions
 
@@ -174,4 +176,17 @@ crates/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with repo scanning
       integration_clean.rs                    # Real git repos with repo cleanup
+  git-config-tidy/                           # Config linter/fixer binary
+    src/
+      main.rs                                 # CLI dispatch
+      lib.rs                                  # Public module exports for integration tests
+      cli.rs                                  # clap derive definitions (lint/fix subcommands)
+      lint.rs                                 # Config issue detection (orphaned branch, alias shadow)
+      output.rs                               # Human-readable, JSON, porcelain formatters
+      fix.rs                                  # Auto-fix logic (config section removal)
+      types.rs                                # ConfigIssue, ConfigRepoGroup, ConfigLintResult
+    tests/
+      common/mod.rs                           # Re-exports from git_tidy_core::testutil
+      integration_lint.rs                     # Real git repos with config linting
+      integration_fix.rs                      # Real git repos with config fixing
 ```

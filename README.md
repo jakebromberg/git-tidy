@@ -31,6 +31,9 @@ Scans a directory of Git repos, classifies tags by staleness and sync status (st
 ### git-repo-tidy
 
 Scans a directory of Git repos, classifies them by activity (stale, orphaned, active), and removes stale or orphaned repos. This is the most destructive tool in the suite -- dirty repos require `--force` to delete.
+### git-config-tidy
+
+Lints local git config for common issues (orphaned branch tracking config, aliases shadowing built-in commands) and auto-fixes the fixable ones.
 
 ## Installation
 
@@ -48,6 +51,7 @@ cargo install --path crates/git-stash-tidy
 cargo install --path crates/git-remote-tidy
 cargo install --path crates/git-tag-tidy
 cargo install --path crates/git-repo-tidy
+cargo install --path crates/git-config-tidy
 ```
 
 ## Usage
@@ -163,6 +167,19 @@ git-repo-tidy clean ~/Developer --stale-only      # only stale repos
 git-repo-tidy clean ~/Developer --orphaned-only   # only orphaned repos
 git-repo-tidy clean ~/Developer --force            # allow deleting dirty repos
 git-repo-tidy clean ~/Developer --dry-run          # preview deletions
+### git-config-tidy
+
+```bash
+# Lint config (default command)
+git-config-tidy lint ~/Developer
+git-config-tidy ~/Developer                # lint is the default
+git-config-tidy lint ~/Developer --json     # JSON output
+git-config-tidy lint ~/Developer --porcelain  # machine-readable
+
+# Fix auto-fixable issues
+git-config-tidy fix ~/Developer                    # fix interactively
+git-config-tidy fix ~/Developer --dry-run           # preview fixes
+git-config-tidy fix ~/Developer --yes               # skip confirmation
 ```
 
 ### git-tidy (audit runner)
@@ -224,6 +241,12 @@ git-tidy ~/Developer --tools branch,tag  # run only specific tools
 | **active** | Recent commits and/or reachable remote | Keep |
 
 Dirty status is tracked independently; dirty repos require `--force` to delete regardless of classification.
+### Config issue types
+
+| Issue | Severity | Auto-fixable | Meaning |
+|-------|----------|-------------|---------|
+| **orphaned_branch_config** | Warning | Yes | `branch.foo.remote`/`branch.foo.merge` exist but branch `foo` does not |
+| **alias_shadows_builtin** | Info | No | `alias.X` in local config shadows a built-in git command |
 
 ## Annotations
 
@@ -292,4 +315,5 @@ crates/
   git-remote-tidy/        Remote scanner/cleaner binary
   git-tag-tidy/           Tag scanner/cleaner binary
   git-repo-tidy/          Repo scanner/cleaner binary
+  git-config-tidy/        Config linter/fixer binary
 ```
