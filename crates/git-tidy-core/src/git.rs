@@ -192,6 +192,33 @@ pub trait GitOps {
 
     /// List built-in git command names (global, not repo-specific).
     fn list_builtin_commands(&self) -> GitResult<Vec<String>>;
+
+    // --- LFS operations ---
+
+    /// Check if git-lfs is installed.
+    fn lfs_installed(&self) -> GitResult<bool>;
+
+    /// List LFS tracked files.
+    /// Returns `(oid, status, path)` where status is `*` (present) or `-` (missing).
+    fn lfs_ls_files(&self, repo: &Path) -> GitResult<Vec<(String, char, String)>>;
+
+    /// Get current LFS tracking patterns from `.gitattributes`.
+    fn lfs_track_patterns(&self, repo: &Path) -> GitResult<Vec<String>>;
+
+    /// Dry-run LFS prune: returns `(count, bytes)` of prunable objects.
+    fn lfs_prune_dry_run(&self, repo: &Path) -> GitResult<(usize, u64)>;
+
+    /// Remove orphaned LFS objects.
+    fn lfs_prune(&self, repo: &Path) -> GitResult<()>;
+
+    /// Find blobs above `threshold` bytes in the last `depth` commits.
+    /// Returns `(hash, size, path)` tuples.
+    fn find_large_blobs(
+        &self,
+        repo: &Path,
+        threshold: u64,
+        depth: usize,
+    ) -> GitResult<Vec<(String, u64, String)>>;
 }
 
 /// Real git implementation that shells out to the `git` binary.
@@ -269,8 +296,8 @@ impl RealGit {
         }
     }
 
-    /// Run a global git command (no `-C <repo>` prefix).
-    fn run_global(args: &[&str]) -> GitResult<String> {
+    /// Run a git command without `-C <repo>` (for global queries like `git lfs version`).
+    fn run_global(args: &[&str]) -> GitResult<std::process::Output> {
         let output = Command::new("git")
             .args(args)
             .output()
@@ -278,6 +305,13 @@ impl RealGit {
                 command: format!("git {}", args.join(" ")),
                 message: e.to_string(),
             })?;
+        Ok(output)
+    }
+
+    /// Run a global git command and return trimmed stdout as a String.
+    /// Fails if the command exits with a non-zero status.
+    fn run_global_text(args: &[&str]) -> GitResult<String> {
+        let output = Self::run_global(args)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             return Err(Error::GitCommand {
@@ -769,6 +803,34 @@ impl GitOps for RealGit {
         Ok(result)
     }
 
+    // --- LFS operations ---
+
+    fn lfs_installed(&self) -> GitResult<bool> {
+        let output = Self::run_global(&["lfs", "version"])?;
+        Ok(output.status.success())
+    }
+
+    fn lfs_ls_files(&self, repo: &Path) -> GitResult<Vec<(String, char, String)>> {
+        let output = Self::run(repo, &["lfs", "ls-files", "--long"])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut result = Vec::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            // Format: "<oid> <status> <path>"
+            // e.g. "abc123def456... * large-file.bin"
+            // e.g. "abc123def456... - missing-file.bin"
+            if let Some((oid, rest)) = line.split_once(' ')
+                && let Some((status_str, path)) = rest.split_once(' ')
+            {
+                let status = status_str.chars().next().unwrap_or('*');
+                result.push((oid.to_string(), status, path.to_string()));
+            }
+        }
+        Ok(result)
+    }
+
     fn config_remove_section(&self, repo: &Path, section: &str) -> GitResult<()> {
         Self::run_success(repo, &["config", "--remove-section", section]).map_err(|_| {
             Error::ConfigRemoveSectionFailed {
@@ -780,14 +842,198 @@ impl GitOps for RealGit {
         Ok(())
     }
 
+    fn lfs_track_patterns(&self, repo: &Path) -> GitResult<Vec<String>> {
+        let output = Self::run(repo, &["lfs", "track"])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut patterns = Vec::new();
+        for line in text.lines() {
+            // Lines look like: "    *.bin (.gitattributes)"
+            let trimmed = line.trim();
+            if let Some(pattern) = trimmed.strip_suffix(')')
+                && let Some((pat, _attr_file)) = pattern.rsplit_once(" (")
+            {
+                patterns.push(pat.to_string());
+            }
+        }
+        Ok(patterns)
+    }
+
+    fn lfs_prune_dry_run(&self, repo: &Path) -> GitResult<(usize, u64)> {
+        let output = Self::run(repo, &["lfs", "prune", "--dry-run"])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        // Parse output like: "4 local objects, 1 retained\npruning 2 files, (1.2 MB)"
+        // or: "✔ 3 local objects, 1 retained, done.\n✔ Pruning 2 files, (1.2 MB)"
+        parse_lfs_prune_dry_run(&text)
+    }
+
+    fn lfs_prune(&self, repo: &Path) -> GitResult<()> {
+        Self::run_success(repo, &["lfs", "prune"]).map_err(|_| Error::LfsPruneFailed {
+            repo: repo.to_path_buf(),
+            reason: "git lfs prune failed".to_string(),
+        })?;
+        Ok(())
+    }
+
     fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
-        let text = Self::run_global(&["--list-cmds=main,others"])?;
+        let text = Self::run_global_text(&["--list-cmds=main,others"])?;
         Ok(text
             .lines()
             .filter(|l| !l.is_empty())
             .map(|l| l.to_string())
             .collect())
     }
+
+    fn find_large_blobs(
+        &self,
+        repo: &Path,
+        threshold: u64,
+        depth: usize,
+    ) -> GitResult<Vec<(String, u64, String)>> {
+        use std::collections::HashMap;
+        use std::io::{BufRead, BufReader, Write as IoWrite};
+        use std::process::Stdio;
+
+        // Phase 1: Get all objects with paths
+        let depth_str = depth.to_string();
+        let output = Self::run(
+            repo,
+            &["rev-list", "--objects", "--all", "--max-count", &depth_str],
+        )?;
+        let rev_list_text = String::from_utf8_lossy(&output.stdout);
+
+        // Build hash-to-path mapping and collect blob candidates
+        let mut hash_to_path: HashMap<String, String> = HashMap::new();
+        let mut all_hashes: Vec<String> = Vec::new();
+
+        for line in rev_list_text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            if let Some((hash, path)) = line.split_once(' ')
+                && !path.is_empty()
+            {
+                hash_to_path.insert(hash.to_string(), path.to_string());
+                all_hashes.push(hash.to_string());
+            }
+        }
+
+        if all_hashes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Phase 2: Feed hashes to cat-file --batch-check to get sizes
+        let mut child = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["cat-file", "--batch-check"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| Error::GitCommand {
+                command: "git cat-file --batch-check".to_string(),
+                message: e.to_string(),
+            })?;
+
+        // Write all hashes to stdin, then drop to close the pipe (signals EOF).
+        {
+            let mut stdin = child.stdin.take().ok_or_else(|| Error::GitCommand {
+                command: "git cat-file --batch-check".to_string(),
+                message: "failed to open stdin".to_string(),
+            })?;
+            for hash in &all_hashes {
+                writeln!(stdin, "{hash}").map_err(|e| Error::GitCommand {
+                    command: "git cat-file --batch-check".to_string(),
+                    message: e.to_string(),
+                })?;
+            }
+        }
+
+        // Read results: "<hash> <type> <size>" per line
+        let stdout = child.stdout.take().ok_or_else(|| Error::GitCommand {
+            command: "git cat-file --batch-check".to_string(),
+            message: "failed to capture stdout".to_string(),
+        })?;
+        let reader = BufReader::new(stdout);
+
+        let mut result = Vec::new();
+        for line in reader.lines() {
+            let line = line.map_err(|e| Error::GitCommand {
+                command: "git cat-file --batch-check".to_string(),
+                message: e.to_string(),
+            })?;
+            // Format: "<hash> blob <size>" or "<hash> tree <size>" etc.
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() == 3
+                && parts[1] == "blob"
+                && let Ok(size) = parts[2].parse::<u64>()
+                && size >= threshold
+                && let Some(path) = hash_to_path.get(parts[0])
+            {
+                result.push((parts[0].to_string(), size, path.clone()));
+            }
+        }
+
+        let _ = child.wait();
+
+        // Sort by size descending for readability
+        result.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(result)
+    }
+}
+
+/// Parse the output of `git lfs prune --dry-run`.
+///
+/// Handles formats like:
+/// - `"pruning 2 files, (1.2 MB)"`
+/// - `"Pruning 2 files, (1.2 MB)"`
+///
+/// Returns `(count, bytes)`. Returns `(0, 0)` if the output cannot be parsed.
+fn parse_lfs_prune_dry_run(text: &str) -> GitResult<(usize, u64)> {
+    for line in text.lines() {
+        let lower = line.to_lowercase();
+        if let Some(rest) = lower.strip_prefix("pruning ").or_else(|| {
+            // Handle lines with unicode checkmark prefix
+            lower
+                .find("pruning ")
+                .map(|idx| &lower[idx + "pruning ".len()..])
+        }) {
+            // "2 files, (1.2 MB)"
+            if let Some((count_str, _)) = rest.split_once(' ') {
+                let count = count_str.parse::<usize>().unwrap_or(0);
+                // Extract size from parentheses
+                if let Some(paren_start) = line.find('(')
+                    && let Some(paren_end) = line.find(')')
+                {
+                    let size_str = &line[paren_start + 1..paren_end];
+                    let bytes = parse_human_bytes(size_str);
+                    return Ok((count, bytes));
+                }
+                return Ok((count, 0));
+            }
+        }
+    }
+    Ok((0, 0))
+}
+
+/// Parse human-readable byte sizes like "1.2 MB", "500 KB", "2 GB", "1024 B".
+fn parse_human_bytes(s: &str) -> u64 {
+    let s = s.trim();
+    let (num_str, suffix) = s
+        .rfind(|c: char| c.is_ascii_digit() || c == '.')
+        .map(|idx| (&s[..=idx], s[idx + 1..].trim()))
+        .unwrap_or((s, ""));
+
+    let num: f64 = num_str.parse().unwrap_or(0.0);
+    let multiplier: f64 = match suffix.to_uppercase().as_str() {
+        "B" | "" => 1.0,
+        "KB" | "K" => 1_000.0,
+        "MB" | "M" => 1_000_000.0,
+        "GB" | "G" => 1_000_000_000.0,
+        "TB" | "T" => 1_000_000_000_000.0,
+        _ => 1.0,
+    };
+    (num * multiplier) as u64
 }
 
 #[cfg(test)]
@@ -827,5 +1073,57 @@ mod tests {
                 "feat: add multi word feature support".to_string()
             )
         );
+    }
+
+    #[test]
+    fn parse_lfs_prune_dry_run_basic() {
+        let output = "4 local objects, 1 retained\npruning 2 files, (1.2 MB)\n";
+        let (count, bytes) = parse_lfs_prune_dry_run(output).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(bytes, 1_200_000);
+    }
+
+    #[test]
+    fn parse_lfs_prune_dry_run_with_checkmark() {
+        let output =
+            "\u{2714} 3 local objects, 1 retained, done.\n\u{2714} Pruning 2 files, (500 KB)\n";
+        let (count, bytes) = parse_lfs_prune_dry_run(output).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(bytes, 500_000);
+    }
+
+    #[test]
+    fn parse_lfs_prune_dry_run_no_match() {
+        let output = "nothing to prune\n";
+        let (count, bytes) = parse_lfs_prune_dry_run(output).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(bytes, 0);
+    }
+
+    #[test]
+    fn parse_human_bytes_various() {
+        assert_eq!(parse_human_bytes("1024 B"), 1024);
+        assert_eq!(parse_human_bytes("500 KB"), 500_000);
+        assert_eq!(parse_human_bytes("1.2 MB"), 1_200_000);
+        assert_eq!(parse_human_bytes("2 GB"), 2_000_000_000);
+        assert_eq!(parse_human_bytes("1.5 GB"), 1_500_000_000);
+    }
+
+    #[test]
+    fn parse_human_bytes_short_suffix() {
+        assert_eq!(parse_human_bytes("1 K"), 1_000);
+        assert_eq!(parse_human_bytes("5 M"), 5_000_000);
+        assert_eq!(parse_human_bytes("1 G"), 1_000_000_000);
+    }
+
+    #[test]
+    fn parse_human_bytes_no_suffix() {
+        assert_eq!(parse_human_bytes("1024"), 1024);
+    }
+
+    #[test]
+    fn parse_human_bytes_invalid() {
+        assert_eq!(parse_human_bytes("not a size"), 0);
+        assert_eq!(parse_human_bytes(""), 0);
     }
 }

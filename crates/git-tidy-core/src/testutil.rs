@@ -70,6 +70,14 @@ pub struct MockGitBuilder {
     config_remove_section_errors: HashMap<(PathBuf, String), String>,
     config_remove_section_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
     builtin_commands: Vec<String>,
+    // LFS operations
+    lfs_installed: bool,
+    lfs_ls_files: HashMap<PathBuf, Vec<(String, char, String)>>,
+    lfs_track_patterns: HashMap<PathBuf, Vec<String>>,
+    lfs_prune_dry_run: HashMap<PathBuf, (usize, u64)>,
+    lfs_prune_errors: HashMap<PathBuf, String>,
+    lfs_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
+    find_large_blobs: HashMap<PathBuf, Vec<(String, u64, String)>>,
 }
 
 impl MockGitBuilder {
@@ -430,6 +438,40 @@ impl MockGitBuilder {
         self
     }
 
+    // --- LFS builder methods ---
+
+    pub fn with_lfs_installed(mut self, installed: bool) -> Self {
+        self.lfs_installed = installed;
+        self
+    }
+
+    pub fn with_lfs_ls_files(mut self, repo: &Path, files: Vec<(String, char, String)>) -> Self {
+        self.lfs_ls_files.insert(repo.to_path_buf(), files);
+        self
+    }
+
+    pub fn with_lfs_track_patterns(mut self, repo: &Path, patterns: Vec<String>) -> Self {
+        self.lfs_track_patterns.insert(repo.to_path_buf(), patterns);
+        self
+    }
+
+    pub fn with_lfs_prune_dry_run(mut self, repo: &Path, count: usize, bytes: u64) -> Self {
+        self.lfs_prune_dry_run
+            .insert(repo.to_path_buf(), (count, bytes));
+        self
+    }
+
+    pub fn with_lfs_prune_error(mut self, repo: &Path, error: &str) -> Self {
+        self.lfs_prune_errors
+            .insert(repo.to_path_buf(), error.to_string());
+        self
+    }
+
+    pub fn with_find_large_blobs(mut self, repo: &Path, blobs: Vec<(String, u64, String)>) -> Self {
+        self.find_large_blobs.insert(repo.to_path_buf(), blobs);
+        self
+    }
+
     pub fn build(self) -> MockGit {
         MockGit {
             symbolic_ref: self.symbolic_ref,
@@ -488,6 +530,13 @@ impl MockGitBuilder {
             config_remove_section_errors: self.config_remove_section_errors,
             config_remove_section_calls: self.config_remove_section_calls,
             builtin_commands: self.builtin_commands,
+            lfs_installed: self.lfs_installed,
+            lfs_ls_files: self.lfs_ls_files,
+            lfs_track_patterns: self.lfs_track_patterns,
+            lfs_prune_dry_run: self.lfs_prune_dry_run,
+            lfs_prune_errors: self.lfs_prune_errors,
+            lfs_prune_calls: self.lfs_prune_calls,
+            find_large_blobs: self.find_large_blobs,
         }
     }
 }
@@ -555,6 +604,14 @@ pub struct MockGit {
     config_remove_section_errors: HashMap<(PathBuf, String), String>,
     config_remove_section_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
     builtin_commands: Vec<String>,
+    // LFS operations
+    lfs_installed: bool,
+    lfs_ls_files: HashMap<PathBuf, Vec<(String, char, String)>>,
+    lfs_track_patterns: HashMap<PathBuf, Vec<String>>,
+    lfs_prune_dry_run: HashMap<PathBuf, (usize, u64)>,
+    lfs_prune_errors: HashMap<PathBuf, String>,
+    lfs_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
+    find_large_blobs: HashMap<PathBuf, Vec<(String, u64, String)>>,
 }
 
 impl MockGit {
@@ -604,6 +661,10 @@ impl MockGit {
 
     pub fn config_remove_section_calls(&self) -> Vec<(PathBuf, String)> {
         self.config_remove_section_calls.borrow().clone()
+    }
+
+    pub fn lfs_prune_calls(&self) -> Vec<PathBuf> {
+        self.lfs_prune_calls.borrow().clone()
     }
 }
 
@@ -1066,6 +1127,20 @@ impl GitOps for MockGit {
             .unwrap_or_default())
     }
 
+    // --- LFS operations ---
+
+    fn lfs_installed(&self) -> GitResult<bool> {
+        Ok(self.lfs_installed)
+    }
+
+    fn lfs_ls_files(&self, repo: &Path) -> GitResult<Vec<(String, char, String)>> {
+        Ok(self
+            .lfs_ls_files
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
     fn config_remove_section(&self, repo: &Path, section: &str) -> GitResult<()> {
         if let Some(err) = self
             .config_remove_section_errors
@@ -1085,6 +1160,45 @@ impl GitOps for MockGit {
 
     fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
         Ok(self.builtin_commands.clone())
+    }
+
+    fn lfs_track_patterns(&self, repo: &Path) -> GitResult<Vec<String>> {
+        Ok(self
+            .lfs_track_patterns
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn lfs_prune_dry_run(&self, repo: &Path) -> GitResult<(usize, u64)> {
+        Ok(*self
+            .lfs_prune_dry_run
+            .get(&repo.to_path_buf())
+            .unwrap_or(&(0, 0)))
+    }
+
+    fn lfs_prune(&self, repo: &Path) -> GitResult<()> {
+        if let Some(err) = self.lfs_prune_errors.get(&repo.to_path_buf()) {
+            return Err(Error::LfsPruneFailed {
+                repo: repo.to_path_buf(),
+                reason: err.clone(),
+            });
+        }
+        self.lfs_prune_calls.borrow_mut().push(repo.to_path_buf());
+        Ok(())
+    }
+
+    fn find_large_blobs(
+        &self,
+        repo: &Path,
+        _threshold: u64,
+        _depth: usize,
+    ) -> GitResult<Vec<(String, u64, String)>> {
+        Ok(self
+            .find_large_blobs
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
     }
 }
 

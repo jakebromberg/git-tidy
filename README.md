@@ -35,6 +35,10 @@ Scans a directory of Git repos, classifies them by activity (stale, orphaned, ac
 
 Lints local git config for common issues (orphaned branch tracking config, aliases shadowing built-in commands) and auto-fixes the fixable ones.
 
+### git-lfs-tidy
+
+Scans a directory of Git repos for LFS health issues: large blobs not tracked by LFS, missing LFS objects, orphaned prunable objects, and healthy tracked files. Optionally prunes orphaned LFS objects.
+
 ## Installation
 
 Requires Rust 1.93.0 or later (edition 2024).
@@ -52,6 +56,7 @@ cargo install --path crates/git-remote-tidy
 cargo install --path crates/git-tag-tidy
 cargo install --path crates/git-repo-tidy
 cargo install --path crates/git-config-tidy
+cargo install --path crates/git-lfs-tidy
 ```
 
 ## Usage
@@ -182,6 +187,25 @@ git-config-tidy fix ~/Developer --dry-run           # preview fixes
 git-config-tidy fix ~/Developer --yes               # skip confirmation
 ```
 
+### git-lfs-tidy
+
+```bash
+# Scan for LFS health issues (default command)
+git-lfs-tidy scan ~/Developer
+git-lfs-tidy ~/Developer                          # scan is the default
+git-lfs-tidy scan ~/Developer --json               # JSON output
+git-lfs-tidy scan ~/Developer --porcelain          # machine-readable
+
+# Custom thresholds
+git-lfs-tidy scan ~/Developer --size-threshold 500KB  # flag files above 500KB
+git-lfs-tidy scan ~/Developer --depth 500              # scan last 500 commits
+
+# Clean up orphaned LFS objects
+git-lfs-tidy clean ~/Developer --prune             # prune orphaned LFS objects
+git-lfs-tidy clean ~/Developer --prune --dry-run   # preview what would be pruned
+git-lfs-tidy clean ~/Developer --prune --yes       # skip confirmation
+```
+
 ### git-tidy (audit runner)
 
 ```bash
@@ -223,6 +247,15 @@ git-tidy ~/Developer --tools branch,tag  # run only specific tools
 | **local_only** | Tag exists locally but not on any configured remote | Safe |
 | **remote_only** | Tag exists on remote but not locally | Info only |
 | **synced** | Tag exists both locally and on remote, commit is reachable | Keep |
+
+### LFS classifications
+
+| Classification | Meaning | Clean action |
+|----------------|---------|--------------|
+| **untracked** | Large blob (above `--size-threshold`) not in LFS tracking | Info only (recommend `git lfs migrate`) |
+| **missing** | LFS pointer exists but object missing locally | Info only (recommend `git lfs fetch --all`) |
+| **orphaned** | Prunable LFS objects (no branch refs) | `git lfs prune` (requires `--prune`) |
+| **healthy** | Properly tracked and present | Keep |
 
 ### Remote classifications
 
@@ -316,4 +349,5 @@ crates/
   git-tag-tidy/           Tag scanner/cleaner binary
   git-repo-tidy/          Repo scanner/cleaner binary
   git-config-tidy/        Config linter/fixer binary
+  git-lfs-tidy/           LFS health scanner/cleaner binary
 ```

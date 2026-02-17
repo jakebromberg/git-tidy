@@ -54,6 +54,9 @@ pub enum Error {
         reason: String,
     },
 
+    #[error("LFS prune failed in {repo}: {reason}")]
+    LfsPruneFailed { repo: PathBuf, reason: String },
+
     #[error("dirty worktrees blocked removal (rerun with --force)")]
     DirtyBlocked,
 
