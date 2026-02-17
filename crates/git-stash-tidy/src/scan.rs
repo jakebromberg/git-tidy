@@ -290,7 +290,7 @@ mod tests {
         // run_scan is tested via integration tests with real repos.
 
         // Instead, verify classification sorting order
-        let mut infos = vec![
+        let mut infos = [
             StashInfo {
                 repo_path: repo(),
                 stash_ref: "stash@{0}".to_string(),
@@ -317,7 +317,7 @@ mod tests {
             },
         ];
 
-        infos.sort_by_key(|s| s.classification.priority());
+        infos.sort_by_key(|s: &StashInfo| s.classification.priority());
 
         assert_eq!(infos[0].classification, StashClassification::Committed);
         assert_eq!(infos[1].classification, StashClassification::Orphaned);
