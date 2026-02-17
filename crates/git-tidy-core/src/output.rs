@@ -1,6 +1,9 @@
-//! Shared output helpers used by both git-worktree-tidy and git-branch-tidy.
+//! Shared output helpers used by all git-tidy binary crates.
 
 use std::io::Write;
+use std::path::Path;
+
+use serde::Serialize;
 
 use crate::types::{Classification, ScanCounts};
 
@@ -39,6 +42,19 @@ pub fn format_ahead_behind(ahead: usize, behind: usize) -> String {
 /// Returns empty string when the list is empty.
 pub fn format_annotations(annotations: &[&str]) -> String {
     annotations.join(", ")
+}
+
+/// Extract a display name from a repo path (last path component, or full path as fallback).
+pub fn repo_display_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Serialize a value as pretty-printed JSON and write to output.
+pub fn write_json_pretty(out: &mut dyn Write, value: &impl Serialize) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
+    writeln!(out, "{json}")
 }
 
 /// Format the landed ratio for display. Returns empty string for non-landed classifications.
@@ -149,5 +165,32 @@ mod tests {
     #[test]
     fn landed_ratio_other() {
         assert_eq!(format_landed_ratio(&Classification::Active), "");
+    }
+
+    #[test]
+    fn repo_display_name_normal() {
+        use std::path::PathBuf;
+        assert_eq!(
+            repo_display_name(&PathBuf::from("/repos/my-project")),
+            "my-project"
+        );
+    }
+
+    #[test]
+    fn write_json_pretty_basic() {
+        let data = vec!["hello", "world"];
+        let mut buf = Vec::new();
+        write_json_pretty(&mut buf, &data).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed, serde_json::json!(["hello", "world"]));
+    }
+
+    #[test]
+    fn repo_display_name_root_path() {
+        use std::path::PathBuf;
+        let path = PathBuf::from("/");
+        // Root path has no file_name, should fall back to display
+        assert_eq!(repo_display_name(&path), "/");
     }
 }

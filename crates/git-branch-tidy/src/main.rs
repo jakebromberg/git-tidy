@@ -2,6 +2,7 @@ use std::io;
 use std::process;
 
 use clap::Parser;
+use git_tidy_core::error;
 use git_tidy_core::git;
 
 mod clean;
@@ -44,10 +45,7 @@ fn main() {
                         process::exit(1);
                     }
                 }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    process::exit(e.exit_code());
-                }
+                Err(e) => error::exit_with_error(&e),
             }
         }
         Some(cli::Command::Clean {
@@ -79,16 +77,10 @@ fn main() {
                                 process::exit(1);
                             }
                         }
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            process::exit(e.exit_code());
-                        }
+                        Err(e) => error::exit_with_error(&e),
                     }
                 }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    process::exit(e.exit_code());
-                }
+                Err(e) => error::exit_with_error(&e),
             }
         }
     }

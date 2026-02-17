@@ -6,6 +6,7 @@ use git_tidy_core::classification;
 use git_tidy_core::config;
 use git_tidy_core::error;
 use git_tidy_core::git;
+use git_tidy_core::output::repo_display_name;
 use git_tidy_core::types::{RepoGroup, ScanCounts, ScanResult};
 
 mod clean;
@@ -64,10 +65,7 @@ fn main() {
                         process::exit(1);
                     }
                 }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    process::exit(e.exit_code());
-                }
+                Err(e) => error::exit_with_error(&e),
             }
         }
         Some(cli::Command::Clean { .. }) => {
@@ -109,10 +107,7 @@ fn run_scan(
             }
         };
 
-        let repo_name = repo_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo_path.display().to_string());
+        let repo_name = repo_display_name(repo_path);
 
         let mut classified = Vec::new();
         for wt in worktrees {

@@ -52,9 +52,7 @@ pub fn write_json(out: &mut dyn Write, result: &StashScanResult) -> std::io::Res
         .map(JsonStash::from)
         .collect();
 
-    let json = serde_json::to_string_pretty(&all_stashes).map_err(std::io::Error::other)?;
-    writeln!(out, "{json}")?;
-    Ok(())
+    shared::write_json_pretty(out, &all_stashes)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

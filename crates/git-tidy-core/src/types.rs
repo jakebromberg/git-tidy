@@ -46,6 +46,39 @@ impl Classification {
     }
 }
 
+/// Extracted landed fields for JSON serialization.
+#[derive(Debug)]
+pub struct LandedFields {
+    pub ratio: Option<String>,
+    pub total: Option<usize>,
+    pub unmatched: Vec<UnmatchedCommit>,
+}
+
+/// Extract landed ratio, total, and unmatched commits from a classification.
+pub fn extract_landed_fields(classification: &Classification) -> LandedFields {
+    match classification {
+        Classification::Landed { matched, total } => LandedFields {
+            ratio: Some(format!("{matched}/{total}")),
+            total: Some(*total),
+            unmatched: vec![],
+        },
+        Classification::LandedPartial {
+            matched,
+            total,
+            unmatched,
+        } => LandedFields {
+            ratio: Some(format!("{matched}/{total}")),
+            total: Some(*total),
+            unmatched: unmatched.clone(),
+        },
+        _ => LandedFields {
+            ratio: None,
+            total: None,
+            unmatched: vec![],
+        },
+    }
+}
+
 /// A branch commit that did not match any commit on the default branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnmatchedCommit {
@@ -170,21 +203,7 @@ pub struct JsonWorktree {
 
 impl From<&WorktreeInfo> for JsonWorktree {
     fn from(wt: &WorktreeInfo) -> Self {
-        let (landed_ratio, landed_total, unmatched_commits) = match &wt.classification {
-            Classification::Landed { matched, total } => {
-                (Some(format!("{matched}/{total}")), Some(*total), vec![])
-            }
-            Classification::LandedPartial {
-                matched,
-                total,
-                unmatched,
-            } => (
-                Some(format!("{matched}/{total}")),
-                Some(*total),
-                unmatched.clone(),
-            ),
-            _ => (None, None, vec![]),
-        };
+        let landed = extract_landed_fields(&wt.classification);
 
         JsonWorktree {
             path: wt.path.clone(),
@@ -200,9 +219,9 @@ impl From<&WorktreeInfo> for JsonWorktree {
             dirty_files: wt.dirty_files.clone(),
             meaningful_dirty_files: wt.meaningful_dirty_files.clone(),
             diverged: wt.annotations.diverged,
-            landed_ratio,
-            landed_total,
-            unmatched_commits,
+            landed_ratio: landed.ratio,
+            landed_total: landed.total,
+            unmatched_commits: landed.unmatched,
         }
     }
 }
@@ -218,4 +237,56 @@ pub struct ScanResult {
     pub counts: ScanCounts,
     /// Repos that were skipped (e.g. no default branch).
     pub warnings: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_landed_merged() {
+        let c = Classification::Merged;
+        let f = extract_landed_fields(&c);
+        assert!(f.ratio.is_none());
+        assert!(f.total.is_none());
+        assert!(f.unmatched.is_empty());
+    }
+
+    #[test]
+    fn extract_landed_landed() {
+        let c = Classification::Landed {
+            matched: 3,
+            total: 3,
+        };
+        let f = extract_landed_fields(&c);
+        assert_eq!(f.ratio.as_deref(), Some("3/3"));
+        assert_eq!(f.total, Some(3));
+        assert!(f.unmatched.is_empty());
+    }
+
+    #[test]
+    fn extract_landed_partial() {
+        let c = Classification::LandedPartial {
+            matched: 2,
+            total: 5,
+            unmatched: vec![UnmatchedCommit {
+                short_hash: "abc".to_string(),
+                subject: "test".to_string(),
+            }],
+        };
+        let f = extract_landed_fields(&c);
+        assert_eq!(f.ratio.as_deref(), Some("2/5"));
+        assert_eq!(f.total, Some(5));
+        assert_eq!(f.unmatched.len(), 1);
+        assert_eq!(f.unmatched[0].short_hash, "abc");
+    }
+
+    #[test]
+    fn extract_landed_active() {
+        let c = Classification::Active;
+        let f = extract_landed_fields(&c);
+        assert!(f.ratio.is_none());
+        assert!(f.total.is_none());
+        assert!(f.unmatched.is_empty());
+    }
 }

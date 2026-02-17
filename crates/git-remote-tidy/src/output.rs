@@ -58,9 +58,7 @@ pub fn write_json(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Re
         .map(JsonRemote::from)
         .collect();
 
-    let json = serde_json::to_string_pretty(&all_remotes).map_err(std::io::Error::other)?;
-    writeln!(out, "{json}")?;
-    Ok(())
+    shared::write_json_pretty(out, &all_remotes)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

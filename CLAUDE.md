@@ -22,12 +22,15 @@ This is a Cargo workspace with a shared core library and four binary crates.
 
 - **`GitOps` trait** (`git-tidy-core/src/git.rs`): All git operations go through this trait. `RealGit` shells out to `git`; `MockGit` (in `testutil.rs`) returns canned data.
 - **Output to `&mut dyn Write`**: Enables unit testing output formatters without process capture.
-- **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`. Both tools call these to avoid duplicating formatting logic.
+- **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`. All tools call these to avoid duplicating formatting logic.
+- **Shared CLI utilities** (`git-tidy-core/src/cli.rs`): `resolve_directory` for resolving optional directory arguments, used by all tools.
+- **Shared error handling** (`git-tidy-core/src/error.rs`): `exit_with_error` for consistent error-exit behavior across all tools.
+- **Shared type helpers** (`git-tidy-core/src/types.rs`): `extract_landed_fields` for extracting landed ratio/total/unmatched from `Classification` for JSON serialization.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
 - **Sequential repo processing**: No parallelism needed for typical workloads (~9 repos, ~39 worktrees).
 - **Library-first design**: `scan.rs` and `clean.rs` are library functions; `main.rs` is thin dispatch. Enables future tools to call scan as a library.
 
-### CLI pattern (documented convention, not shared code)
+### CLI pattern (shared `resolve_directory`, per-crate `clap` definitions)
 
 All tools follow a similar CLI shape:
 - **Global args**: `directory` (positional, default cwd), plus tool-specific thresholds
@@ -56,15 +59,16 @@ crates/
   git-tidy-core/                              # Shared library
     src/
       lib.rs                                  # Module exports
+      cli.rs                                  # Shared CLI utilities (resolve_directory)
       git.rs                                  # GitOps trait + RealGit implementation
       types.rs                                # Classification, BranchClassification, WorktreeInfo, etc.
-      error.rs                                # thiserror Error enum
+      error.rs                                # thiserror Error enum + exit_with_error
       classification.rs                       # classify_branch + classify_worktree
       config.rs                               # Noise pattern configuration (file + CLI + defaults)
       dirty.rs                                # Status parsing with noise filtering
       discovery.rs                            # Repo discovery (shared by all tools)
       landed.rs                               # Subject matching, fuzzy, patch similarity
-      output.rs                               # Shared output helpers (summary, warnings, formatting)
+      output.rs                               # Shared output helpers (summary, warnings, formatting, JSON)
       testutil.rs                             # MockGitBuilder, MockGit, TestRepo, git() helper
   git-worktree-tidy/                          # Worktree scanner/cleaner binary
     src/

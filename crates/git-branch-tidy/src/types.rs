@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use git_tidy_core::types::{Classification, ScanCounts, UnmatchedCommit};
+use git_tidy_core::types::{Classification, ScanCounts, UnmatchedCommit, extract_landed_fields};
 use serde::Serialize;
 
 /// Information about a single local branch.
@@ -72,21 +72,7 @@ pub struct JsonBranch {
 
 impl From<&BranchInfo> for JsonBranch {
     fn from(b: &BranchInfo) -> Self {
-        let (landed_ratio, landed_total, unmatched_commits) = match &b.classification {
-            Classification::Landed { matched, total } => {
-                (Some(format!("{matched}/{total}")), Some(*total), vec![])
-            }
-            Classification::LandedPartial {
-                matched,
-                total,
-                unmatched,
-            } => (
-                Some(format!("{matched}/{total}")),
-                Some(*total),
-                unmatched.clone(),
-            ),
-            _ => (None, None, vec![]),
-        };
+        let landed = extract_landed_fields(&b.classification);
 
         JsonBranch {
             repo_path: b.repo_path.clone(),
@@ -99,9 +85,9 @@ impl From<&BranchInfo> for JsonBranch {
             behind: b.behind,
             diverged: b.diverged,
             is_current: b.is_current,
-            landed_ratio,
-            landed_total,
-            unmatched_commits,
+            landed_ratio: landed.ratio,
+            landed_total: landed.total,
+            unmatched_commits: landed.unmatched,
         }
     }
 }
