@@ -172,18 +172,29 @@ mod tests {
 
     #[test]
     fn issue_kind_priority_order() {
-        assert!(IssueKind::OrphanedBranchConfig.priority() < IssueKind::AliasShadowsBuiltin.priority());
+        assert!(
+            IssueKind::OrphanedBranchConfig.priority() < IssueKind::AliasShadowsBuiltin.priority()
+        );
     }
 
     #[test]
     fn issue_kind_labels() {
-        assert_eq!(IssueKind::OrphanedBranchConfig.label(), "orphaned_branch_config");
-        assert_eq!(IssueKind::AliasShadowsBuiltin.label(), "alias_shadows_builtin");
+        assert_eq!(
+            IssueKind::OrphanedBranchConfig.label(),
+            "orphaned_branch_config"
+        );
+        assert_eq!(
+            IssueKind::AliasShadowsBuiltin.label(),
+            "alias_shadows_builtin"
+        );
     }
 
     #[test]
     fn issue_kind_severity() {
-        assert_eq!(IssueKind::OrphanedBranchConfig.severity(), Severity::Warning);
+        assert_eq!(
+            IssueKind::OrphanedBranchConfig.severity(),
+            Severity::Warning
+        );
         assert_eq!(IssueKind::AliasShadowsBuiltin.severity(), Severity::Info);
     }
 
@@ -253,9 +264,6 @@ mod tests {
 
     #[test]
     fn parse_branch_rejects_unknown_suffix() {
-        assert_eq!(
-            parse_branch_from_config_key("branch.feature.rebase"),
-            None
-        );
+        assert_eq!(parse_branch_from_config_key("branch.feature.rebase"), None);
     }
 }

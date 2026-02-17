@@ -405,13 +405,11 @@ impl MockGitBuilder {
     pub fn with_last_commit_date(mut self, repo: &Path, date: Option<&str>) -> Self {
         self.last_commit_date
             .insert(repo.to_path_buf(), date.map(|s| s.to_string()));
-    // --- Config builder methods ---
+        // --- Config builder methods ---
+        self
+    }
 
-    pub fn with_config_list_local(
-        mut self,
-        repo: &Path,
-        entries: Vec<(String, String)>,
-    ) -> Self {
+    pub fn with_config_list_local(mut self, repo: &Path, entries: Vec<(String, String)>) -> Self {
         self.config_list_local.insert(repo.to_path_buf(), entries);
         self
     }
@@ -422,10 +420,8 @@ impl MockGitBuilder {
         section: &str,
         error: &str,
     ) -> Self {
-        self.config_remove_section_errors.insert(
-            (repo.to_path_buf(), section.to_string()),
-            error.to_string(),
-        );
+        self.config_remove_section_errors
+            .insert((repo.to_path_buf(), section.to_string()), error.to_string());
         self
     }
 
@@ -1059,6 +1055,7 @@ impl GitOps for MockGit {
             .get(&repo.to_path_buf())
             .cloned()
             .unwrap_or(None))
+    }
     // --- Config operations ---
 
     fn config_list_local(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {

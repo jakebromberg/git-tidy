@@ -20,10 +20,7 @@ pub fn lint_repo(
     builtin_commands: &HashSet<String>,
 ) -> Result<Vec<ConfigIssue>, Error> {
     let config_entries = git.config_list_local(repo_path)?;
-    let local_branches: HashSet<String> = git
-        .list_local_branches(repo_path)?
-        .into_iter()
-        .collect();
+    let local_branches: HashSet<String> = git.list_local_branches(repo_path)?.into_iter().collect();
 
     let mut issues = Vec::new();
 
@@ -143,7 +140,10 @@ mod tests {
             .with_config_list_local(
                 &repo(),
                 vec![
-                    ("branch.old-feature.remote".to_string(), "origin".to_string()),
+                    (
+                        "branch.old-feature.remote".to_string(),
+                        "origin".to_string(),
+                    ),
                     (
                         "branch.old-feature.merge".to_string(),
                         "refs/heads/old-feature".to_string(),
@@ -158,10 +158,7 @@ mod tests {
 
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].kind, IssueKind::OrphanedBranchConfig);
-        assert_eq!(
-            issues[0].section,
-            Some("branch.old-feature".to_string())
-        );
+        assert_eq!(issues[0].section, Some("branch.old-feature".to_string()));
         assert!(issues[0].message.contains("old-feature"));
     }
 
@@ -197,8 +194,10 @@ mod tests {
             .with_local_branches(&repo(), vec!["main".to_string()])
             .build();
 
-        let builtins: HashSet<String> =
-            ["log", "commit", "push"].iter().map(|s| s.to_string()).collect();
+        let builtins: HashSet<String> = ["log", "commit", "push"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let issues = lint_repo(&git, &repo(), &builtins).unwrap();
 
         assert_eq!(issues.len(), 1);
@@ -217,8 +216,7 @@ mod tests {
             .with_local_branches(&repo(), vec!["main".to_string()])
             .build();
 
-        let builtins: HashSet<String> =
-            ["log", "commit"].iter().map(|s| s.to_string()).collect();
+        let builtins: HashSet<String> = ["log", "commit"].iter().map(|s| s.to_string()).collect();
         let issues = lint_repo(&git, &repo(), &builtins).unwrap();
 
         assert!(issues.is_empty());

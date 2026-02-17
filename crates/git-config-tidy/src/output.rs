@@ -131,9 +131,9 @@ mod tests {
         assert!(output.contains("info"));
         assert!(output.contains("alias_shadows_builtin"));
         assert!(output.contains("alias.log=log --oneline"));
-        assert!(output.contains(
-            "3 repos scanned: 1 orphaned branch config, 1 alias shadows builtin"
-        ));
+        assert!(
+            output.contains("3 repos scanned: 1 orphaned branch config, 1 alias shadows builtin")
+        );
     }
 
     #[test]
