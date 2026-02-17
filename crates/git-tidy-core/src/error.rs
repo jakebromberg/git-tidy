@@ -56,3 +56,9 @@ impl Error {
         }
     }
 }
+
+/// Print an error message to stderr and exit with the appropriate code.
+pub fn exit_with_error(e: &Error) -> ! {
+    eprintln!("error: {e}");
+    std::process::exit(e.exit_code());
+}

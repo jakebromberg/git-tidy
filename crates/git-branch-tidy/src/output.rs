@@ -79,9 +79,7 @@ pub fn write_json(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Re
         .map(JsonBranch::from)
         .collect();
 
-    let json = serde_json::to_string_pretty(&all_branches).map_err(std::io::Error::other)?;
-    writeln!(out, "{json}")?;
-    Ok(())
+    shared::write_json_pretty(out, &all_branches)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

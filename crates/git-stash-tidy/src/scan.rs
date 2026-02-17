@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::landed::diff_similarity;
+use git_tidy_core::output::repo_display_name;
 
 use crate::types::{
     StashClassification, StashCounts, StashInfo, StashRepoGroup, StashScanResult,
@@ -89,10 +90,7 @@ pub fn run_scan(
             continue;
         }
 
-        let repo_name = repo_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo_path.display().to_string());
+        let repo_name = repo_display_name(repo_path);
 
         let mut classified = Vec::new();
 

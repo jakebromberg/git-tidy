@@ -3,6 +3,7 @@ use std::path::Path;
 use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
+use git_tidy_core::output::repo_display_name;
 use git_tidy_core::types::ScanCounts;
 
 use crate::discovery;
@@ -55,10 +56,7 @@ pub fn run_scan(
         // Detect current branch
         let current = git.current_branch(repo_path).unwrap_or(None);
 
-        let repo_name = repo_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo_path.display().to_string());
+        let repo_name = repo_display_name(repo_path);
 
         let mut classified = Vec::new();
 
