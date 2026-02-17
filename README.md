@@ -14,7 +14,7 @@ Scans a directory of Git repos, classifies local branches by staleness, and inte
 
 ## Installation
 
-Requires Rust 1.85.0 or later (edition 2024).
+Requires Rust 1.93.0 or later (edition 2024).
 
 ```bash
 cargo install --path crates/git-worktree-tidy
