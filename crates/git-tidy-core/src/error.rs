@@ -40,6 +40,13 @@ pub enum Error {
         reason: String,
     },
 
+    #[error("tag deletion failed: {tag} in {repo}: {reason}")]
+    TagDeletionFailed {
+        repo: PathBuf,
+        tag: String,
+        reason: String,
+    },
+
     #[error("dirty worktrees blocked removal (rerun with --force)")]
     DirtyBlocked,
 

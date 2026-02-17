@@ -51,6 +51,17 @@ pub struct MockGitBuilder {
     remote_tracking_refs: HashMap<PathBuf, Vec<(String, String)>>,
     prune_remote_refs_result: HashMap<(PathBuf, String), usize>,
     prune_remote_refs_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    // Tag operations
+    local_tags: HashMap<PathBuf, Vec<String>>,
+    remote_tags: HashMap<(PathBuf, String), Vec<(String, String)>>,
+    tag_commit: HashMap<(PathBuf, String), String>,
+    is_commit_reachable: HashMap<(PathBuf, String), bool>,
+    tag_delete_errors: HashMap<(PathBuf, String), String>,
+    tag_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    tag_delete_remote_errors: HashMap<(PathBuf, String, String), String>,
+    tag_delete_remote_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    is_tag_annotated: HashMap<(PathBuf, String), bool>,
+    tag_date: HashMap<(PathBuf, String), Option<String>>,
 }
 
 impl MockGitBuilder {
@@ -317,6 +328,70 @@ impl MockGitBuilder {
         self
     }
 
+    // --- Tag builder methods ---
+
+    pub fn with_local_tags(mut self, repo: &Path, tags: Vec<String>) -> Self {
+        self.local_tags.insert(repo.to_path_buf(), tags);
+        self
+    }
+
+    pub fn with_remote_tags(
+        mut self,
+        repo: &Path,
+        remote: &str,
+        tags: Vec<(String, String)>,
+    ) -> Self {
+        self.remote_tags
+            .insert((repo.to_path_buf(), remote.to_string()), tags);
+        self
+    }
+
+    pub fn with_tag_commit(mut self, repo: &Path, tag: &str, commit: &str) -> Self {
+        self.tag_commit
+            .insert((repo.to_path_buf(), tag.to_string()), commit.to_string());
+        self
+    }
+
+    pub fn with_is_commit_reachable(mut self, repo: &Path, commit: &str, reachable: bool) -> Self {
+        self.is_commit_reachable
+            .insert((repo.to_path_buf(), commit.to_string()), reachable);
+        self
+    }
+
+    pub fn with_tag_delete_error(mut self, repo: &Path, tag: &str, error: &str) -> Self {
+        self.tag_delete_errors
+            .insert((repo.to_path_buf(), tag.to_string()), error.to_string());
+        self
+    }
+
+    pub fn with_tag_delete_remote_error(
+        mut self,
+        repo: &Path,
+        remote: &str,
+        tag: &str,
+        error: &str,
+    ) -> Self {
+        self.tag_delete_remote_errors.insert(
+            (repo.to_path_buf(), remote.to_string(), tag.to_string()),
+            error.to_string(),
+        );
+        self
+    }
+
+    pub fn with_is_tag_annotated(mut self, repo: &Path, tag: &str, annotated: bool) -> Self {
+        self.is_tag_annotated
+            .insert((repo.to_path_buf(), tag.to_string()), annotated);
+        self
+    }
+
+    pub fn with_tag_date(mut self, repo: &Path, tag: &str, date: Option<&str>) -> Self {
+        self.tag_date.insert(
+            (repo.to_path_buf(), tag.to_string()),
+            date.map(|s| s.to_string()),
+        );
+        self
+    }
+
     pub fn build(self) -> MockGit {
         MockGit {
             symbolic_ref: self.symbolic_ref,
@@ -360,6 +435,16 @@ impl MockGitBuilder {
             remote_tracking_refs: self.remote_tracking_refs,
             prune_remote_refs_result: self.prune_remote_refs_result,
             prune_remote_refs_calls: self.prune_remote_refs_calls,
+            local_tags: self.local_tags,
+            remote_tags: self.remote_tags,
+            tag_commit: self.tag_commit,
+            is_commit_reachable: self.is_commit_reachable,
+            tag_delete_errors: self.tag_delete_errors,
+            tag_delete_calls: self.tag_delete_calls,
+            tag_delete_remote_errors: self.tag_delete_remote_errors,
+            tag_delete_remote_calls: self.tag_delete_remote_calls,
+            is_tag_annotated: self.is_tag_annotated,
+            tag_date: self.tag_date,
         }
     }
 }
@@ -408,6 +493,17 @@ pub struct MockGit {
     remote_tracking_refs: HashMap<PathBuf, Vec<(String, String)>>,
     prune_remote_refs_result: HashMap<(PathBuf, String), usize>,
     prune_remote_refs_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    // Tag operations
+    local_tags: HashMap<PathBuf, Vec<String>>,
+    remote_tags: HashMap<(PathBuf, String), Vec<(String, String)>>,
+    tag_commit: HashMap<(PathBuf, String), String>,
+    is_commit_reachable: HashMap<(PathBuf, String), bool>,
+    tag_delete_errors: HashMap<(PathBuf, String), String>,
+    tag_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    tag_delete_remote_errors: HashMap<(PathBuf, String, String), String>,
+    tag_delete_remote_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    is_tag_annotated: HashMap<(PathBuf, String), bool>,
+    tag_date: HashMap<(PathBuf, String), Option<String>>,
 }
 
 impl MockGit {
@@ -445,6 +541,14 @@ impl MockGit {
 
     pub fn prune_remote_refs_calls(&self) -> Vec<(PathBuf, String)> {
         self.prune_remote_refs_calls.borrow().clone()
+    }
+
+    pub fn tag_delete_calls(&self) -> Vec<(PathBuf, String)> {
+        self.tag_delete_calls.borrow().clone()
+    }
+
+    pub fn tag_delete_remote_calls(&self) -> Vec<(PathBuf, String, String)> {
+        self.tag_delete_remote_calls.borrow().clone()
     }
 }
 
@@ -800,6 +904,93 @@ impl GitOps for MockGit {
             .push((repo.to_path_buf(), stash_ref.to_string()));
         Ok(())
     }
+
+    // --- Tag operations ---
+
+    fn list_local_tags(&self, repo: &Path) -> GitResult<Vec<String>> {
+        Ok(self
+            .local_tags
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn list_remote_tags(&self, repo: &Path, remote: &str) -> GitResult<Vec<(String, String)>> {
+        Ok(self
+            .remote_tags
+            .get(&(repo.to_path_buf(), remote.to_string()))
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn tag_commit(&self, repo: &Path, tag: &str) -> GitResult<String> {
+        self.tag_commit
+            .get(&(repo.to_path_buf(), tag.to_string()))
+            .cloned()
+            .ok_or_else(|| Error::GitCommand {
+                command: format!("rev-parse {tag}^{{commit}}"),
+                message: "not found in mock".to_string(),
+            })
+    }
+
+    fn is_commit_reachable(&self, repo: &Path, commit: &str) -> GitResult<bool> {
+        Ok(*self
+            .is_commit_reachable
+            .get(&(repo.to_path_buf(), commit.to_string()))
+            .unwrap_or(&false))
+    }
+
+    fn tag_delete(&self, repo: &Path, tag: &str) -> GitResult<()> {
+        if let Some(err) = self
+            .tag_delete_errors
+            .get(&(repo.to_path_buf(), tag.to_string()))
+        {
+            return Err(Error::TagDeletionFailed {
+                repo: repo.to_path_buf(),
+                tag: tag.to_string(),
+                reason: err.clone(),
+            });
+        }
+        self.tag_delete_calls
+            .borrow_mut()
+            .push((repo.to_path_buf(), tag.to_string()));
+        Ok(())
+    }
+
+    fn tag_delete_remote(&self, repo: &Path, remote: &str, tag: &str) -> GitResult<()> {
+        if let Some(err) = self.tag_delete_remote_errors.get(&(
+            repo.to_path_buf(),
+            remote.to_string(),
+            tag.to_string(),
+        )) {
+            return Err(Error::TagDeletionFailed {
+                repo: repo.to_path_buf(),
+                tag: tag.to_string(),
+                reason: err.clone(),
+            });
+        }
+        self.tag_delete_remote_calls.borrow_mut().push((
+            repo.to_path_buf(),
+            remote.to_string(),
+            tag.to_string(),
+        ));
+        Ok(())
+    }
+
+    fn is_tag_annotated(&self, repo: &Path, tag: &str) -> GitResult<bool> {
+        Ok(*self
+            .is_tag_annotated
+            .get(&(repo.to_path_buf(), tag.to_string()))
+            .unwrap_or(&false))
+    }
+
+    fn tag_date(&self, repo: &Path, tag: &str) -> GitResult<Option<String>> {
+        Ok(self
+            .tag_date
+            .get(&(repo.to_path_buf(), tag.to_string()))
+            .cloned()
+            .unwrap_or(None))
+    }
 }
 
 /// Helper to set up a real git repo with worktrees in a tempdir for integration tests.
@@ -912,6 +1103,23 @@ impl TestRepo {
         git(&self.main_repo, &["add", filename]);
         git(&self.main_repo, &["stash"]);
         git(&self.main_repo, &["checkout", "main"]);
+    }
+}
+
+impl TestRepo {
+    /// Create a lightweight tag on the current HEAD.
+    pub fn create_tag(&self, name: &str) {
+        git(&self.main_repo, &["tag", name]);
+    }
+
+    /// Create an annotated tag on the current HEAD.
+    pub fn create_annotated_tag(&self, name: &str, message: &str) {
+        git(&self.main_repo, &["tag", "-a", name, "-m", message]);
+    }
+
+    /// Push a tag to the given remote.
+    pub fn push_tag(&self, remote: &str, tag: &str) {
+        git(&self.main_repo, &["push", remote, tag]);
     }
 }
 
