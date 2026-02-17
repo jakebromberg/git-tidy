@@ -29,6 +29,7 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 - **`git-tag-tidy`**: Binary crate for scanning, classifying, and removing stale git tags.
 - **`git-repo-tidy`**: Binary crate for scanning, classifying, and removing stale or orphaned git repos. Most destructive tool in the suite (`rm -rf` on entire repos).
 - **`git-config-tidy`**: Binary crate for linting and fixing common git config issues (orphaned branch config, alias shadowing).
+- **`git-lfs-tidy`**: Binary crate for scanning repos for LFS health issues and cleaning up orphaned LFS objects.
 
 ### Core patterns
 
@@ -53,9 +54,10 @@ All tools follow a similar CLI shape:
 - Remote-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Repo-tidy global args: `--stale-months` (default 6), `--offline`
-- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`
+- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`, lfs-tidy has `--prune` (enable orphaned LFS object removal)
 - git-tidy (audit runner): `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`. Uses `ToolRunner` trait instead of `GitOps`. No dependency on `git-tidy-core`.
 - Config-tidy uses **lint/fix** subcommands instead of scan/clean (config issues are "lint findings")
+- LFS-tidy scan args: `--size-threshold` (default "1MB"), `--depth` (default 1000)
 
 ## Conventions
 
@@ -164,6 +166,7 @@ crates/
       integration_scan.rs                     # Real git repos with tag scanning
       integration_clean.rs                    # Real git repos with tag cleanup
   git-repo-tidy/                             # Repo scanner/cleaner binary
+  git-lfs-tidy/                              # LFS health scanner/cleaner binary
     src/
       main.rs                                 # CLI dispatch
       lib.rs                                  # Public module exports for integration tests
@@ -189,4 +192,17 @@ crates/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_lint.rs                     # Real git repos with config linting
       integration_fix.rs                      # Real git repos with config fixing
+  git-lfs-tidy/                              # LFS health scanner/cleaner binary
+    src/
+      main.rs                                 # CLI dispatch
+      lib.rs                                  # Public module exports for integration tests
+      cli.rs                                  # clap derive definitions
+      scan.rs                                 # LFS health scanning (find_large_blobs, lfs_ls_files)
+      output.rs                               # Human-readable, JSON, porcelain formatters
+      clean.rs                                # LFS prune logic with --prune gate
+      types.rs                                # LfsInfo, LfsRepoGroup, LfsScanResult, LfsClassification
+    tests/
+      common/mod.rs                           # Re-exports from git_tidy_core::testutil
+      integration_scan.rs                     # Real git repos with LFS scanning
+      integration_clean.rs                    # Real git repos with LFS cleanup
 ```
