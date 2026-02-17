@@ -34,7 +34,7 @@ pub fn days_since_iso_date(iso: &str) -> Option<u64> {
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = (y - era * 400) as i64;
+    let yoe = y - era * 400;
     let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
@@ -54,7 +54,7 @@ fn now_date() -> (i64, i64, i64) {
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as i64;
+    let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
