@@ -104,6 +104,7 @@ impl IssueCounts {
         }
     }
 
+    #[allow(dead_code)]
     pub fn total(&self) -> usize {
         self.orphaned_branch_config + self.alias_shadows_builtin
     }

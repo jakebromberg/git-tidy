@@ -14,10 +14,12 @@ pub struct CleanOptions {
     /// Force-delete branches (git branch -D instead of -d).
     pub force: bool,
     /// Skip confirmation prompts.
+    #[allow(dead_code)]
     pub yes: bool,
     /// Only target merged branches.
     pub merged_only: bool,
     /// Target merged and fully landed branches (default behavior).
+    #[allow(dead_code)]
     pub landed: bool,
     /// Include all classifications in the interactive flow.
     pub all: bool,
@@ -26,6 +28,7 @@ pub struct CleanOptions {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct DeletedBranch {
     pub repo: PathBuf,
     pub name: String,

@@ -10,6 +10,7 @@ pub struct DiscoveredWorktree {
     /// Absolute path to the worktree directory.
     pub path: PathBuf,
     /// Absolute path to the parent (main) repo.
+    #[allow(dead_code)]
     pub parent_repo: PathBuf,
 }
 

@@ -87,6 +87,7 @@ impl LfsCounts {
         }
     }
 
+    #[allow(dead_code)]
     pub fn total(&self) -> usize {
         self.untracked + self.missing + self.orphaned + self.healthy
     }

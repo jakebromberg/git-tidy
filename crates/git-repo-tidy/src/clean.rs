@@ -11,6 +11,7 @@ pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
     /// Skip confirmation prompts.
+    #[allow(dead_code)]
     pub yes: bool,
     /// Allow deleting dirty repos.
     pub force: bool,
@@ -19,11 +20,13 @@ pub struct CleanOptions {
     /// Only delete orphaned repos.
     pub orphaned_only: bool,
     /// Delete all non-active repos (stale + orphaned). This is the default.
+    #[allow(dead_code)]
     pub all: bool,
 }
 
 /// Result of a clean operation.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CleanResult {
     /// Repos that were deleted (or would be in dry-run).
     pub deleted: Vec<DeletedRepo>,
@@ -37,6 +40,7 @@ pub struct CleanResult {
 
 /// A repo that was successfully deleted.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct DeletedRepo {
     pub path: PathBuf,
     pub name: String,
@@ -44,6 +48,7 @@ pub struct DeletedRepo {
 
 /// A repo that failed to be deleted.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FailedRepo {
     pub path: PathBuf,
     pub name: String,

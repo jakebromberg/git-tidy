@@ -12,6 +12,7 @@ pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
     /// Skip confirmation prompts.
+    #[allow(dead_code)]
     pub yes: bool,
     /// Allow removing the origin remote.
     pub force: bool,
@@ -21,6 +22,7 @@ pub struct CleanOptions {
 
 /// A remote that was successfully removed.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct RemovedRemote {
     pub repo: PathBuf,
     pub name: String,

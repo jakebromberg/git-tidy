@@ -83,6 +83,7 @@ impl RepoCounts {
         }
     }
 
+    #[allow(dead_code)]
     pub fn total(&self) -> usize {
         self.stale + self.orphaned + self.active
     }

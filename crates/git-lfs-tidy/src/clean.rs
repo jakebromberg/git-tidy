@@ -12,6 +12,7 @@ pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
     /// Skip confirmation prompts.
+    #[allow(dead_code)]
     pub yes: bool,
     /// Enable pruning of orphaned LFS objects.
     pub prune: bool,
@@ -19,6 +20,7 @@ pub struct CleanOptions {
 
 /// Result of a clean operation.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CleanResult {
     /// Repos that were pruned (or would be in dry-run).
     pub pruned: Vec<PrunedRepo>,
@@ -32,6 +34,7 @@ pub struct CleanResult {
 
 /// A repo whose LFS objects were successfully pruned.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct PrunedRepo {
     pub repo: PathBuf,
     pub objects_pruned: usize,
@@ -40,6 +43,7 @@ pub struct PrunedRepo {
 
 /// A repo whose LFS prune failed.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FailedRepo {
     pub repo: PathBuf,
     pub reason: String,

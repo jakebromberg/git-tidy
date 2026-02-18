@@ -12,11 +12,13 @@ pub struct FixOptions {
     /// Preview only: print what would be fixed.
     pub dry_run: bool,
     /// Skip confirmation prompts.
+    #[allow(dead_code)]
     pub yes: bool,
 }
 
 /// A config issue that was successfully fixed.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FixedIssue {
     pub repo: PathBuf,
     pub section: String,
@@ -25,6 +27,7 @@ pub struct FixedIssue {
 
 /// A config issue that failed to fix.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FailedFix {
     pub repo: PathBuf,
     pub section: String,
@@ -34,6 +37,7 @@ pub struct FailedFix {
 
 /// Result of a fix operation.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FixResult {
     /// Issues that were fixed (or would be in dry-run).
     pub fixed: Vec<FixedIssue>,

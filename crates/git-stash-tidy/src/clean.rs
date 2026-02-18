@@ -12,6 +12,7 @@ pub struct CleanOptions {
     /// Preview only: print what would be dropped.
     pub dry_run: bool,
     /// Skip confirmation prompts.
+    #[allow(dead_code)]
     pub yes: bool,
     /// Only target committed stashes.
     pub committed_only: bool,
@@ -22,6 +23,7 @@ pub struct CleanOptions {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct DroppedStash {
     pub repo: PathBuf,
     pub stash_ref: String,
