@@ -2,18 +2,17 @@ use std::io;
 use std::process;
 
 use clap::Parser;
-use git_tidy_core::classification;
-use git_tidy_core::cli::{OutputFormat, validate_directory};
+use git_tidy_core::cli::OutputFormat;
+use git_tidy_core::cli::validate_directory;
 use git_tidy_core::config;
 use git_tidy_core::error;
 use git_tidy_core::git;
-use git_tidy_core::output::repo_display_name;
-use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
 
 mod clean;
 mod cli;
 mod discovery;
 mod output;
+mod scan;
 
 fn main() {
     let cli = cli::Cli::parse();
@@ -47,7 +46,7 @@ fn main() {
                 _ => OutputFormat::Human,
             };
 
-            match run_scan(
+            match scan::run_scan(
                 &git,
                 &directory,
                 cli.behind_threshold,
@@ -79,7 +78,7 @@ fn main() {
             ..
         }) => {
             // First, scan to get the current state
-            match run_scan(
+            match scan::run_scan(
                 &git,
                 &directory,
                 cli.behind_threshold,
@@ -110,80 +109,4 @@ fn main() {
             }
         }
     }
-}
-
-fn run_scan(
-    git: &dyn git::GitOps,
-    directory: &std::path::Path,
-    behind_threshold: usize,
-    verbose: bool,
-    noise_patterns: &[String],
-) -> Result<ScanResult, error::Error> {
-    let groups = discovery::discover_worktrees(directory)?;
-
-    let mut repos = Vec::new();
-    let mut counts = ScanCounts::default();
-    let mut warnings = Vec::new();
-    let mut total_scanned = 0;
-
-    for (repo_path, worktrees) in &groups {
-        // Fetch to get current remote state
-        if let Err(e) = git.fetch_prune(repo_path) {
-            warnings.push(format!("fetch failed for {}: {e}", repo_path.display()));
-        }
-
-        // Detect default branch
-        let default_branch = match classification::detect_default_branch(git, repo_path) {
-            Ok(b) => b,
-            Err(_) => {
-                warnings.push(format!(
-                    "could not determine default branch for {} -- skipping",
-                    repo_path.display()
-                ));
-                continue;
-            }
-        };
-
-        let repo_name = repo_display_name(repo_path);
-
-        let mut classified = Vec::new();
-        for wt in worktrees {
-            match classification::classify_worktree(
-                git,
-                &wt.path,
-                repo_path,
-                &default_branch,
-                behind_threshold,
-                verbose,
-                noise_patterns,
-            ) {
-                Ok(info) => {
-                    counts.increment(&info.classification);
-                    total_scanned += 1;
-                    classified.push(info);
-                }
-                Err(e) => {
-                    warnings.push(format!("error classifying {}: {e}", wt.path.display()));
-                }
-            }
-        }
-
-        // Sort by classification priority
-        classified.sort_by_key(|wt| wt.classification.priority());
-
-        if !classified.is_empty() {
-            repos.push(RepoGroup {
-                repo_path: repo_path.clone(),
-                name: repo_name,
-                worktrees: classified,
-            });
-        }
-    }
-
-    Ok(ScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
 }

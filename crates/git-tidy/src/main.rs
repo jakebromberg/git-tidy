@@ -5,6 +5,7 @@ use clap::Parser;
 
 mod cli;
 mod dispatch;
+mod inprocess;
 mod output;
 mod runner;
 mod types;
@@ -21,14 +22,15 @@ fn main() {
         process::exit(1);
     }
 
-    let (json, porcelain, verbose, tools) = match &cli.command {
+    let (json, porcelain, verbose, tools, subprocess) = match &cli.command {
         Some(cli::Command::Audit {
             json,
             porcelain,
             verbose,
             tools,
-        }) => (*json, *porcelain, *verbose, tools.clone()),
-        None => (false, false, false, vec![]),
+            subprocess,
+        }) => (*json, *porcelain, *verbose, tools.clone(), *subprocess),
+        None => (false, false, false, vec![], false),
     };
 
     let tool_filter = if tools.is_empty() {
@@ -37,8 +39,12 @@ fn main() {
         Some(tools.as_slice())
     };
 
-    let runner = runner::RealToolRunner;
-    let result = runner::run_audit(&runner, &directory, tool_filter);
+    let result = if subprocess {
+        let runner = runner::RealToolRunner;
+        runner::run_audit(&runner, &directory, tool_filter)
+    } else {
+        inprocess::run_audit_inprocess(&directory, tool_filter)
+    };
 
     let mut stdout = io::stdout().lock();
     let write_result = if json {

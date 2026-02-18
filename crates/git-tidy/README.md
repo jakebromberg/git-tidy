@@ -2,6 +2,8 @@
 
 Unified entry point for the git-tidy suite. Dispatches `git tidy <alias> [args...]` to the corresponding `git-*-tidy` binary, and runs a consolidated audit across all installed tools when no alias is given.
 
+By default, the audit runs **in-process**: it calls each tool's scan/lint function directly as a library, sharing a `CachingGitOps` wrapper that deduplicates expensive git operations (fetch, ls-remote, branch listing, etc.) across tools. This avoids redundant subprocess spawning and duplicate git calls.
+
 ## Installation
 
 ```bash
@@ -25,6 +27,9 @@ git-tidy ~/Developer -v
 # Run only specific tools
 git-tidy ~/Developer --tools branch,tag
 git-tidy ~/Developer --tools git-branch-tidy,git-tag-tidy
+
+# Use subprocess mode (shells out to each tool binary, like pre-v0.2 behavior)
+git-tidy audit --subprocess ~/Developer
 ```
 
 ## Tool dispatch
@@ -66,7 +71,7 @@ audit runner (the default behavior).
 | git-config-tidy | config issues | lint | kind |
 | git-lfs-tidy | LFS files | scan | classification |
 
-Only installed tools are run. Missing tools are listed in the output.
+In subprocess mode (`--subprocess`), only installed tools are run. Missing tools are listed in the output. In the default in-process mode, all tools are always available.
 
 ## Human output example
 
