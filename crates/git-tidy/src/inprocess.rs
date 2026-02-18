@@ -144,6 +144,7 @@ fn scan_worktrees(
         DEFAULT_BEHIND_THRESHOLD,
         false,
         noise_patterns,
+        &[],
         progress,
     ) {
         Ok(result) => {

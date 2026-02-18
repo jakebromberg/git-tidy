@@ -94,6 +94,11 @@ git-worktree-tidy clean ~/Developer                    # interactive
 git-worktree-tidy clean ~/Developer --merged-only --yes  # non-interactive, merged only
 git-worktree-tidy clean ~/Developer --landed --yes       # merged + fully landed
 git-worktree-tidy clean ~/Developer --dry-run            # preview removals
+
+# Filter by worktree name (substring match, case-insensitive)
+git-worktree-tidy --match tubafrenzy scan ~/Developer              # only tubafrenzy worktrees
+git-worktree-tidy --match tubafrenzy --match wxyc scan ~/Developer # OR semantics
+git-worktree-tidy --match tubafrenzy clean --dry-run ~/Developer   # clean only matching
 ```
 
 ### git-branch-tidy

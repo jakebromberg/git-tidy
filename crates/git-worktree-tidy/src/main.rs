@@ -54,6 +54,7 @@ fn main() {
                 cli.behind_threshold,
                 cli.verbose,
                 &noise_patterns,
+                &cli.match_patterns,
                 &progress,
             ) {
                 Ok(result) => {
@@ -87,6 +88,7 @@ fn main() {
                 cli.behind_threshold,
                 cli.verbose,
                 &noise_patterns,
+                &cli.match_patterns,
                 &progress,
             ) {
                 Ok(scan_result) => {

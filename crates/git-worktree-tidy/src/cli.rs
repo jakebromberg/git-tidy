@@ -30,6 +30,10 @@ pub struct Cli {
     /// Disable all default noise patterns
     #[arg(long, global = true)]
     pub no_default_noise: bool,
+
+    /// Filter worktrees by name substring (can be repeated, OR semantics)
+    #[arg(long = "match", global = true)]
+    pub match_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -197,6 +201,34 @@ mod tests {
             }
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn match_pattern_single() {
+        let cli = Cli::parse_from(["git-worktree-tidy", "--match", "tubafrenzy"]);
+        assert_eq!(cli.match_patterns, vec!["tubafrenzy".to_string()]);
+    }
+
+    #[test]
+    fn match_pattern_multiple() {
+        let cli = Cli::parse_from([
+            "git-worktree-tidy",
+            "--match",
+            "tubafrenzy",
+            "--match",
+            "wxyc",
+        ]);
+        assert_eq!(
+            cli.match_patterns,
+            vec!["tubafrenzy".to_string(), "wxyc".to_string()]
+        );
+    }
+
+    #[test]
+    fn match_pattern_with_subcommand() {
+        let cli = Cli::parse_from(["git-worktree-tidy", "--match", "tubafrenzy", "scan"]);
+        assert_eq!(cli.match_patterns, vec!["tubafrenzy".to_string()]);
+        assert!(matches!(cli.command, Some(Command::Scan { .. })));
     }
 
     #[test]
