@@ -68,9 +68,46 @@ fn main() {
                 Err(e) => error::exit_with_error(&e),
             }
         }
-        Some(cli::Command::Clean { .. }) => {
-            eprintln!("clean command not yet implemented");
-            process::exit(1);
+        Some(cli::Command::Clean {
+            dry_run,
+            force,
+            yes,
+            merged_only,
+            landed,
+            all,
+            delete_branches,
+            ..
+        }) => {
+            // First, scan to get the current state
+            match run_scan(
+                &git,
+                &directory,
+                cli.behind_threshold,
+                cli.verbose,
+                &noise_patterns,
+            ) {
+                Ok(scan_result) => {
+                    let options = clean::CleanOptions {
+                        dry_run: *dry_run,
+                        force: *force,
+                        yes: *yes,
+                        merged_only: *merged_only,
+                        landed: *landed,
+                        all: *all,
+                        delete_branches: *delete_branches,
+                    };
+
+                    match clean::run_clean(&git, &scan_result, &options, &mut stdout) {
+                        Ok(result) => {
+                            if !result.failed.is_empty() {
+                                process::exit(1);
+                            }
+                        }
+                        Err(e) => error::exit_with_error(&e),
+                    }
+                }
+                Err(e) => error::exit_with_error(&e),
+            }
         }
     }
 }
