@@ -50,7 +50,8 @@ All tools follow a similar CLI shape:
 - **Global args**: `directory` (positional, default cwd), plus tool-specific thresholds
 - **Scan subcommand** (default): `--json`, `--porcelain`
 - **Clean subcommand**: `--dry-run` / `-n`, `--yes` / `-y`, classification filters, `--all`, `--json`, `--porcelain`
-- Worktree/branch-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`
+- Worktree-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`, `--match` (repeatable substring filter on worktree basenames, OR semantics, case-insensitive)
+- Branch-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`
 - Stash-tidy global arg: `--age-threshold` (default 90) instead of `--behind-threshold`/`--verbose`
 - Remote-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`

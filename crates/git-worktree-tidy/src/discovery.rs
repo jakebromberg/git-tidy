@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use git_tidy_core::error::Error;
 
 /// A discovered linked worktree before classification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DiscoveredWorktree {
     /// Absolute path to the worktree directory.
     pub path: PathBuf,

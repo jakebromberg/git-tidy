@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::classification;
 use git_tidy_core::error::Error;
@@ -7,7 +8,47 @@ use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
 
-use crate::discovery;
+use crate::discovery::{self, DiscoveredWorktree};
+
+/// Filter discovered worktrees by basename substring match.
+///
+/// Retains only worktrees whose directory basename contains at least one of the
+/// given patterns (case-insensitive, OR semantics). Repos with no remaining
+/// worktrees are dropped entirely. An empty pattern list returns all worktrees.
+fn filter_worktrees(
+    groups: BTreeMap<PathBuf, Vec<DiscoveredWorktree>>,
+    patterns: &[String],
+) -> BTreeMap<PathBuf, Vec<DiscoveredWorktree>> {
+    if patterns.is_empty() {
+        return groups;
+    }
+
+    let lower_patterns: Vec<String> = patterns.iter().map(|p| p.to_lowercase()).collect();
+
+    groups
+        .into_iter()
+        .filter_map(|(repo, worktrees)| {
+            let matched: Vec<DiscoveredWorktree> = worktrees
+                .into_iter()
+                .filter(|wt| {
+                    let basename = wt
+                        .path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    lower_patterns.iter().any(|p| basename.contains(p.as_str()))
+                })
+                .collect();
+
+            if matched.is_empty() {
+                None
+            } else {
+                Some((repo, matched))
+            }
+        })
+        .collect()
+}
 
 /// Scan all worktrees under `directory` and classify them.
 pub fn run_scan(
@@ -16,9 +57,15 @@ pub fn run_scan(
     behind_threshold: usize,
     verbose: bool,
     noise_patterns: &[String],
+    match_patterns: &[String],
     progress: &Progress,
 ) -> Result<ScanResult, Error> {
     let groups = discovery::discover_worktrees(directory)?;
+    let groups = if match_patterns.is_empty() {
+        groups
+    } else {
+        filter_worktrees(groups, match_patterns)
+    };
 
     let repo_paths: Vec<&std::path::Path> = groups.keys().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &repo_paths, progress);
@@ -85,4 +132,107 @@ pub fn run_scan(
         counts,
         warnings,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::discovery::DiscoveredWorktree;
+
+    fn make_worktree(name: &str, repo: &str) -> DiscoveredWorktree {
+        DiscoveredWorktree {
+            path: PathBuf::from(format!("/dev/{name}")),
+            parent_repo: PathBuf::from(format!("/dev/{repo}")),
+        }
+    }
+
+    fn make_groups(
+        entries: &[(&str, Vec<DiscoveredWorktree>)],
+    ) -> BTreeMap<PathBuf, Vec<DiscoveredWorktree>> {
+        entries
+            .iter()
+            .map(|(repo, wts)| (PathBuf::from(repo), wts.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn filter_worktrees_substring_match() {
+        let groups = make_groups(&[(
+            "/dev/MyRepo",
+            vec![
+                make_worktree("MyRepo-feature", "MyRepo"),
+                make_worktree("MyRepo-bugfix", "MyRepo"),
+                make_worktree("OtherProject-thing", "MyRepo"),
+            ],
+        )]);
+
+        let filtered = filter_worktrees(groups, &["MyRepo".to_string()]);
+        let wts = &filtered[&PathBuf::from("/dev/MyRepo")];
+        assert_eq!(wts.len(), 2);
+        assert!(wts.iter().all(|w| {
+            let name = w.path.file_name().unwrap().to_str().unwrap();
+            name.contains("MyRepo")
+        }));
+    }
+
+    #[test]
+    fn filter_worktrees_removes_empty_repos() {
+        let groups = make_groups(&[
+            ("/dev/RepoA", vec![make_worktree("RepoA-feat", "RepoA")]),
+            ("/dev/RepoB", vec![make_worktree("RepoB-fix", "RepoB")]),
+        ]);
+
+        let filtered = filter_worktrees(groups, &["RepoA".to_string()]);
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered.contains_key(&PathBuf::from("/dev/RepoA")));
+        assert!(!filtered.contains_key(&PathBuf::from("/dev/RepoB")));
+    }
+
+    #[test]
+    fn filter_worktrees_case_insensitive() {
+        let groups = make_groups(&[(
+            "/dev/MyRepo",
+            vec![
+                make_worktree("myrepo-feature", "MyRepo"),
+                make_worktree("MYREPO-bugfix", "MyRepo"),
+            ],
+        )]);
+
+        let filtered = filter_worktrees(groups, &["MyRepo".to_string()]);
+        let wts = &filtered[&PathBuf::from("/dev/MyRepo")];
+        assert_eq!(wts.len(), 2);
+    }
+
+    #[test]
+    fn filter_worktrees_multiple_patterns_or() {
+        let groups = make_groups(&[(
+            "/dev/MyRepo",
+            vec![
+                make_worktree("alpha-feature", "MyRepo"),
+                make_worktree("beta-bugfix", "MyRepo"),
+                make_worktree("gamma-thing", "MyRepo"),
+            ],
+        )]);
+
+        let filtered = filter_worktrees(groups, &["alpha".to_string(), "gamma".to_string()]);
+        let wts = &filtered[&PathBuf::from("/dev/MyRepo")];
+        assert_eq!(wts.len(), 2);
+    }
+
+    #[test]
+    fn filter_worktrees_empty_patterns_passes_all() {
+        let groups = make_groups(&[(
+            "/dev/MyRepo",
+            vec![
+                make_worktree("MyRepo-feature", "MyRepo"),
+                make_worktree("MyRepo-bugfix", "MyRepo"),
+            ],
+        )]);
+
+        let filtered = filter_worktrees(groups.clone(), &[]);
+        assert_eq!(filtered, groups);
+    }
 }
