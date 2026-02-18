@@ -18,17 +18,14 @@ pub fn run_scan(
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
 
+    let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
+    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths);
+
     let mut repos = Vec::new();
     let mut counts = ScanCounts::default();
-    let mut warnings = Vec::new();
     let mut total_scanned = 0;
 
     for repo_path in &repo_paths {
-        // Fetch to get current remote state
-        if let Err(e) = git.fetch_prune(repo_path) {
-            warnings.push(format!("fetch failed for {}: {e}", repo_path.display()));
-        }
-
         // Detect default branch
         let default_branch = match classification::detect_default_branch(git, repo_path) {
             Ok(b) => b,

@@ -18,17 +18,14 @@ pub fn run_scan(
 ) -> Result<ScanResult, Error> {
     let groups = discovery::discover_worktrees(directory)?;
 
+    let repo_paths: Vec<&std::path::Path> = groups.keys().map(|p| p.as_path()).collect();
+    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &repo_paths);
+
     let mut repos = Vec::new();
     let mut counts = ScanCounts::default();
-    let mut warnings = Vec::new();
     let mut total_scanned = 0;
 
     for (repo_path, worktrees) in &groups {
-        // Fetch to get current remote state
-        if let Err(e) = git.fetch_prune(repo_path) {
-            warnings.push(format!("fetch failed for {}: {e}", repo_path.display()));
-        }
-
         // Detect default branch
         let default_branch = match classification::detect_default_branch(git, repo_path) {
             Ok(b) => b,

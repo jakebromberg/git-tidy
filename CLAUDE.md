@@ -33,16 +33,16 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 
 ### Core patterns
 
-- **`GitOps` trait** (`git-tidy-core/src/git.rs`): All git operations go through this trait. `RealGit` shells out to `git`; `MockGit` (in `testutil.rs`) returns canned data.
+- **`GitOps` trait** (`git-tidy-core/src/git.rs`): All git operations go through this trait (`Send + Sync` for thread safety). `RealGit` shells out to `git`; `MockGit` (in `testutil.rs`) returns canned data. `MockGit` uses `Mutex` for call-tracking fields.
 - **Output to `&mut dyn Write`**: Enables unit testing output formatters without process capture.
 - **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`. All tools call these to avoid duplicating formatting logic.
 - **Shared CLI utilities** (`git-tidy-core/src/cli.rs`): `resolve_directory` for resolving optional directory arguments, used by all tools.
 - **Shared error handling** (`git-tidy-core/src/error.rs`): `exit_with_error` for consistent error-exit behavior across all tools.
 - **Shared type helpers** (`git-tidy-core/src/types.rs`): `extract_landed_fields` for extracting landed ratio/total/unmatched from `Classification` for JSON serialization.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
-- **Sequential repo processing**: No parallelism needed for typical workloads (~9 repos, ~39 worktrees).
+- **Parallel fetch** (`git-tidy-core/src/fetch.rs`): `parallel_fetch` runs `git fetch --prune` concurrently across repos using `thread::scope`. Used by worktree-tidy and branch-tidy before classification.
 - **Library-first design**: `scan.rs` and `clean.rs` are library functions; `main.rs` is thin dispatch. Enables `git-tidy` to call each tool's scan/lint as a library.
-- **`CachingGitOps`** (`git-tidy-core/src/caching.rs`): `GitOps` wrapper that memoizes read-only queries (`fetch_prune`, `list_local_branches`, `list_remotes`, `ls_remote_check`, etc.) via `RefCell<HashMap>`. Used by the in-process audit runner to avoid redundant git calls across tools. A `delegate_git_ops!` macro forwards uncached methods to the inner `GitOps`.
+- **`CachingGitOps`** (`git-tidy-core/src/caching.rs`): `GitOps` wrapper that memoizes read-only queries (`fetch_prune`, `list_local_branches`, `list_remotes`, `ls_remote_check`, etc.) via `Mutex<HashMap>`. Used by the in-process audit runner to avoid redundant git calls across tools. A `delegate_git_ops!` macro forwards uncached methods to the inner `GitOps`.
 
 ### CLI pattern (shared `resolve_directory`, per-crate `clap` definitions)
 
@@ -96,6 +96,7 @@ crates/
       git.rs                                  # GitOps trait + RealGit implementation
       types.rs                                # Classification, BranchClassification, WorktreeInfo, etc.
       error.rs                                # thiserror Error enum + exit_with_error
+      fetch.rs                               # parallel_fetch: concurrent git fetch --prune via thread::scope
       classification.rs                       # classify_branch + classify_worktree
       config.rs                               # Noise pattern configuration (file + CLI + defaults)
       dirty.rs                                # Status parsing with noise filtering

@@ -8,7 +8,7 @@ use crate::error::Error;
 pub type GitResult<T> = Result<T, Error>;
 
 /// Abstraction over git CLI operations for testability.
-pub trait GitOps {
+pub trait GitOps: Send + Sync {
     /// Run `git fetch --prune --quiet` on the repo.
     fn fetch_prune(&self, repo: &Path) -> GitResult<()>;
 
