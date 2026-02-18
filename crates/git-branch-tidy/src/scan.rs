@@ -58,7 +58,7 @@ pub fn run_scan(
 
         let repo_name = repo_display_name(repo_path);
 
-        let mut classified = Vec::new();
+        let mut classified = Vec::with_capacity(branches.len());
 
         for branch_name in &branches {
             // Skip the default branch

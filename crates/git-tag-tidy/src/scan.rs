@@ -80,22 +80,24 @@ pub fn run_scan(git: &dyn GitOps, directory: &Path, offline: bool) -> Result<Tag
             }
         }
 
-        // Union all tag names
-        let mut all_tag_names: HashSet<String> = local_tags.clone();
-        for tag_name in remote_tag_map.keys() {
-            all_tag_names.insert(tag_name.clone());
-        }
+        // Union all tag names (collect into Vec via deduplicating HashSet)
+        let all_tag_names: Vec<String> = local_tags
+            .iter()
+            .cloned()
+            .chain(remote_tag_map.keys().cloned())
+            .collect::<HashSet<String>>()
+            .into_iter()
+            .collect();
 
         if all_tag_names.is_empty() {
             continue;
         }
 
         let repo_name = repo_display_name(repo_path);
-        let mut classified = Vec::new();
+        let mut classified = Vec::with_capacity(all_tag_names.len());
 
         for tag_name in &all_tag_names {
             let is_local = local_tags.contains(tag_name);
-            let remote_entry = remote_tag_map.get(tag_name);
 
             let (local_commit, is_reachable, is_annotated, tagger_date) = if is_local {
                 let commit = match git.tag_commit(repo_path, tag_name) {
@@ -116,19 +118,19 @@ pub fn run_scan(git: &dyn GitOps, directory: &Path, offline: bool) -> Result<Tag
                 (None, false, false, None)
             };
 
-            let remote_commit = remote_entry.map(|(c, _)| c.as_str());
-            let remote_names = remote_entry
-                .map(|(_, names)| names.clone())
-                .unwrap_or_default();
+            let (remote_commit, remote_names) = match remote_tag_map.remove(tag_name.as_str()) {
+                Some((commit, names)) => (Some(commit), names),
+                None => (None, vec![]),
+            };
 
             let classification = classify_tag(
                 local_commit.as_deref(),
-                remote_commit,
+                remote_commit.as_deref(),
                 is_reachable,
                 offline,
             );
 
-            let commit = local_commit.unwrap_or_else(|| remote_commit.unwrap_or("").to_string());
+            let commit = local_commit.unwrap_or_else(|| remote_commit.unwrap_or_else(String::new));
 
             counts.increment(&classification);
             total_scanned += 1;

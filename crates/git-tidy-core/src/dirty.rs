@@ -31,6 +31,13 @@ pub fn check_dirty(
 ) -> Result<DirtyResult, Error> {
     let lines = git.status_porcelain(worktree_path)?;
 
+    // Pre-compute slash-suffixed directory patterns once
+    let dir_patterns: Vec<String> = noise_patterns
+        .iter()
+        .filter(|p| !p.starts_with('*'))
+        .map(|p| format!("{p}/"))
+        .collect();
+
     let mut all_files = Vec::new();
     let mut meaningful_files = Vec::new();
 
@@ -48,7 +55,7 @@ pub fn check_dirty(
         all_files.push(file_path.to_string());
 
         // Untracked files that match noise patterns are not meaningful
-        if status_code == "??" && is_noise(file_path, noise_patterns) {
+        if status_code == "??" && is_noise(file_path, noise_patterns, &dir_patterns) {
             continue;
         }
 
@@ -63,7 +70,10 @@ pub fn check_dirty(
 }
 
 /// Check if a file path matches any noise pattern.
-fn is_noise(file_path: &str, patterns: &[String]) -> bool {
+///
+/// `dir_patterns` contains pre-computed slash-suffixed versions of non-glob patterns
+/// (e.g., `"__pycache__/"`) to avoid repeated allocations in loops.
+fn is_noise(file_path: &str, patterns: &[String], dir_patterns: &[String]) -> bool {
     let basename = Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -80,12 +90,16 @@ fn is_noise(file_path: &str, patterns: &[String]) -> bool {
             if basename == pattern.as_str() {
                 return true;
             }
-            // Also match as a directory component
-            if file_path.contains(&format!("{pattern}/")) {
-                return true;
-            }
         }
     }
+
+    // Check directory component matches using pre-computed patterns
+    for dir_pat in dir_patterns {
+        if file_path.contains(dir_pat.as_str()) {
+            return true;
+        }
+    }
+
     false
 }
 
@@ -103,66 +117,87 @@ mod tests {
             .collect()
     }
 
+    /// Compute dir_patterns from a set of noise patterns (mirrors check_dirty logic).
+    fn dir_pats(patterns: &[String]) -> Vec<String> {
+        patterns
+            .iter()
+            .filter(|p| !p.starts_with('*'))
+            .map(|p| format!("{p}/"))
+            .collect()
+    }
+
     #[test]
     fn is_noise_ds_store() {
         let patterns = defaults();
-        assert!(is_noise(".DS_Store", &patterns));
-        assert!(is_noise("subdir/.DS_Store", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(is_noise(".DS_Store", &patterns, &dp));
+        assert!(is_noise("subdir/.DS_Store", &patterns, &dp));
     }
 
     #[test]
     fn is_noise_pyc() {
         let patterns = defaults();
-        assert!(is_noise("module.pyc", &patterns));
-        assert!(is_noise("src/module.pyc", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(is_noise("module.pyc", &patterns, &dp));
+        assert!(is_noise("src/module.pyc", &patterns, &dp));
     }
 
     #[test]
     fn is_noise_pycache() {
         let patterns = defaults();
-        assert!(is_noise("__pycache__", &patterns));
-        assert!(is_noise("src/__pycache__/module.cpython-39.pyc", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(is_noise("__pycache__", &patterns, &dp));
+        assert!(is_noise(
+            "src/__pycache__/module.cpython-39.pyc",
+            &patterns,
+            &dp
+        ));
     }
 
     #[test]
     fn is_noise_lockfiles() {
         let patterns = defaults();
-        assert!(is_noise("uv.lock", &patterns));
-        assert!(is_noise("package-lock.json", &patterns));
-        assert!(is_noise("Podfile.lock", &patterns));
-        assert!(is_noise("yarn.lock", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(is_noise("uv.lock", &patterns, &dp));
+        assert!(is_noise("package-lock.json", &patterns, &dp));
+        assert!(is_noise("Podfile.lock", &patterns, &dp));
+        assert!(is_noise("yarn.lock", &patterns, &dp));
     }
 
     #[test]
     fn is_not_noise_regular_files() {
         let patterns = defaults();
-        assert!(!is_noise("main.rs", &patterns));
-        assert!(!is_noise("src/lib.rs", &patterns));
-        assert!(!is_noise("Cargo.toml", &patterns));
-        assert!(!is_noise("README.md", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(!is_noise("main.rs", &patterns, &dp));
+        assert!(!is_noise("src/lib.rs", &patterns, &dp));
+        assert!(!is_noise("Cargo.toml", &patterns, &dp));
+        assert!(!is_noise("README.md", &patterns, &dp));
     }
 
     #[test]
     fn is_noise_custom_suffix_pattern() {
         let patterns = vec!["*.swp".to_string()];
-        assert!(is_noise("file.swp", &patterns));
-        assert!(is_noise("dir/file.swp", &patterns));
-        assert!(!is_noise("file.txt", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(is_noise("file.swp", &patterns, &dp));
+        assert!(is_noise("dir/file.swp", &patterns, &dp));
+        assert!(!is_noise("file.txt", &patterns, &dp));
     }
 
     #[test]
     fn is_noise_custom_exact_pattern() {
         let patterns = vec![".envrc".to_string()];
-        assert!(is_noise(".envrc", &patterns));
-        assert!(is_noise("subdir/.envrc", &patterns));
-        assert!(!is_noise("envrc", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(is_noise(".envrc", &patterns, &dp));
+        assert!(is_noise("subdir/.envrc", &patterns, &dp));
+        assert!(!is_noise("envrc", &patterns, &dp));
     }
 
     #[test]
     fn is_noise_empty_patterns() {
         let patterns: Vec<String> = vec![];
-        assert!(!is_noise(".DS_Store", &patterns));
-        assert!(!is_noise("anything", &patterns));
+        let dp = dir_pats(&patterns);
+        assert!(!is_noise(".DS_Store", &patterns, &dp));
+        assert!(!is_noise("anything", &patterns, &dp));
     }
 
     #[test]

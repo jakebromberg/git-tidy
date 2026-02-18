@@ -163,7 +163,12 @@ pub fn run_scan_with_du(
     }
 
     // Sort by classification priority (stale first, then orphaned, then active)
-    repos.sort_by_key(|r| (r.classification.priority(), r.name.clone()));
+    repos.sort_by(|a, b| {
+        a.classification
+            .priority()
+            .cmp(&b.classification.priority())
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     let total_scanned = repos.len();
 
