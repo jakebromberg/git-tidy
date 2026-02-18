@@ -13,6 +13,8 @@ pub struct ToolSpec {
     pub scan_command: &'static str,
     /// JSON field to count by (e.g., "classification" or "kind").
     pub count_field: &'static str,
+    /// CLI aliases for dispatch (e.g., `["worktrees", "worktree"]`).
+    pub aliases: &'static [&'static str],
 }
 
 /// All known git-tidy sub-tools.
@@ -22,48 +24,56 @@ pub static TOOL_SPECS: &[ToolSpec] = &[
         item_noun: "worktrees",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["worktrees", "worktree"],
     },
     ToolSpec {
         binary: "git-branch-tidy",
         item_noun: "branches",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["branches", "branch"],
     },
     ToolSpec {
         binary: "git-stash-tidy",
         item_noun: "stashes",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["stashes", "stash"],
     },
     ToolSpec {
         binary: "git-remote-tidy",
         item_noun: "remotes",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["remotes", "remote"],
     },
     ToolSpec {
         binary: "git-tag-tidy",
         item_noun: "tags",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["tags", "tag"],
     },
     ToolSpec {
         binary: "git-repo-tidy",
         item_noun: "repos",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["repos", "repo"],
     },
     ToolSpec {
         binary: "git-config-tidy",
         item_noun: "config issues",
         scan_command: "lint",
         count_field: "kind",
+        aliases: &["config"],
     },
     ToolSpec {
         binary: "git-lfs-tidy",
         item_noun: "LFS files",
         scan_command: "scan",
         count_field: "classification",
+        aliases: &["lfs"],
     },
 ];
 
@@ -120,6 +130,46 @@ mod tests {
                 "git-lfs-tidy",
             ]
         );
+    }
+
+    #[test]
+    fn tool_specs_aliases_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for spec in TOOL_SPECS {
+            for alias in spec.aliases {
+                assert!(
+                    seen.insert(*alias),
+                    "duplicate alias {alias:?} in {}",
+                    spec.binary
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tool_specs_all_have_aliases() {
+        for spec in TOOL_SPECS {
+            assert!(!spec.aliases.is_empty(), "{} has no aliases", spec.binary);
+        }
+    }
+
+    #[test]
+    fn tool_specs_aliases_dont_collide_with_commands() {
+        let reserved = ["audit", "help"];
+        for spec in TOOL_SPECS {
+            for alias in spec.aliases {
+                assert!(
+                    !reserved.contains(alias),
+                    "alias {alias:?} in {} collides with reserved command",
+                    spec.binary
+                );
+                assert!(
+                    !alias.starts_with('-'),
+                    "alias {alias:?} in {} starts with a dash",
+                    spec.binary
+                );
+            }
+        }
     }
 
     #[test]

@@ -4,11 +4,15 @@ use std::process;
 use clap::Parser;
 
 mod cli;
+mod dispatch;
 mod output;
 mod runner;
 mod types;
 
 fn main() {
+    let args: Vec<_> = std::env::args_os().collect();
+    dispatch::try_dispatch_default(&args);
+
     let cli = cli::Cli::parse();
     let directory = cli.target_directory();
 

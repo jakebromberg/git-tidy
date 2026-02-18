@@ -3,7 +3,23 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "git-tidy", about = "Audit runner for git-tidy tools")]
+#[command(
+    name = "git-tidy",
+    about = "Audit runner for git-tidy tools",
+    after_help = "\
+Tool commands (dispatch to individual tools):
+  worktrees    git-worktree-tidy      branches     git-branch-tidy
+  stashes      git-stash-tidy         remotes      git-remote-tidy
+  tags         git-tag-tidy           repos        git-repo-tidy
+  config       git-config-tidy        lfs          git-lfs-tidy
+
+Singular forms also accepted (worktree, branch, stash, etc.).
+
+Examples:
+  git tidy worktrees scan --json ~/Developer
+  git tidy branches clean --yes
+  git tidy config lint"
+)]
 pub struct Cli {
     /// Directory to scan (default: current directory)
     #[arg(global = true)]

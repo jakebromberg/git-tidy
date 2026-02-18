@@ -20,7 +20,7 @@ git config core.hooksPath .githooks
 
 This is a Cargo workspace with a shared core library and seven binary crates.
 
-- **`git-tidy`**: Audit runner binary that discovers installed `git-*-tidy` tools and produces a consolidated summary. No dependency on `git-tidy-core`.
+- **`git-tidy`**: Unified entry point: dispatches `git tidy <alias> [args...]` to sub-tool binaries, and runs a consolidated audit when no alias matches. No dependency on `git-tidy-core`.
 - **`git-tidy-core`**: Shared library containing git abstraction, classification logic, output helpers, and test utilities.
 - **`git-worktree-tidy`**: Binary crate for scanning and cleaning stale git worktrees.
 - **`git-branch-tidy`**: Binary crate for scanning and cleaning stale local git branches.
@@ -55,7 +55,7 @@ All tools follow a similar CLI shape:
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Repo-tidy global args: `--stale-months` (default 6), `--offline`
 - Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`, lfs-tidy has `--prune` (enable orphaned LFS object removal)
-- git-tidy (audit runner): `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`. Uses `ToolRunner` trait instead of `GitOps`. No dependency on `git-tidy-core`.
+- git-tidy (audit runner + dispatch): Pre-clap alias dispatch in `main.rs` checks `args[1]` against `ToolSpec::aliases` and execs the binary. Falls through to `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`. Uses `ToolRunner` trait instead of `GitOps`. No dependency on `git-tidy-core`.
 - Config-tidy uses **lint/fix** subcommands instead of scan/clean (config issues are "lint findings")
 - LFS-tidy scan args: `--size-threshold` (default "1MB"), `--depth` (default 1000)
 
@@ -76,12 +76,13 @@ All tools follow a similar CLI shape:
 ```
 Cargo.toml                                    # Workspace root
 crates/
-  git-tidy/                                   # Audit runner binary (no core dependency)
+  git-tidy/                                   # Audit runner + dispatch binary (no core dependency)
     src/
-      main.rs                                 # CLI dispatch
+      main.rs                                 # Pre-clap dispatch, then CLI audit
       lib.rs                                  # Public module exports
-      cli.rs                                  # clap definitions (Audit subcommand)
-      types.rs                                # ToolSpec, TOOL_SPECS, ToolResult, AuditResult
+      cli.rs                                  # clap definitions (Audit subcommand, after_help aliases)
+      dispatch.rs                             # Alias resolution + Unix exec dispatch
+      types.rs                                # ToolSpec (with aliases), TOOL_SPECS, ToolResult, AuditResult
       runner.rs                               # ToolRunner trait, RealToolRunner, run_audit
       output.rs                               # Human-readable, JSON, porcelain formatters
     tests/
