@@ -4,6 +4,10 @@ A Cargo workspace for Git housekeeping tools that share classification logic (me
 
 ## Tools
 
+### git-tidy (audit runner)
+
+Discovers installed `git-*-tidy` tools, runs each with `scan --json`, and produces a consolidated summary. Works with whatever subset of tools is installed.
+
 ### git-worktree-tidy
 
 Scans a directory for linked Git worktrees, classifies them by staleness, and interactively removes the stale ones.
@@ -33,6 +37,11 @@ Scans a directory of Git repos, classifies them by activity (stale, orphaned, ac
 Requires Rust 1.93.0 or later (edition 2024).
 
 ```bash
+# Install all tools at once
+./install.sh
+
+# Or install individually
+cargo install --path crates/git-tidy              # audit runner
 cargo install --path crates/git-worktree-tidy
 cargo install --path crates/git-branch-tidy
 cargo install --path crates/git-stash-tidy
@@ -156,6 +165,18 @@ git-repo-tidy clean ~/Developer --force            # allow deleting dirty repos
 git-repo-tidy clean ~/Developer --dry-run          # preview deletions
 ```
 
+### git-tidy (audit runner)
+
+```bash
+# Run audit across all installed tools (default command)
+git-tidy ~/Developer
+git-tidy audit ~/Developer          # explicit subcommand
+git-tidy ~/Developer --json          # JSON output
+git-tidy ~/Developer --porcelain     # machine-readable
+git-tidy ~/Developer -v              # verbose (shows tool paths)
+git-tidy ~/Developer --tools branch,tag  # run only specific tools
+```
+
 ## Classifications
 
 ### Worktree and branch classifications
@@ -263,6 +284,7 @@ git config core.hooksPath .githooks
 
 ```
 crates/
+  git-tidy/               Audit runner binary (no core dependency)
   git-tidy-core/          Shared classification, git abstraction, output helpers, test utilities
   git-worktree-tidy/      Worktree scanner/cleaner binary
   git-branch-tidy/        Branch scanner/cleaner binary
