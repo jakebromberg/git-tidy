@@ -20,7 +20,7 @@ git config core.hooksPath .githooks
 
 This is a Cargo workspace with a shared core library and seven binary crates.
 
-- **`git-tidy`**: Unified entry point: dispatches `git tidy <alias> [args...]` to sub-tool binaries, and runs a consolidated audit when no alias matches. No dependency on `git-tidy-core`.
+- **`git-tidy`**: Unified entry point: dispatches `git tidy <alias> [args...]` to sub-tool binaries, and runs a consolidated audit when no alias matches. By default, the audit runs **in-process** using `CachingGitOps` to deduplicate expensive git operations across tools; `--subprocess` reverts to the old behavior of shelling out to each binary.
 - **`git-tidy-core`**: Shared library containing git abstraction, classification logic, output helpers, and test utilities.
 - **`git-worktree-tidy`**: Binary crate for scanning and cleaning stale git worktrees.
 - **`git-branch-tidy`**: Binary crate for scanning and cleaning stale local git branches.
@@ -41,7 +41,8 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 - **Shared type helpers** (`git-tidy-core/src/types.rs`): `extract_landed_fields` for extracting landed ratio/total/unmatched from `Classification` for JSON serialization.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
 - **Sequential repo processing**: No parallelism needed for typical workloads (~9 repos, ~39 worktrees).
-- **Library-first design**: `scan.rs` and `clean.rs` are library functions; `main.rs` is thin dispatch. Enables future tools to call scan as a library.
+- **Library-first design**: `scan.rs` and `clean.rs` are library functions; `main.rs` is thin dispatch. Enables `git-tidy` to call each tool's scan/lint as a library.
+- **`CachingGitOps`** (`git-tidy-core/src/caching.rs`): `GitOps` wrapper that memoizes read-only queries (`fetch_prune`, `list_local_branches`, `list_remotes`, `ls_remote_check`, etc.) via `RefCell<HashMap>`. Used by the in-process audit runner to avoid redundant git calls across tools. A `delegate_git_ops!` macro forwards uncached methods to the inner `GitOps`.
 
 ### CLI pattern (shared `resolve_directory`, per-crate `clap` definitions)
 
@@ -55,7 +56,7 @@ All tools follow a similar CLI shape:
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Repo-tidy global args: `--stale-months` (default 6), `--offline`
 - Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`, lfs-tidy has `--prune` (enable orphaned LFS object removal)
-- git-tidy (audit runner + dispatch): Pre-clap alias dispatch in `main.rs` checks `args[1]` against `ToolSpec::aliases` and execs the binary. Falls through to `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`. Uses `ToolRunner` trait instead of `GitOps`. No dependency on `git-tidy-core`.
+- git-tidy (audit runner + dispatch): Pre-clap alias dispatch in `main.rs` checks `args[1]` against `ToolSpec::aliases` and execs the binary. Falls through to `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`/`--subprocess`. Default mode calls tool scan/lint functions in-process with `CachingGitOps`; `--subprocess` shells out via `ToolRunner` trait.
 - Config-tidy uses **lint/fix** subcommands instead of scan/clean (config issues are "lint findings")
 - LFS-tidy scan args: `--size-threshold` (default "1MB"), `--depth` (default 1000)
 
@@ -76,14 +77,15 @@ All tools follow a similar CLI shape:
 ```
 Cargo.toml                                    # Workspace root
 crates/
-  git-tidy/                                   # Audit runner + dispatch binary (no core dependency)
+  git-tidy/                                   # Audit runner + dispatch binary
     src/
       main.rs                                 # Pre-clap dispatch, then CLI audit
       lib.rs                                  # Public module exports
       cli.rs                                  # clap definitions (Audit subcommand, after_help aliases)
       dispatch.rs                             # Alias resolution + Unix exec dispatch
       types.rs                                # ToolSpec (with aliases), TOOL_SPECS, ToolResult, AuditResult
-      runner.rs                               # ToolRunner trait, RealToolRunner, run_audit
+      runner.rs                               # ToolRunner trait, RealToolRunner, run_audit (subprocess mode)
+      inprocess.rs                            # In-process audit: calls tool scan/lint with CachingGitOps
       output.rs                               # Human-readable, JSON, porcelain formatters
     tests/
       integration.rs                          # End-to-end with FakeToolRunner
@@ -101,11 +103,13 @@ crates/
       landed.rs                               # Subject matching, fuzzy, patch similarity
       output.rs                               # Shared output helpers (summary, warnings, formatting, JSON)
       testutil.rs                             # MockGitBuilder, MockGit, TestRepo, git() helper
+      caching.rs                              # CachingGitOps: memoizing GitOps wrapper + delegate macro
   git-worktree-tidy/                          # Worktree scanner/cleaner binary
     src/
       main.rs                                 # CLI dispatch
       lib.rs                                  # Public module exports for integration tests
       cli.rs                                  # clap derive definitions
+      scan.rs                                 # Worktree scan logic (library function)
       discovery.rs                            # .git file parsing, parent repo derivation
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Interactive prompting and removal

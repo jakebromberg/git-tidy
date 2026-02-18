@@ -48,6 +48,10 @@ pub enum Command {
         /// Comma-separated list of tools to run (e.g., "branch,tag" or "git-branch-tidy")
         #[arg(long, value_delimiter = ',')]
         tools: Vec<String>,
+
+        /// Use subprocess mode (shell out to each tool binary instead of calling in-process)
+        #[arg(long)]
+        subprocess: bool,
     },
 }
 
@@ -87,12 +91,23 @@ mod tests {
                 json,
                 porcelain,
                 verbose,
+                subprocess,
                 ..
             }) => {
                 assert!(json);
                 assert!(!porcelain);
                 assert!(!verbose);
+                assert!(!subprocess);
             }
+            _ => panic!("expected Audit command"),
+        }
+    }
+
+    #[test]
+    fn audit_with_subprocess_flag() {
+        let cli = Cli::parse_from(["git-tidy", "audit", "--subprocess"]);
+        match cli.command {
+            Some(Command::Audit { subprocess, .. }) => assert!(subprocess),
             _ => panic!("expected Audit command"),
         }
     }

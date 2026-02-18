@@ -1,3 +1,4 @@
+pub mod caching;
 pub mod classification;
 pub mod cli;
 pub mod config;

@@ -69,7 +69,7 @@ pub fn parse_tool_output(
 ///
 /// Accepts both full binary names ("git-branch-tidy") and short names ("branch-tidy",
 /// "branch", "worktree").
-fn matches_filter(binary: &str, filter_entry: &str) -> bool {
+pub fn matches_filter(binary: &str, filter_entry: &str) -> bool {
     if binary == filter_entry {
         return true;
     }
