@@ -1,6 +1,6 @@
 # git-tidy
 
-Audit runner that discovers installed `git-*-tidy` tools, runs each with `scan --json` (or `lint --json`), and produces a consolidated summary.
+Unified entry point for the git-tidy suite. Dispatches `git tidy <alias> [args...]` to the corresponding `git-*-tidy` binary, and runs a consolidated audit across all installed tools when no alias is given.
 
 ## Installation
 
@@ -26,6 +26,32 @@ git-tidy ~/Developer -v
 git-tidy ~/Developer --tools branch,tag
 git-tidy ~/Developer --tools git-branch-tidy,git-tag-tidy
 ```
+
+## Tool dispatch
+
+`git tidy` recognizes tool aliases as the first argument and dispatches to the
+corresponding binary, passing all remaining arguments through.
+
+| Alias | Binary |
+|-------|--------|
+| `worktrees`, `worktree` | git-worktree-tidy |
+| `branches`, `branch` | git-branch-tidy |
+| `stashes`, `stash` | git-stash-tidy |
+| `remotes`, `remote` | git-remote-tidy |
+| `tags`, `tag` | git-tag-tidy |
+| `repos`, `repo` | git-repo-tidy |
+| `config` | git-config-tidy |
+| `lfs` | git-lfs-tidy |
+
+```bash
+git tidy worktrees scan ~/Developer --json
+git tidy branches clean --yes
+git tidy config lint
+git tidy lfs scan --size-threshold 5MB
+```
+
+If the first argument is not a known alias, `git-tidy` falls through to its
+audit runner (the default behavior).
 
 ## Supported tools
 

@@ -2,11 +2,30 @@
 
 A Cargo workspace for Git housekeeping tools that share classification logic (merged/landed/active/local) and a common git abstraction layer.
 
+## Usage
+
+`git tidy` is the unified entry point. It dispatches to individual tools or runs
+an audit across all installed tools.
+
+```bash
+# Dispatch to individual tools
+git tidy worktrees scan ~/Developer
+git tidy branches clean --yes
+git tidy config lint
+git tidy lfs scan --size-threshold 5MB
+
+# Audit all installed tools (default)
+git tidy ~/Developer
+git tidy audit ~/Developer --json
+```
+
+See individual tool sections below for full flag reference.
+
 ## Tools
 
-### git-tidy (audit runner)
+### git-tidy (audit runner + dispatch)
 
-Discovers installed `git-*-tidy` tools, runs each with `scan --json`, and produces a consolidated summary. Works with whatever subset of tools is installed.
+Unified entry point for the git-tidy suite. Dispatches `git tidy <alias> [args...]` to the corresponding `git-*-tidy` binary, and runs a consolidated audit across all installed tools when no alias is given.
 
 ### git-worktree-tidy
 
@@ -206,10 +225,15 @@ git-lfs-tidy clean ~/Developer --prune --dry-run   # preview what would be prune
 git-lfs-tidy clean ~/Developer --prune --yes       # skip confirmation
 ```
 
-### git-tidy (audit runner)
+### git-tidy (audit + dispatch)
 
 ```bash
-# Run audit across all installed tools (default command)
+# Dispatch to individual tools
+git tidy worktrees scan ~/Developer
+git tidy branches clean --yes
+git tidy config lint
+
+# Audit all installed tools (default command)
 git-tidy ~/Developer
 git-tidy audit ~/Developer          # explicit subcommand
 git-tidy ~/Developer --json          # JSON output
