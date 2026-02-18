@@ -67,14 +67,15 @@ pub fn run_scan(
         let tracking_refs = git.list_remote_tracking_refs(repo_path).unwrap_or_default();
 
         // Count tracking refs per remote name and detect orphaned
-        let configured_set: HashSet<&str> = configured.iter().map(|s| s.as_str()).collect();
         let mut tracking_counts: HashMap<String, usize> = HashMap::new();
 
         for (short, _full) in &tracking_refs {
             // short is like "origin/main" -- extract remote name
             if let Some(remote_name) = short.split('/').next() {
                 // Skip HEAD refs (e.g., "origin/HEAD")
-                let branch_part = short.strip_prefix(&format!("{remote_name}/"));
+                let branch_part = short
+                    .strip_prefix(remote_name)
+                    .and_then(|rest| rest.strip_prefix('/'));
                 if branch_part == Some("HEAD") {
                     continue;
                 }
@@ -82,13 +83,17 @@ pub fn run_scan(
             }
         }
 
-        // Collect all remote names (configured + orphaned)
-        let mut all_remote_names: Vec<String> = configured.clone();
-        for remote_name in tracking_counts.keys() {
-            if !configured_set.contains(remote_name.as_str()) {
-                all_remote_names.push(remote_name.clone());
-            }
-        }
+        // Collect all remote names (configured + orphaned); move configured to avoid clone
+        let configured_count = configured.len();
+        let configured_set: HashSet<&str> = configured.iter().map(|s| s.as_str()).collect();
+        let orphaned: Vec<String> = tracking_counts
+            .keys()
+            .filter(|name| !configured_set.contains(name.as_str()))
+            .cloned()
+            .collect();
+        drop(configured_set);
+        let mut all_remote_names = configured; // move, not clone
+        all_remote_names.extend(orphaned);
 
         if all_remote_names.is_empty() {
             continue;
@@ -98,8 +103,8 @@ pub fn run_scan(
 
         let mut classified = Vec::new();
 
-        for remote_name in &all_remote_names {
-            let is_configured = configured_set.contains(remote_name.as_str());
+        for (idx, remote_name) in all_remote_names.iter().enumerate() {
+            let is_configured = idx < configured_count;
             let classification =
                 classify_remote(git, repo_path, remote_name, is_configured, offline);
             let tracking_count = tracking_counts.get(remote_name).copied().unwrap_or(0);

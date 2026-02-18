@@ -52,8 +52,8 @@ pub fn classify_branch(
     // Ahead/behind counts
     let (behind, ahead) = git.rev_list_left_right_count(repo, &origin_default, branch_name)?;
 
-    // Check if merged
-    let is_merged = git.is_ancestor(repo, branch_name, &origin_default)?;
+    // Check if merged — skip the subprocess call when ahead == 0 (already fully merged)
+    let is_merged = ahead == 0 || git.is_ancestor(repo, branch_name, &origin_default)?;
 
     let classification = if is_merged {
         Classification::Merged
@@ -62,23 +62,24 @@ pub fn classify_branch(
         let landed_result =
             landed::detect_landed(git, repo, &origin_default, branch_name, verbose)?;
 
-        match &landed_result.classification {
-            Classification::Landed { .. } if landed_result.total > 0 => {
-                landed_result.classification.clone()
-            }
-            Classification::Landed { .. } => {
-                // 0 unique commits — effectively merged
-                Classification::Merged
-            }
-            Classification::LandedPartial { .. } => landed_result.classification.clone(),
-            _ => {
-                // No commits landed — classify as active or local
-                if has_remote {
-                    Classification::Active
-                } else {
-                    Classification::Local
-                }
-            }
+        enum Action {
+            UseLanded,
+            Merged,
+            Active,
+            Local,
+        }
+        let action = match &landed_result.classification {
+            Classification::Landed { .. } if landed_result.total > 0 => Action::UseLanded,
+            Classification::Landed { .. } => Action::Merged,
+            Classification::LandedPartial { .. } => Action::UseLanded,
+            _ if has_remote => Action::Active,
+            _ => Action::Local,
+        };
+        match action {
+            Action::UseLanded => landed_result.classification,
+            Action::Merged => Classification::Merged,
+            Action::Active => Classification::Active,
+            Action::Local => Classification::Local,
         }
     };
 
@@ -108,11 +109,13 @@ pub fn classify_worktree(
     let branch = git.worktree_branch(worktree_path)?;
 
     // Determine the ref to compare against
-    let branch_ref = match &branch {
-        Some(b) => b.clone(),
+    let detached_head;
+    let branch_ref: &str = match &branch {
+        Some(b) => b,
         None => {
             // Detached HEAD — use the HEAD commit directly
-            git.rev_parse(worktree_path, "HEAD")?
+            detached_head = git.rev_parse(worktree_path, "HEAD")?;
+            &detached_head
         }
     };
 
@@ -123,7 +126,7 @@ pub fn classify_worktree(
     let bc = classify_branch(
         git,
         parent_repo,
-        &branch_ref,
+        branch_ref,
         default_branch,
         behind_threshold,
         verbose,
@@ -448,6 +451,22 @@ mod tests {
         let result = classify_branch(&git, &repo(), "feature/old", "main", 100, false).unwrap();
         assert!(result.diverged);
         assert_eq!(result.behind, 150);
+    }
+
+    #[test]
+    fn classify_branch_merged_ahead_zero_skips_is_ancestor() {
+        // When ahead == 0 the branch is fully merged regardless of behind count,
+        // so is_ancestor is skipped (not configured in the mock).
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/behind", true)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/behind", (50, 0))
+            // No is_ancestor configured — proves the short-circuit works
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/behind", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Merged);
+        assert_eq!(result.behind, 50);
+        assert_eq!(result.ahead, 0);
     }
 
     #[test]

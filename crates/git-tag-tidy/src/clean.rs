@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -68,10 +69,12 @@ pub fn run_clean(
             if options.dry_run {
                 let mut action = format!("would delete tag {} in {}", tag.name, group.name);
                 if options.include_remote && !tag.remote_names.is_empty() {
-                    action.push_str(&format!(
+                    write!(
+                        action,
                         " (and from remotes: {})",
                         tag.remote_names.join(", ")
-                    ));
+                    )
+                    .unwrap();
                 }
                 writeln!(out, "{action}")?;
                 succeeded.push(RemovedTag {

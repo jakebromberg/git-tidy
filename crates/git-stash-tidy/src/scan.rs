@@ -22,6 +22,8 @@ use crate::types::{
 /// 4. Otherwise -> Active
 ///
 /// When the branch name is unparseable, skip committed/orphaned checks; fall through to age check.
+///
+/// Returns `(classification, age_days, branch)` to avoid recomputation by the caller.
 pub fn classify_stash(
     git: &dyn GitOps,
     repo: &Path,
@@ -29,14 +31,13 @@ pub fn classify_stash(
     message: &str,
     iso_date: &str,
     age_threshold: u64,
-) -> StashClassification {
+    local_branches: &[String],
+) -> (StashClassification, Option<u64>, Option<String>) {
     let age_days = days_since_iso_date(iso_date);
     let branch = parse_stash_branch(message);
 
     if let Some(ref branch_name) = branch {
-        // Check if the branch exists locally
-        let branches = git.list_local_branches(repo).unwrap_or_default();
-        let branch_exists = branches.iter().any(|b| b == branch_name);
+        let branch_exists = local_branches.iter().any(|b| b == branch_name);
 
         if branch_exists {
             // Compare stash diff to branch tip diff
@@ -45,10 +46,10 @@ pub fn classify_stash(
                 && let Ok(tip_d) = git.diff_commit(repo, &tip_hash)
                 && diff_similarity(&stash_d, &tip_d) >= 0.5
             {
-                return StashClassification::Committed;
+                return (StashClassification::Committed, age_days, branch);
             }
         } else {
-            return StashClassification::Orphaned;
+            return (StashClassification::Orphaned, age_days, branch);
         }
     }
 
@@ -56,10 +57,10 @@ pub fn classify_stash(
     if let Some(days) = age_days
         && days >= age_threshold
     {
-        return StashClassification::Aged;
+        return (StashClassification::Aged, age_days, branch);
     }
 
-    StashClassification::Active
+    (StashClassification::Active, age_days, branch)
 }
 
 /// Scan all repos in `directory` for stash entries.
@@ -92,14 +93,20 @@ pub fn run_scan(
         }
 
         let repo_name = repo_display_name(repo_path);
+        let local_branches = git.list_local_branches(repo_path).unwrap_or_default();
 
-        let mut classified = Vec::new();
+        let mut classified = Vec::with_capacity(stashes.len());
 
         for (stash_ref, message, iso_date) in &stashes {
-            let classification =
-                classify_stash(git, repo_path, stash_ref, message, iso_date, age_threshold);
-            let age_days = days_since_iso_date(iso_date);
-            let branch = parse_stash_branch(message);
+            let (classification, age_days, branch) = classify_stash(
+                git,
+                repo_path,
+                stash_ref,
+                message,
+                iso_date,
+                age_threshold,
+                &local_branches,
+            );
 
             counts.increment(&classification);
             total_scanned += 1;
@@ -149,67 +156,68 @@ mod tests {
         // Stash diff matches branch tip -> Committed
         let diff = "+line 1\n+line 2\n";
         let git = MockGitBuilder::new()
-            .with_local_branches(&repo(), vec!["feature-x".to_string()])
             .with_stash_diff(&repo(), "stash@{0}", diff)
             .with_rev_parse(&repo(), "feature-x", "abc123")
             .with_diff_commit(&repo(), "abc123", diff)
             .build();
 
-        let result = classify_stash(
+        let branches = vec!["feature-x".to_string()];
+        let (cls, _, _) = classify_stash(
             &git,
             &repo(),
             "stash@{0}",
             "WIP on feature-x: abc1234 Add login",
             "2025-01-01T12:00:00+00:00",
             90,
+            &branches,
         );
-        assert_eq!(result, StashClassification::Committed);
+        assert_eq!(cls, StashClassification::Committed);
     }
 
     #[test]
     fn classify_orphaned_stash() {
         // Branch doesn't exist locally -> Orphaned
-        let git = MockGitBuilder::new()
-            .with_local_branches(&repo(), vec!["main".to_string()])
-            .build();
+        let git = MockGitBuilder::new().build();
 
-        let result = classify_stash(
+        let branches = vec!["main".to_string()];
+        let (cls, _, _) = classify_stash(
             &git,
             &repo(),
             "stash@{1}",
             "WIP on deleted-branch: def5678 Fix UI",
             "2025-01-01T12:00:00+00:00",
             90,
+            &branches,
         );
-        assert_eq!(result, StashClassification::Orphaned);
+        assert_eq!(cls, StashClassification::Orphaned);
     }
 
     #[test]
     fn classify_aged_stash() {
         // Branch exists but diff doesn't match, and stash is old -> Aged
         let git = MockGitBuilder::new()
-            .with_local_branches(&repo(), vec!["feature-y".to_string()])
             .with_stash_diff(&repo(), "stash@{0}", "+stash line\n")
             .with_rev_parse(&repo(), "feature-y", "def456")
             .with_diff_commit(&repo(), "def456", "+completely different\n")
             .build();
 
-        let result = classify_stash(
+        let branches = vec!["feature-y".to_string()];
+        let (cls, _, _) = classify_stash(
             &git,
             &repo(),
             "stash@{0}",
             "WIP on feature-y: def456 Some work",
             "2020-01-01T12:00:00+00:00", // very old
             90,
+            &branches,
         );
-        assert_eq!(result, StashClassification::Aged);
+        assert_eq!(cls, StashClassification::Aged);
     }
 
     #[test]
     fn classify_active_stash() {
         // Branch exists, diff doesn't match, and stash is recent -> Active
         let git = MockGitBuilder::new()
-            .with_local_branches(&repo(), vec!["main".to_string()])
             .with_stash_diff(&repo(), "stash@{0}", "+stash line\n")
             .with_rev_parse(&repo(), "main", "ghi789")
             .with_diff_commit(&repo(), "ghi789", "+branch line\n")
@@ -230,15 +238,17 @@ mod tests {
             )
         };
 
-        let result = classify_stash(
+        let branches = vec!["main".to_string()];
+        let (cls, _, _) = classify_stash(
             &git,
             &repo(),
             "stash@{0}",
             "WIP on main: ghi9012 Temp changes",
             &now,
             90,
+            &branches,
         );
-        assert_eq!(result, StashClassification::Active);
+        assert_eq!(cls, StashClassification::Active);
     }
 
     #[test]
@@ -259,8 +269,16 @@ mod tests {
             )
         };
 
-        let result = classify_stash(&git, &repo(), "stash@{0}", "some random message", &now, 90);
-        assert_eq!(result, StashClassification::Active);
+        let (cls, _, _) = classify_stash(
+            &git,
+            &repo(),
+            "stash@{0}",
+            "some random message",
+            &now,
+            90,
+            &[],
+        );
+        assert_eq!(cls, StashClassification::Active);
     }
 
     #[test]
@@ -268,15 +286,16 @@ mod tests {
         // Unparseable message, old -> Aged
         let git = MockGitBuilder::new().build();
 
-        let result = classify_stash(
+        let (cls, _, _) = classify_stash(
             &git,
             &repo(),
             "stash@{0}",
             "some random message",
             "2020-01-01T12:00:00+00:00",
             90,
+            &[],
         );
-        assert_eq!(result, StashClassification::Aged);
+        assert_eq!(cls, StashClassification::Aged);
     }
 
     #[test]

@@ -17,7 +17,6 @@ pub struct LandedResult {
     pub classification: Classification,
     pub matched: usize,
     pub total: usize,
-    pub unmatched: Vec<UnmatchedCommit>,
 }
 
 /// Check if branch commits have "landed" on the default branch via rebase,
@@ -40,7 +39,6 @@ pub fn detect_landed(
             },
             matched: 0,
             total: 0,
-            unmatched: vec![],
         });
     }
 
@@ -77,7 +75,7 @@ pub fn detect_landed(
         Classification::LandedPartial {
             matched,
             total,
-            unmatched: unmatched.clone(),
+            unmatched,
         }
     } else {
         // No commits landed — not a landed classification at all.
@@ -86,7 +84,6 @@ pub fn detect_landed(
             classification: Classification::Active, // placeholder
             matched: 0,
             total,
-            unmatched,
         });
     };
 
@@ -94,7 +91,6 @@ pub fn detect_landed(
         classification,
         matched,
         total,
-        unmatched,
     })
 }
 
@@ -165,7 +161,7 @@ fn try_fuzzy_subject_match(
     subject: &str,
 ) -> Result<bool, Error> {
     let stripped = strip_cc_prefix(subject);
-    let tokens = tokenize(stripped);
+    let tokens: HashSet<String> = tokenize(stripped).into_iter().collect();
 
     if tokens.len() < 2 {
         return Ok(false);
@@ -188,7 +184,7 @@ fn try_fuzzy_subject_match(
 
     for (_, candidate_subject) in &candidates {
         let candidate_stripped = strip_cc_prefix(candidate_subject);
-        let score = combined_similarity(stripped, candidate_stripped);
+        let score = combined_similarity_with_tokens(&tokens, stripped, candidate_stripped);
         if score >= FUZZY_THRESHOLD {
             return Ok(true);
         }
@@ -243,15 +239,28 @@ fn tokenize(s: &str) -> Vec<String> {
 }
 
 /// Combined similarity score: average of Jaccard and Levenshtein.
+#[cfg(test)]
 fn combined_similarity(a: &str, b: &str) -> f64 {
-    let jaccard = jaccard_similarity(a, b);
+    let tokens_a: HashSet<String> = tokenize(a).into_iter().collect();
+    combined_similarity_with_tokens(&tokens_a, a, b)
+}
+
+/// Combined similarity with pre-tokenized LHS.
+fn combined_similarity_with_tokens(tokens_a: &HashSet<String>, a: &str, b: &str) -> f64 {
+    let jaccard = jaccard_similarity_with_tokens(tokens_a, b);
     let levenshtein = strsim::normalized_levenshtein(a, b);
     (jaccard + levenshtein) / 2.0
 }
 
 /// Jaccard similarity: intersection / union of token sets.
+#[cfg(test)]
 fn jaccard_similarity(a: &str, b: &str) -> f64 {
     let tokens_a: HashSet<String> = tokenize(a).into_iter().collect();
+    jaccard_similarity_with_tokens(&tokens_a, b)
+}
+
+/// Jaccard similarity with pre-tokenized LHS.
+fn jaccard_similarity_with_tokens(tokens_a: &HashSet<String>, b: &str) -> f64 {
     let tokens_b: HashSet<String> = tokenize(b).into_iter().collect();
 
     if tokens_a.is_empty() && tokens_b.is_empty() {
@@ -424,7 +433,6 @@ mod tests {
         let result = detect_landed(&git, &repo(), "origin/main", "feature/done", false).unwrap();
         assert_eq!(result.matched, 2);
         assert_eq!(result.total, 2);
-        assert!(result.unmatched.is_empty());
         assert!(matches!(
             result.classification,
             Classification::Landed {
@@ -458,16 +466,17 @@ mod tests {
         let result = detect_landed(&git, &repo(), "origin/main", "feature/partial", false).unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 2);
-        assert_eq!(result.unmatched.len(), 1);
-        assert_eq!(result.unmatched[0].subject, "Add unique feature X");
-        assert!(matches!(
-            result.classification,
+        match &result.classification {
             Classification::LandedPartial {
                 matched: 1,
                 total: 2,
-                ..
+                unmatched,
+            } => {
+                assert_eq!(unmatched.len(), 1);
+                assert_eq!(unmatched[0].subject, "Add unique feature X");
             }
-        ));
+            other => panic!("expected LandedPartial, got {other:?}"),
+        }
     }
 
     #[test]
