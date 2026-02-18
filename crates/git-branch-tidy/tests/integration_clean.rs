@@ -45,7 +45,14 @@ fn clean_deletes_merged_branch_in_real_repo() {
     assert!(branches.contains(&"feature/done".to_string()));
 
     // Scan then clean
-    let scan_result = git_branch_tidy::scan::run_scan(&git_ops, &scan_dir, 100, false).unwrap();
+    let scan_result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_branch_tidy::clean::CleanOptions {
         dry_run: false,
@@ -77,7 +84,14 @@ fn clean_dry_run_does_not_delete() {
 
     git(&repo, &["branch", "feature/done"]);
 
-    let scan_result = git_branch_tidy::scan::run_scan(&git_ops, &scan_dir, 100, false).unwrap();
+    let scan_result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_branch_tidy::clean::CleanOptions {
         dry_run: true,
@@ -117,7 +131,14 @@ fn clean_safe_refuses_unmerged_branch() {
     git(&repo, &["commit", "-m", "wip"]);
     git(&repo, &["checkout", "main"]);
 
-    let scan_result = git_branch_tidy::scan::run_scan(&git_ops, &scan_dir, 100, false).unwrap();
+    let scan_result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Use --all to include it, but without --force (so -d will fail)
     let options = git_branch_tidy::clean::CleanOptions {

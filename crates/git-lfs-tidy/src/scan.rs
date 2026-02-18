@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 
 use crate::types::{LfsClassification, LfsCounts, LfsInfo, LfsRepoGroup, LfsScanResult};
 
@@ -44,6 +45,7 @@ pub fn run_scan(
     directory: &Path,
     size_threshold: u64,
     depth: usize,
+    progress: &Progress,
 ) -> Result<LfsScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
 
@@ -58,6 +60,7 @@ pub fn run_scan(
         warnings.push("git-lfs is not installed; skipping LFS-specific checks".to_string());
     }
 
+    let pb = progress.bar(repo_paths.len() as u64, "Scanning LFS");
     for repo_path in &repo_paths {
         let repo_name = repo_display_name(repo_path);
         let mut items = Vec::new();
@@ -167,7 +170,9 @@ pub fn run_scan(
             lfs_available: lfs_installed,
             track_patterns,
         });
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(LfsScanResult {
         repos,

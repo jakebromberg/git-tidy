@@ -44,7 +44,15 @@ fn clean_removes_orphaned_repo() {
     assert!(repo.exists());
 
     let git_ops = RealGit;
-    let scan_result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let scan_result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let delete_fn = |path: &std::path::Path| std::fs::remove_dir_all(path);
     let mut buf = Vec::new();
@@ -63,7 +71,15 @@ fn clean_dry_run_preserves_repo() {
     let scan_dir = base.join("projects");
 
     let git_ops = RealGit;
-    let scan_result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let scan_result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let delete_fn = |path: &std::path::Path| std::fs::remove_dir_all(path);
     let mut buf = Vec::new();
@@ -92,7 +108,15 @@ fn clean_skips_dirty_repo() {
     std::fs::write(repo.join("dirty.txt"), "uncommitted").unwrap();
 
     let git_ops = RealGit;
-    let scan_result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let scan_result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let delete_fn = |path: &std::path::Path| std::fs::remove_dir_all(path);
     let mut buf = Vec::new();
@@ -115,7 +139,15 @@ fn clean_force_deletes_dirty_repo() {
     std::fs::write(repo.join("dirty.txt"), "uncommitted").unwrap();
 
     let git_ops = RealGit;
-    let scan_result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let scan_result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let delete_fn = |path: &std::path::Path| std::fs::remove_dir_all(path);
     let mut buf = Vec::new();

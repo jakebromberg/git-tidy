@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use git_tidy_core::progress::Progress;
+
 use crate::types::{AuditResult, TOOL_SPECS, ToolResult, ToolSpec};
 
 /// Abstraction for finding and running git-tidy sub-tools.
@@ -88,21 +90,35 @@ pub fn run_audit(
     runner: &dyn ToolRunner,
     directory: &Path,
     tool_filter: Option<&[String]>,
+    progress: &Progress,
 ) -> AuditResult {
     let mut tools_found = Vec::new();
     let mut tools_missing = Vec::new();
     let mut results = Vec::new();
 
-    for spec in TOOL_SPECS {
-        // Apply filter if set
-        if let Some(filter) = tool_filter
-            && !filter.iter().any(|f| matches_filter(spec.binary, f))
-        {
-            continue;
-        }
+    // Collect matching specs for progress bar length.
+    let specs: Vec<_> = TOOL_SPECS
+        .iter()
+        .filter(|spec| {
+            tool_filter
+                .map(|f| f.iter().any(|entry| matches_filter(spec.binary, entry)))
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let pb = progress.bar(specs.len() as u64, "Auditing");
+
+    for (idx, spec) in specs.iter().enumerate() {
+        pb.set_message(format!(
+            "[{}/{}] Scanning {}...",
+            idx + 1,
+            specs.len(),
+            spec.item_noun
+        ));
 
         let Some(path) = runner.find_tool(spec.binary) else {
             tools_missing.push(spec.binary.to_string());
+            pb.inc(1);
             continue;
         };
 
@@ -117,7 +133,9 @@ pub fn run_audit(
         };
 
         results.push(result);
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     AuditResult {
         directory: directory.to_path_buf(),
@@ -300,7 +318,7 @@ mod tests {
             ("git-lfs-tidy", Ok("[]")),
         ]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None);
+        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
         assert_eq!(result.tools_found.len(), 8);
         assert!(result.tools_missing.is_empty());
         assert_eq!(result.results.len(), 8);
@@ -325,7 +343,7 @@ mod tests {
             Ok(r#"[{"classification":"active"}]"#),
         )]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None);
+        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
         assert_eq!(result.tools_found, vec!["git-branch-tidy"]);
         assert!(
             result
@@ -340,7 +358,7 @@ mod tests {
     fn audit_tool_returns_error() {
         let runner = MockToolRunner::new(vec![("git-branch-tidy", Err("process failed"))]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None);
+        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
         assert_eq!(result.results.len(), 1);
         assert_eq!(result.results[0].error.as_deref(), Some("process failed"));
         assert_eq!(result.results[0].total, 0);
@@ -350,7 +368,7 @@ mod tests {
     fn audit_tool_returns_invalid_json() {
         let runner = MockToolRunner::new(vec![("git-branch-tidy", Ok("not json"))]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None);
+        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
         assert_eq!(result.results.len(), 1);
         assert!(result.results[0].error.is_some());
         assert!(
@@ -371,7 +389,12 @@ mod tests {
         ]);
 
         let filter = vec!["branch".to_string(), "tag".to_string()];
-        let result = run_audit(&runner, Path::new("/dev"), Some(&filter));
+        let result = run_audit(
+            &runner,
+            Path::new("/dev"),
+            Some(&filter),
+            &Progress::disabled(),
+        );
 
         // Only branch and tag should be checked
         assert_eq!(result.tools_found, vec!["git-branch-tidy", "git-tag-tidy"]);
@@ -383,7 +406,7 @@ mod tests {
     fn audit_no_tools_found() {
         let runner = MockToolRunner::new(vec![]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None);
+        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
         assert!(result.tools_found.is_empty());
         assert_eq!(result.tools_missing.len(), 8);
         assert!(result.results.is_empty());

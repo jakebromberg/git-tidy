@@ -7,6 +7,7 @@ use git_tidy_core::cli::validate_directory;
 use git_tidy_core::config;
 use git_tidy_core::error;
 use git_tidy_core::git;
+use git_tidy_core::progress::Progress;
 
 mod clean;
 mod cli;
@@ -35,6 +36,7 @@ fn main() {
     let noise_patterns = noise_config.resolve();
 
     let git = git::RealGit;
+    let progress = Progress::new();
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -52,6 +54,7 @@ fn main() {
                 cli.behind_threshold,
                 cli.verbose,
                 &noise_patterns,
+                &progress,
             ) {
                 Ok(result) => {
                     let write_result = match format {
@@ -84,6 +87,7 @@ fn main() {
                 cli.behind_threshold,
                 cli.verbose,
                 &noise_patterns,
+                &progress,
             ) {
                 Ok(scan_result) => {
                     let options = clean::CleanOptions {

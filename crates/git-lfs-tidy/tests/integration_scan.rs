@@ -33,7 +33,14 @@ fn scan_repo_with_no_large_blobs() {
     let git_ops = RealGit;
 
     // Default threshold is 1MB, README.md is tiny
-    let result = git_lfs_tidy::scan::run_scan(&git_ops, &scan_dir, 1_000_000, 1000).unwrap();
+    let result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        1_000_000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Should find the repo but no items (all blobs below threshold)
     assert!(result.repos.is_empty() || result.repos[0].items.is_empty());
@@ -51,7 +58,14 @@ fn scan_repo_with_large_blob() {
     git(&repo, &["add", "large.bin"]);
     git(&repo, &["commit", "-m", "Add large file"]);
 
-    let result = git_lfs_tidy::scan::run_scan(&git_ops, &scan_dir, 100_000, 1000).unwrap();
+    let result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100_000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
@@ -82,7 +96,14 @@ fn scan_repo_with_large_blob_below_threshold() {
     git(&repo, &["add", "medium.bin"]);
     git(&repo, &["commit", "-m", "Add medium file"]);
 
-    let result = git_lfs_tidy::scan::run_scan(&git_ops, &scan_dir, 100_000, 1000).unwrap();
+    let result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100_000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Should not flag medium.bin since it's below threshold
     let untracked_count: usize = result
@@ -123,7 +144,14 @@ fn scan_multiple_repos() {
     git(&repo_b, &["commit", "-m", "Add small file"]);
 
     let git_ops = RealGit;
-    let result = git_lfs_tidy::scan::run_scan(&git_ops, &scan_dir, 100_000, 1000).unwrap();
+    let result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100_000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Only repo-a should have items (untracked large blob)
     let repos_with_items: Vec<_> = result
@@ -148,7 +176,14 @@ fn scan_repo_with_no_commits() {
 
     let git_ops = RealGit;
     // Should not crash on an empty repo
-    let result = git_lfs_tidy::scan::run_scan(&git_ops, &scan_dir, 1_000_000, 1000).unwrap();
+    let result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        1_000_000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Empty repo should have no items
     let total_items: usize = result.repos.iter().map(|r| r.items.len()).sum();
@@ -168,7 +203,14 @@ fn scan_threshold_edge_case() {
     git(&repo, &["commit", "-m", "Add edge-case file"]);
 
     // Threshold = 1000: file is exactly at threshold, should be flagged (>= comparison)
-    let result = git_lfs_tidy::scan::run_scan(&git_ops, &scan_dir, 1000, 1000).unwrap();
+    let result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        1000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let untracked: Vec<_> = result
         .repos

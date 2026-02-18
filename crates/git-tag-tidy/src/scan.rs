@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
@@ -34,7 +35,12 @@ pub fn classify_tag(
 }
 
 /// Scan all repos in `directory` for tags.
-pub fn run_scan(git: &dyn GitOps, directory: &Path, offline: bool) -> Result<TagScanResult, Error> {
+pub fn run_scan(
+    git: &dyn GitOps,
+    directory: &Path,
+    offline: bool,
+    progress: &Progress,
+) -> Result<TagScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
 
     let mut repos = Vec::new();
@@ -42,6 +48,7 @@ pub fn run_scan(git: &dyn GitOps, directory: &Path, offline: bool) -> Result<Tag
     let mut warnings = Vec::new();
     let mut total_scanned = 0;
 
+    let pb = progress.bar(repo_paths.len() as u64, "Scanning tags");
     for repo_path in &repo_paths {
         // Get local tags
         let local_tags: HashSet<String> = match git.list_local_tags(repo_path) {
@@ -160,7 +167,9 @@ pub fn run_scan(git: &dyn GitOps, directory: &Path, offline: bool) -> Result<Tag
             name: repo_name,
             tags: classified,
         });
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(TagScanResult {
         repos,

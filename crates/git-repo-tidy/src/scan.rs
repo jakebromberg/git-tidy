@@ -7,6 +7,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 
 use crate::types::{RepoClassification, RepoCounts, RepoInfo, RepoScanResult};
 
@@ -118,6 +119,7 @@ pub fn run_scan(
     stale_days: u64,
     noise_patterns: &[String],
     offline: bool,
+    progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
     run_scan_with_du(
         git,
@@ -126,6 +128,7 @@ pub fn run_scan(
         noise_patterns,
         offline,
         &disk_usage,
+        progress,
     )
 }
 
@@ -137,6 +140,7 @@ pub fn run_scan_with_du(
     noise_patterns: &[String],
     offline: bool,
     du_fn: &dyn Fn(&Path) -> u64,
+    progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
 
@@ -146,6 +150,7 @@ pub fn run_scan_with_du(
     let mut total_disk_usage_bytes = 0u64;
     let mut reclaimable_bytes = 0u64;
 
+    let pb = progress.bar(repo_paths.len() as u64, "Scanning repos");
     for repo_path in &repo_paths {
         let info = classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
 
@@ -160,7 +165,9 @@ pub fn run_scan_with_du(
         }
 
         repos.push(info);
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     // Sort by classification priority (stale first, then orphaned, then active)
     repos.sort_by(|a, b| {

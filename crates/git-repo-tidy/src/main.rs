@@ -5,6 +5,7 @@ use clap::Parser;
 use git_tidy_core::config::{NoiseConfig, default_config_path, load_config_file};
 use git_tidy_core::error;
 use git_tidy_core::git;
+use git_tidy_core::progress::Progress;
 
 mod clean;
 mod cli;
@@ -22,6 +23,7 @@ fn main() {
     }
 
     let git = git::RealGit;
+    let progress = Progress::new();
     let mut stdout = io::stdout().lock();
 
     // Resolve noise patterns
@@ -46,7 +48,14 @@ fn main() {
                 _ => (false, false),
             };
 
-            match scan::run_scan(&git, &directory, stale_days, &noise_patterns, cli.offline) {
+            match scan::run_scan(
+                &git,
+                &directory,
+                stale_days,
+                &noise_patterns,
+                cli.offline,
+                &progress,
+            ) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -71,7 +80,14 @@ fn main() {
             orphaned_only,
             all,
             ..
-        }) => match scan::run_scan(&git, &directory, stale_days, &noise_patterns, cli.offline) {
+        }) => match scan::run_scan(
+            &git,
+            &directory,
+            stale_days,
+            &noise_patterns,
+            cli.offline,
+            &progress,
+        ) {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,

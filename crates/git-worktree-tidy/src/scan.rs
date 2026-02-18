@@ -4,6 +4,7 @@ use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
 
 use crate::discovery;
@@ -15,16 +16,18 @@ pub fn run_scan(
     behind_threshold: usize,
     verbose: bool,
     noise_patterns: &[String],
+    progress: &Progress,
 ) -> Result<ScanResult, Error> {
     let groups = discovery::discover_worktrees(directory)?;
 
     let repo_paths: Vec<&std::path::Path> = groups.keys().map(|p| p.as_path()).collect();
-    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &repo_paths);
+    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &repo_paths, progress);
 
     let mut repos = Vec::new();
     let mut counts = ScanCounts::default();
     let mut total_scanned = 0;
 
+    let pb = progress.bar(groups.len() as u64, "Scanning worktrees");
     for (repo_path, worktrees) in &groups {
         // Detect default branch
         let default_branch = match classification::detect_default_branch(git, repo_path) {
@@ -72,7 +75,9 @@ pub fn run_scan(
                 worktrees: classified,
             });
         }
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(ScanResult {
         repos,

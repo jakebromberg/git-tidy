@@ -4,6 +4,7 @@ use std::path::Path;
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
 use git_tidy_core::git::{GitOps, RealGit};
+use git_tidy_core::progress::Progress;
 
 use crate::runner::matches_filter;
 use crate::types::{AuditResult, TOOL_SPECS, ToolResult};
@@ -23,28 +24,55 @@ const DEFAULT_LFS_DEPTH: usize = 1000;
 
 /// Run an audit by calling each tool's scan/lint function in-process,
 /// sharing a `CachingGitOps` to avoid redundant git calls.
-pub fn run_audit_inprocess(directory: &Path, tool_filter: Option<&[String]>) -> AuditResult {
+pub fn run_audit_inprocess(
+    directory: &Path,
+    tool_filter: Option<&[String]>,
+    progress: &Progress,
+) -> AuditResult {
     let git = RealGit;
     let caching = CachingGitOps::new(&git);
 
     // Resolve noise patterns from config file (no CLI overrides in audit mode).
     let noise_patterns = resolve_noise_patterns();
 
+    // Collect tools to run (for progress bar length).
+    let specs: Vec<_> = TOOL_SPECS
+        .iter()
+        .filter(|spec| {
+            tool_filter
+                .map(|f| f.iter().any(|entry| matches_filter(spec.binary, entry)))
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let pb = progress.bar(specs.len() as u64, "Auditing");
     let mut results = Vec::new();
     let mut tools_found = Vec::new();
 
-    for spec in TOOL_SPECS {
-        if let Some(filter) = tool_filter
-            && !filter.iter().any(|f| matches_filter(spec.binary, f))
-        {
-            continue;
-        }
+    // Sub-tool scans get disabled progress to avoid visual conflicts.
+    let sub_progress = Progress::disabled();
+
+    for (idx, spec) in specs.iter().enumerate() {
+        pb.set_message(format!(
+            "[{}/{}] Scanning {}...",
+            idx + 1,
+            specs.len(),
+            spec.item_noun
+        ));
 
         tools_found.push(spec.binary.to_string());
 
-        let result = run_tool_scan(spec.binary, &caching, directory, &noise_patterns);
+        let result = run_tool_scan(
+            spec.binary,
+            &caching,
+            directory,
+            &noise_patterns,
+            &sub_progress,
+        );
         results.push(result);
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     AuditResult {
         directory: directory.to_path_buf(),
@@ -74,16 +102,17 @@ fn run_tool_scan(
     git: &dyn GitOps,
     directory: &Path,
     noise_patterns: &[String],
+    progress: &Progress,
 ) -> ToolResult {
     match binary {
-        "git-worktree-tidy" => scan_worktrees(git, directory, noise_patterns),
-        "git-branch-tidy" => scan_branches(git, directory),
-        "git-stash-tidy" => scan_stashes(git, directory),
-        "git-remote-tidy" => scan_remotes(git, directory),
-        "git-tag-tidy" => scan_tags(git, directory),
-        "git-repo-tidy" => scan_repos(git, directory, noise_patterns),
-        "git-config-tidy" => lint_config(git, directory),
-        "git-lfs-tidy" => scan_lfs(git, directory),
+        "git-worktree-tidy" => scan_worktrees(git, directory, noise_patterns, progress),
+        "git-branch-tidy" => scan_branches(git, directory, progress),
+        "git-stash-tidy" => scan_stashes(git, directory, progress),
+        "git-remote-tidy" => scan_remotes(git, directory, progress),
+        "git-tag-tidy" => scan_tags(git, directory, progress),
+        "git-repo-tidy" => scan_repos(git, directory, noise_patterns, progress),
+        "git-config-tidy" => lint_config(git, directory, progress),
+        "git-lfs-tidy" => scan_lfs(git, directory, progress),
         _ => ToolResult {
             name: binary.to_string(),
             item_noun: "unknown".to_string(),
@@ -103,13 +132,19 @@ fn counts_map(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
         .collect()
 }
 
-fn scan_worktrees(git: &dyn GitOps, directory: &Path, noise_patterns: &[String]) -> ToolResult {
+fn scan_worktrees(
+    git: &dyn GitOps,
+    directory: &Path,
+    noise_patterns: &[String],
+    progress: &Progress,
+) -> ToolResult {
     match git_worktree_tidy::scan::run_scan(
         git,
         directory,
         DEFAULT_BEHIND_THRESHOLD,
         false,
         noise_patterns,
+        progress,
     ) {
         Ok(result) => {
             let c = &result.counts;
@@ -133,8 +168,9 @@ fn scan_worktrees(git: &dyn GitOps, directory: &Path, noise_patterns: &[String])
     }
 }
 
-fn scan_branches(git: &dyn GitOps, directory: &Path) -> ToolResult {
-    match git_branch_tidy::scan::run_scan(git, directory, DEFAULT_BEHIND_THRESHOLD, false) {
+fn scan_branches(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
+    match git_branch_tidy::scan::run_scan(git, directory, DEFAULT_BEHIND_THRESHOLD, false, progress)
+    {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -157,8 +193,8 @@ fn scan_branches(git: &dyn GitOps, directory: &Path) -> ToolResult {
     }
 }
 
-fn scan_stashes(git: &dyn GitOps, directory: &Path) -> ToolResult {
-    match git_stash_tidy::scan::run_scan(git, directory, DEFAULT_AGE_THRESHOLD) {
+fn scan_stashes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
+    match git_stash_tidy::scan::run_scan(git, directory, DEFAULT_AGE_THRESHOLD, progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -180,8 +216,8 @@ fn scan_stashes(git: &dyn GitOps, directory: &Path) -> ToolResult {
     }
 }
 
-fn scan_remotes(git: &dyn GitOps, directory: &Path) -> ToolResult {
-    match git_remote_tidy::scan::run_scan(git, directory, false) {
+fn scan_remotes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
+    match git_remote_tidy::scan::run_scan(git, directory, false, progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -202,8 +238,8 @@ fn scan_remotes(git: &dyn GitOps, directory: &Path) -> ToolResult {
     }
 }
 
-fn scan_tags(git: &dyn GitOps, directory: &Path) -> ToolResult {
-    match git_tag_tidy::scan::run_scan(git, directory, false) {
+fn scan_tags(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
+    match git_tag_tidy::scan::run_scan(git, directory, false, progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -225,8 +261,20 @@ fn scan_tags(git: &dyn GitOps, directory: &Path) -> ToolResult {
     }
 }
 
-fn scan_repos(git: &dyn GitOps, directory: &Path, noise_patterns: &[String]) -> ToolResult {
-    match git_repo_tidy::scan::run_scan(git, directory, DEFAULT_STALE_DAYS, noise_patterns, false) {
+fn scan_repos(
+    git: &dyn GitOps,
+    directory: &Path,
+    noise_patterns: &[String],
+    progress: &Progress,
+) -> ToolResult {
+    match git_repo_tidy::scan::run_scan(
+        git,
+        directory,
+        DEFAULT_STALE_DAYS,
+        noise_patterns,
+        false,
+        progress,
+    ) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -247,8 +295,8 @@ fn scan_repos(git: &dyn GitOps, directory: &Path, noise_patterns: &[String]) -> 
     }
 }
 
-fn lint_config(git: &dyn GitOps, directory: &Path) -> ToolResult {
-    match git_config_tidy::lint::run_lint(git, directory) {
+fn lint_config(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
+    match git_config_tidy::lint::run_lint(git, directory, progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -268,12 +316,13 @@ fn lint_config(git: &dyn GitOps, directory: &Path) -> ToolResult {
     }
 }
 
-fn scan_lfs(git: &dyn GitOps, directory: &Path) -> ToolResult {
+fn scan_lfs(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
     match git_lfs_tidy::scan::run_scan(
         git,
         directory,
         DEFAULT_LFS_SIZE_THRESHOLD,
         DEFAULT_LFS_DEPTH,
+        progress,
     ) {
         Ok(result) => {
             let c = &result.counts;
@@ -331,7 +380,8 @@ mod tests {
     fn scan_worktrees_with_empty_mock() {
         // MockGit with no data will produce zero worktrees
         let mock = MockGitBuilder::new().build();
-        let result = scan_worktrees(&mock, Path::new("/nonexistent"), &[]);
+        let p = Progress::disabled();
+        let result = scan_worktrees(&mock, Path::new("/nonexistent"), &[], &p);
         // discover_worktrees will fail on nonexistent dir, giving an error
         assert!(result.error.is_some() || result.total == 0);
     }
@@ -339,28 +389,32 @@ mod tests {
     #[test]
     fn scan_branches_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
-        let result = scan_branches(&mock, Path::new("/nonexistent"));
+        let p = Progress::disabled();
+        let result = scan_branches(&mock, Path::new("/nonexistent"), &p);
         assert!(result.error.is_some() || result.total == 0);
     }
 
     #[test]
     fn scan_stashes_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
-        let result = scan_stashes(&mock, Path::new("/nonexistent"));
+        let p = Progress::disabled();
+        let result = scan_stashes(&mock, Path::new("/nonexistent"), &p);
         assert!(result.error.is_some() || result.total == 0);
     }
 
     #[test]
     fn lint_config_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
-        let result = lint_config(&mock, Path::new("/nonexistent"));
+        let p = Progress::disabled();
+        let result = lint_config(&mock, Path::new("/nonexistent"), &p);
         assert!(result.error.is_some() || result.total == 0);
     }
 
     #[test]
     fn scan_lfs_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
-        let result = scan_lfs(&mock, Path::new("/nonexistent"));
+        let p = Progress::disabled();
+        let result = scan_lfs(&mock, Path::new("/nonexistent"), &p);
         assert!(result.error.is_some() || result.total == 0);
     }
 
@@ -384,7 +438,8 @@ mod tests {
     #[test]
     fn unknown_tool_returns_error() {
         let mock = MockGitBuilder::new().build();
-        let result = run_tool_scan("git-unknown-tidy", &mock, Path::new("/tmp"), &[]);
+        let p = Progress::disabled();
+        let result = run_tool_scan("git-unknown-tidy", &mock, Path::new("/tmp"), &[], &p);
         assert!(result.error.is_some());
         assert!(result.error.as_ref().unwrap().contains("unknown tool"));
     }

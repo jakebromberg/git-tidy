@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
@@ -42,6 +43,7 @@ pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
     offline: bool,
+    progress: &Progress,
 ) -> Result<RemoteScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
 
@@ -50,6 +52,7 @@ pub fn run_scan(
     let mut warnings = Vec::new();
     let mut total_scanned = 0;
 
+    let pb = progress.bar(repo_paths.len() as u64, "Scanning remotes");
     for repo_path in &repo_paths {
         // Get configured remotes
         let configured = match git.list_remotes(repo_path) {
@@ -136,7 +139,9 @@ pub fn run_scan(
             name: repo_name,
             remotes: classified,
         });
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(RemoteScanResult {
         repos,

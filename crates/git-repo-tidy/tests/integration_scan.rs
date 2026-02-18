@@ -38,7 +38,15 @@ fn scan_active_repo_with_remote() {
     git(&repo, &["push", "-u", "origin", "main"]);
 
     let git_ops = RealGit;
-    let result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.repos[0].classification, RepoClassification::Active);
@@ -55,7 +63,15 @@ fn scan_orphaned_no_remote() {
     let scan_dir = base.join("projects");
 
     let git_ops = RealGit;
-    let result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.repos[0].classification, RepoClassification::Orphaned);
@@ -89,7 +105,15 @@ fn scan_stale_repo() {
 
     let git_ops = RealGit;
     // stale_days = 180 (6 months); commit is ~2 years old
-    let result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.repos[0].classification, RepoClassification::Stale);
@@ -106,7 +130,15 @@ fn scan_dirty_repo() {
     std::fs::write(repo.join("dirty.txt"), "uncommitted").unwrap();
 
     let git_ops = RealGit;
-    let result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert!(result.repos[0].is_dirty);
@@ -121,7 +153,15 @@ fn scan_reclaimable_bytes() {
     let scan_dir = base.join("projects");
 
     let git_ops = RealGit;
-    let result = git_repo_tidy::scan::run_scan(&git_ops, &scan_dir, 180, &[], false).unwrap();
+    let result = git_repo_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        180,
+        &[],
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Orphaned repo's disk usage should be reclaimable
     assert_eq!(result.repos.len(), 1);
