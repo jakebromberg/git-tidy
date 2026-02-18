@@ -1,6 +1,6 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::git::{GitOps, GitResult};
 
@@ -27,14 +27,14 @@ macro_rules! delegate_git_ops {
 /// `CachingGitOps` is shared across all tool scans.
 pub struct CachingGitOps<'a> {
     inner: &'a dyn GitOps,
-    fetched_repos: RefCell<HashSet<PathBuf>>,
-    symbolic_ref_cache: RefCell<HashMap<PathBuf, Option<String>>>,
-    rev_parse_verify_cache: RefCell<HashMap<(PathBuf, String), bool>>,
-    local_branches_cache: RefCell<HashMap<PathBuf, Vec<String>>>,
-    list_remotes_cache: RefCell<HashMap<PathBuf, Vec<String>>>,
-    ls_remote_check_cache: RefCell<HashMap<(PathBuf, String), bool>>,
-    builtin_commands_cache: RefCell<Option<Vec<String>>>,
-    lfs_installed_cache: RefCell<Option<bool>>,
+    fetched_repos: Mutex<HashSet<PathBuf>>,
+    symbolic_ref_cache: Mutex<HashMap<PathBuf, Option<String>>>,
+    rev_parse_verify_cache: Mutex<HashMap<(PathBuf, String), bool>>,
+    local_branches_cache: Mutex<HashMap<PathBuf, Vec<String>>>,
+    list_remotes_cache: Mutex<HashMap<PathBuf, Vec<String>>>,
+    ls_remote_check_cache: Mutex<HashMap<(PathBuf, String), bool>>,
+    builtin_commands_cache: Mutex<Option<Vec<String>>>,
+    lfs_installed_cache: Mutex<Option<bool>>,
 }
 
 impl<'a> CachingGitOps<'a> {
@@ -42,14 +42,14 @@ impl<'a> CachingGitOps<'a> {
     pub fn new(inner: &'a dyn GitOps) -> Self {
         Self {
             inner,
-            fetched_repos: RefCell::new(HashSet::new()),
-            symbolic_ref_cache: RefCell::new(HashMap::new()),
-            rev_parse_verify_cache: RefCell::new(HashMap::new()),
-            local_branches_cache: RefCell::new(HashMap::new()),
-            list_remotes_cache: RefCell::new(HashMap::new()),
-            ls_remote_check_cache: RefCell::new(HashMap::new()),
-            builtin_commands_cache: RefCell::new(None),
-            lfs_installed_cache: RefCell::new(None),
+            fetched_repos: Mutex::new(HashSet::new()),
+            symbolic_ref_cache: Mutex::new(HashMap::new()),
+            rev_parse_verify_cache: Mutex::new(HashMap::new()),
+            local_branches_cache: Mutex::new(HashMap::new()),
+            list_remotes_cache: Mutex::new(HashMap::new()),
+            ls_remote_check_cache: Mutex::new(HashMap::new()),
+            builtin_commands_cache: Mutex::new(None),
+            lfs_installed_cache: Mutex::new(None),
         }
     }
 }
@@ -57,87 +57,96 @@ impl<'a> CachingGitOps<'a> {
 impl GitOps for CachingGitOps<'_> {
     fn fetch_prune(&self, repo: &Path) -> GitResult<()> {
         let key = repo.to_path_buf();
-        if self.fetched_repos.borrow().contains(&key) {
+        if self.fetched_repos.lock().unwrap().contains(&key) {
             return Ok(());
         }
         let result = self.inner.fetch_prune(repo);
         if result.is_ok() {
-            self.fetched_repos.borrow_mut().insert(key);
+            self.fetched_repos.lock().unwrap().insert(key);
         }
         result
     }
 
     fn symbolic_ref_origin_head(&self, repo: &Path) -> GitResult<Option<String>> {
         let key = repo.to_path_buf();
-        if let Some(cached) = self.symbolic_ref_cache.borrow().get(&key) {
+        if let Some(cached) = self.symbolic_ref_cache.lock().unwrap().get(&key) {
             return Ok(cached.clone());
         }
         let result = self.inner.symbolic_ref_origin_head(repo)?;
         self.symbolic_ref_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(key, result.clone());
         Ok(result)
     }
 
     fn rev_parse_verify(&self, repo: &Path, refspec: &str) -> GitResult<bool> {
         let key = (repo.to_path_buf(), refspec.to_string());
-        if let Some(&cached) = self.rev_parse_verify_cache.borrow().get(&key) {
+        if let Some(&cached) = self.rev_parse_verify_cache.lock().unwrap().get(&key) {
             return Ok(cached);
         }
         let result = self.inner.rev_parse_verify(repo, refspec)?;
-        self.rev_parse_verify_cache.borrow_mut().insert(key, result);
+        self.rev_parse_verify_cache
+            .lock()
+            .unwrap()
+            .insert(key, result);
         Ok(result)
     }
 
     fn list_local_branches(&self, repo: &Path) -> GitResult<Vec<String>> {
         let key = repo.to_path_buf();
-        if let Some(cached) = self.local_branches_cache.borrow().get(&key) {
+        if let Some(cached) = self.local_branches_cache.lock().unwrap().get(&key) {
             return Ok(cached.clone());
         }
         let result = self.inner.list_local_branches(repo)?;
         self.local_branches_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(key, result.clone());
         Ok(result)
     }
 
     fn list_remotes(&self, repo: &Path) -> GitResult<Vec<String>> {
         let key = repo.to_path_buf();
-        if let Some(cached) = self.list_remotes_cache.borrow().get(&key) {
+        if let Some(cached) = self.list_remotes_cache.lock().unwrap().get(&key) {
             return Ok(cached.clone());
         }
         let result = self.inner.list_remotes(repo)?;
         self.list_remotes_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(key, result.clone());
         Ok(result)
     }
 
     fn ls_remote_check(&self, repo: &Path, remote: &str) -> GitResult<bool> {
         let key = (repo.to_path_buf(), remote.to_string());
-        if let Some(&cached) = self.ls_remote_check_cache.borrow().get(&key) {
+        if let Some(&cached) = self.ls_remote_check_cache.lock().unwrap().get(&key) {
             return Ok(cached);
         }
         let result = self.inner.ls_remote_check(repo, remote)?;
-        self.ls_remote_check_cache.borrow_mut().insert(key, result);
+        self.ls_remote_check_cache
+            .lock()
+            .unwrap()
+            .insert(key, result);
         Ok(result)
     }
 
     fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
-        if let Some(cached) = self.builtin_commands_cache.borrow().as_ref() {
+        if let Some(cached) = self.builtin_commands_cache.lock().unwrap().as_ref() {
             return Ok(cached.clone());
         }
         let result = self.inner.list_builtin_commands()?;
-        *self.builtin_commands_cache.borrow_mut() = Some(result.clone());
+        *self.builtin_commands_cache.lock().unwrap() = Some(result.clone());
         Ok(result)
     }
 
     fn lfs_installed(&self) -> GitResult<bool> {
-        if let Some(cached) = *self.lfs_installed_cache.borrow() {
+        if let Some(cached) = *self.lfs_installed_cache.lock().unwrap() {
             return Ok(cached);
         }
         let result = self.inner.lfs_installed()?;
-        *self.lfs_installed_cache.borrow_mut() = Some(result);
+        *self.lfs_installed_cache.lock().unwrap() = Some(result);
         Ok(result)
     }
 
@@ -192,8 +201,8 @@ impl GitOps for CachingGitOps<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use std::path::Path;
+    use std::sync::Mutex;
 
     use super::*;
 
@@ -202,70 +211,70 @@ mod tests {
     /// all methods delegate to the inner MockGit.
     struct CountingGitOps<'a> {
         inner: &'a dyn GitOps,
-        fetch_prune_count: RefCell<usize>,
-        symbolic_ref_count: RefCell<usize>,
-        rev_parse_verify_count: RefCell<usize>,
-        list_local_branches_count: RefCell<usize>,
-        list_remotes_count: RefCell<usize>,
-        ls_remote_check_count: RefCell<usize>,
-        list_builtin_commands_count: RefCell<usize>,
-        lfs_installed_count: RefCell<usize>,
+        fetch_prune_count: Mutex<usize>,
+        symbolic_ref_count: Mutex<usize>,
+        rev_parse_verify_count: Mutex<usize>,
+        list_local_branches_count: Mutex<usize>,
+        list_remotes_count: Mutex<usize>,
+        ls_remote_check_count: Mutex<usize>,
+        list_builtin_commands_count: Mutex<usize>,
+        lfs_installed_count: Mutex<usize>,
     }
 
     impl<'a> CountingGitOps<'a> {
         fn new(inner: &'a dyn GitOps) -> Self {
             Self {
                 inner,
-                fetch_prune_count: RefCell::new(0),
-                symbolic_ref_count: RefCell::new(0),
-                rev_parse_verify_count: RefCell::new(0),
-                list_local_branches_count: RefCell::new(0),
-                list_remotes_count: RefCell::new(0),
-                ls_remote_check_count: RefCell::new(0),
-                list_builtin_commands_count: RefCell::new(0),
-                lfs_installed_count: RefCell::new(0),
+                fetch_prune_count: Mutex::new(0),
+                symbolic_ref_count: Mutex::new(0),
+                rev_parse_verify_count: Mutex::new(0),
+                list_local_branches_count: Mutex::new(0),
+                list_remotes_count: Mutex::new(0),
+                ls_remote_check_count: Mutex::new(0),
+                list_builtin_commands_count: Mutex::new(0),
+                lfs_installed_count: Mutex::new(0),
             }
         }
     }
 
     impl GitOps for CountingGitOps<'_> {
         fn fetch_prune(&self, repo: &Path) -> GitResult<()> {
-            *self.fetch_prune_count.borrow_mut() += 1;
+            *self.fetch_prune_count.lock().unwrap() += 1;
             self.inner.fetch_prune(repo)
         }
 
         fn symbolic_ref_origin_head(&self, repo: &Path) -> GitResult<Option<String>> {
-            *self.symbolic_ref_count.borrow_mut() += 1;
+            *self.symbolic_ref_count.lock().unwrap() += 1;
             self.inner.symbolic_ref_origin_head(repo)
         }
 
         fn rev_parse_verify(&self, repo: &Path, refspec: &str) -> GitResult<bool> {
-            *self.rev_parse_verify_count.borrow_mut() += 1;
+            *self.rev_parse_verify_count.lock().unwrap() += 1;
             self.inner.rev_parse_verify(repo, refspec)
         }
 
         fn list_local_branches(&self, repo: &Path) -> GitResult<Vec<String>> {
-            *self.list_local_branches_count.borrow_mut() += 1;
+            *self.list_local_branches_count.lock().unwrap() += 1;
             self.inner.list_local_branches(repo)
         }
 
         fn list_remotes(&self, repo: &Path) -> GitResult<Vec<String>> {
-            *self.list_remotes_count.borrow_mut() += 1;
+            *self.list_remotes_count.lock().unwrap() += 1;
             self.inner.list_remotes(repo)
         }
 
         fn ls_remote_check(&self, repo: &Path, remote: &str) -> GitResult<bool> {
-            *self.ls_remote_check_count.borrow_mut() += 1;
+            *self.ls_remote_check_count.lock().unwrap() += 1;
             self.inner.ls_remote_check(repo, remote)
         }
 
         fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
-            *self.list_builtin_commands_count.borrow_mut() += 1;
+            *self.list_builtin_commands_count.lock().unwrap() += 1;
             self.inner.list_builtin_commands()
         }
 
         fn lfs_installed(&self) -> GitResult<bool> {
-            *self.lfs_installed_count.borrow_mut() += 1;
+            *self.lfs_installed_count.lock().unwrap() += 1;
             self.inner.lfs_installed()
         }
 
@@ -345,7 +354,7 @@ mod tests {
         caching.fetch_prune(Path::new("/repo")).unwrap();
         caching.fetch_prune(Path::new("/repo")).unwrap();
 
-        assert_eq!(*counter.fetch_prune_count.borrow(), 1);
+        assert_eq!(*counter.fetch_prune_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -357,7 +366,7 @@ mod tests {
         caching.fetch_prune(Path::new("/repo")).unwrap();
         caching.fetch_prune(Path::new("/other")).unwrap();
 
-        assert_eq!(*counter.fetch_prune_count.borrow(), 2);
+        assert_eq!(*counter.fetch_prune_count.lock().unwrap(), 2);
     }
 
     #[test]
@@ -375,7 +384,7 @@ mod tests {
 
         assert_eq!(r1, Some("main".to_string()));
         assert_eq!(r1, r2);
-        assert_eq!(*counter.symbolic_ref_count.borrow(), 1);
+        assert_eq!(*counter.symbolic_ref_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -393,7 +402,7 @@ mod tests {
 
         assert!(r1);
         assert_eq!(r1, r2);
-        assert_eq!(*counter.rev_parse_verify_count.borrow(), 1);
+        assert_eq!(*counter.rev_parse_verify_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -414,7 +423,7 @@ mod tests {
 
         assert!(r1);
         assert!(!r2);
-        assert_eq!(*counter.rev_parse_verify_count.borrow(), 2);
+        assert_eq!(*counter.rev_parse_verify_count.lock().unwrap(), 2);
     }
 
     #[test]
@@ -428,7 +437,7 @@ mod tests {
 
         assert_eq!(r1, vec!["main", "feature"]);
         assert_eq!(r1, r2);
-        assert_eq!(*counter.list_local_branches_count.borrow(), 1);
+        assert_eq!(*counter.list_local_branches_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -442,7 +451,7 @@ mod tests {
 
         assert_eq!(r1, vec!["origin"]);
         assert_eq!(r1, r2);
-        assert_eq!(*counter.list_remotes_count.borrow(), 1);
+        assert_eq!(*counter.list_remotes_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -460,7 +469,7 @@ mod tests {
 
         assert!(r1);
         assert_eq!(r1, r2);
-        assert_eq!(*counter.ls_remote_check_count.borrow(), 1);
+        assert_eq!(*counter.ls_remote_check_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -474,7 +483,7 @@ mod tests {
 
         assert_eq!(r1, vec!["add", "commit"]);
         assert_eq!(r1, r2);
-        assert_eq!(*counter.list_builtin_commands_count.borrow(), 1);
+        assert_eq!(*counter.list_builtin_commands_count.lock().unwrap(), 1);
     }
 
     #[test]
@@ -488,7 +497,7 @@ mod tests {
 
         assert!(r1);
         assert_eq!(r1, r2);
-        assert_eq!(*counter.lfs_installed_count.borrow(), 1);
+        assert_eq!(*counter.lfs_installed_count.lock().unwrap(), 1);
     }
 
     #[test]

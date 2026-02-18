@@ -24,43 +24,43 @@ pub struct MockGitBuilder {
     rev_parse: HashMap<(PathBuf, String), String>,
     is_branch_checked_out: HashMap<(PathBuf, String), bool>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
-    fetch_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
-    remove_calls: std::cell::RefCell<Vec<(PathBuf, PathBuf)>>,
-    remove_force_calls: std::cell::RefCell<Vec<(PathBuf, PathBuf)>>,
-    prune_calls: std::cell::RefCell<Vec<PathBuf>>,
-    branch_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    fetch_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
+    remove_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+    remove_force_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+    prune_calls: std::sync::Mutex<Vec<PathBuf>>,
+    branch_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
     local_branches: HashMap<PathBuf, Vec<String>>,
     current_branch: HashMap<PathBuf, Option<String>>,
     upstream_branch: HashMap<(PathBuf, String), Option<String>>,
-    branch_delete_safe_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    branch_delete_safe_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     branch_delete_safe_errors: HashMap<(PathBuf, String), String>,
-    delete_remote_branch_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    delete_remote_branch_calls: std::sync::Mutex<Vec<(PathBuf, String, String)>>,
     delete_remote_branch_errors: HashMap<(PathBuf, String, String), String>,
     // Stash operations
     stash_list: HashMap<PathBuf, Vec<(String, String, String)>>,
     stash_diff: HashMap<(PathBuf, String), String>,
     stash_drop_errors: HashMap<(PathBuf, String), String>,
-    stash_drop_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    stash_drop_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     // Remote operations
     list_remotes: HashMap<PathBuf, Vec<String>>,
     remote_url: HashMap<(PathBuf, String), String>,
     ls_remote_check: HashMap<(PathBuf, String), bool>,
     remote_remove_errors: HashMap<(PathBuf, String), String>,
-    remote_remove_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    remote_remove_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     remote_tracking_refs: HashMap<PathBuf, Vec<(String, String)>>,
     prune_remote_refs_result: HashMap<(PathBuf, String), usize>,
-    prune_remote_refs_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    prune_remote_refs_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     // Tag operations
     local_tags: HashMap<PathBuf, Vec<String>>,
     remote_tags: HashMap<(PathBuf, String), Vec<(String, String)>>,
     tag_commit: HashMap<(PathBuf, String), String>,
     is_commit_reachable: HashMap<(PathBuf, String), bool>,
     tag_delete_errors: HashMap<(PathBuf, String), String>,
-    tag_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    tag_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     tag_delete_remote_errors: HashMap<(PathBuf, String, String), String>,
-    tag_delete_remote_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    tag_delete_remote_calls: std::sync::Mutex<Vec<(PathBuf, String, String)>>,
     is_tag_annotated: HashMap<(PathBuf, String), bool>,
     tag_date: HashMap<(PathBuf, String), Option<String>>,
     // Repo-level operations
@@ -68,7 +68,7 @@ pub struct MockGitBuilder {
     // Config operations
     config_list_local: HashMap<PathBuf, Vec<(String, String)>>,
     config_remove_section_errors: HashMap<(PathBuf, String), String>,
-    config_remove_section_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    config_remove_section_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     builtin_commands: Vec<String>,
     // LFS operations
     lfs_installed: bool,
@@ -76,7 +76,7 @@ pub struct MockGitBuilder {
     lfs_track_patterns: HashMap<PathBuf, Vec<String>>,
     lfs_prune_dry_run: HashMap<PathBuf, (usize, u64)>,
     lfs_prune_errors: HashMap<PathBuf, String>,
-    lfs_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
+    lfs_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     find_large_blobs: HashMap<PathBuf, Vec<(String, u64, String)>>,
 }
 
@@ -558,43 +558,43 @@ pub struct MockGit {
     rev_parse: HashMap<(PathBuf, String), String>,
     is_branch_checked_out: HashMap<(PathBuf, String), bool>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
-    fetch_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
-    remove_calls: std::cell::RefCell<Vec<(PathBuf, PathBuf)>>,
-    remove_force_calls: std::cell::RefCell<Vec<(PathBuf, PathBuf)>>,
-    prune_calls: std::cell::RefCell<Vec<PathBuf>>,
-    branch_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    fetch_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
+    remove_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+    remove_force_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+    prune_calls: std::sync::Mutex<Vec<PathBuf>>,
+    branch_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
     local_branches: HashMap<PathBuf, Vec<String>>,
     current_branch: HashMap<PathBuf, Option<String>>,
     upstream_branch: HashMap<(PathBuf, String), Option<String>>,
-    branch_delete_safe_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    branch_delete_safe_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     branch_delete_safe_errors: HashMap<(PathBuf, String), String>,
-    delete_remote_branch_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    delete_remote_branch_calls: std::sync::Mutex<Vec<(PathBuf, String, String)>>,
     delete_remote_branch_errors: HashMap<(PathBuf, String, String), String>,
     // Stash operations
     stash_list: HashMap<PathBuf, Vec<(String, String, String)>>,
     stash_diff: HashMap<(PathBuf, String), String>,
     stash_drop_errors: HashMap<(PathBuf, String), String>,
-    stash_drop_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    stash_drop_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     // Remote operations
     list_remotes: HashMap<PathBuf, Vec<String>>,
     remote_url: HashMap<(PathBuf, String), String>,
     ls_remote_check: HashMap<(PathBuf, String), bool>,
     remote_remove_errors: HashMap<(PathBuf, String), String>,
-    remote_remove_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    remote_remove_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     remote_tracking_refs: HashMap<PathBuf, Vec<(String, String)>>,
     prune_remote_refs_result: HashMap<(PathBuf, String), usize>,
-    prune_remote_refs_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    prune_remote_refs_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     // Tag operations
     local_tags: HashMap<PathBuf, Vec<String>>,
     remote_tags: HashMap<(PathBuf, String), Vec<(String, String)>>,
     tag_commit: HashMap<(PathBuf, String), String>,
     is_commit_reachable: HashMap<(PathBuf, String), bool>,
     tag_delete_errors: HashMap<(PathBuf, String), String>,
-    tag_delete_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    tag_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     tag_delete_remote_errors: HashMap<(PathBuf, String, String), String>,
-    tag_delete_remote_calls: std::cell::RefCell<Vec<(PathBuf, String, String)>>,
+    tag_delete_remote_calls: std::sync::Mutex<Vec<(PathBuf, String, String)>>,
     is_tag_annotated: HashMap<(PathBuf, String), bool>,
     tag_date: HashMap<(PathBuf, String), Option<String>>,
     // Repo-level operations
@@ -602,7 +602,7 @@ pub struct MockGit {
     // Config operations
     config_list_local: HashMap<PathBuf, Vec<(String, String)>>,
     config_remove_section_errors: HashMap<(PathBuf, String), String>,
-    config_remove_section_calls: std::cell::RefCell<Vec<(PathBuf, String)>>,
+    config_remove_section_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     builtin_commands: Vec<String>,
     // LFS operations
     lfs_installed: bool,
@@ -610,67 +610,70 @@ pub struct MockGit {
     lfs_track_patterns: HashMap<PathBuf, Vec<String>>,
     lfs_prune_dry_run: HashMap<PathBuf, (usize, u64)>,
     lfs_prune_errors: HashMap<PathBuf, String>,
-    lfs_prune_calls: std::cell::RefCell<Vec<PathBuf>>,
+    lfs_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     find_large_blobs: HashMap<PathBuf, Vec<(String, u64, String)>>,
 }
 
 impl MockGit {
     pub fn fetch_prune_calls(&self) -> Vec<PathBuf> {
-        self.fetch_prune_calls.borrow().clone()
+        self.fetch_prune_calls.lock().unwrap().clone()
     }
 
     pub fn remove_calls(&self) -> Vec<(PathBuf, PathBuf)> {
-        self.remove_calls.borrow().clone()
+        self.remove_calls.lock().unwrap().clone()
     }
 
     pub fn remove_force_calls(&self) -> Vec<(PathBuf, PathBuf)> {
-        self.remove_force_calls.borrow().clone()
+        self.remove_force_calls.lock().unwrap().clone()
     }
 
     pub fn branch_delete_calls(&self) -> Vec<(PathBuf, String)> {
-        self.branch_delete_calls.borrow().clone()
+        self.branch_delete_calls.lock().unwrap().clone()
     }
 
     pub fn branch_delete_safe_calls(&self) -> Vec<(PathBuf, String)> {
-        self.branch_delete_safe_calls.borrow().clone()
+        self.branch_delete_safe_calls.lock().unwrap().clone()
     }
 
     pub fn delete_remote_branch_calls(&self) -> Vec<(PathBuf, String, String)> {
-        self.delete_remote_branch_calls.borrow().clone()
+        self.delete_remote_branch_calls.lock().unwrap().clone()
     }
 
     pub fn stash_drop_calls(&self) -> Vec<(PathBuf, String)> {
-        self.stash_drop_calls.borrow().clone()
+        self.stash_drop_calls.lock().unwrap().clone()
     }
 
     pub fn remote_remove_calls(&self) -> Vec<(PathBuf, String)> {
-        self.remote_remove_calls.borrow().clone()
+        self.remote_remove_calls.lock().unwrap().clone()
     }
 
     pub fn prune_remote_refs_calls(&self) -> Vec<(PathBuf, String)> {
-        self.prune_remote_refs_calls.borrow().clone()
+        self.prune_remote_refs_calls.lock().unwrap().clone()
     }
 
     pub fn tag_delete_calls(&self) -> Vec<(PathBuf, String)> {
-        self.tag_delete_calls.borrow().clone()
+        self.tag_delete_calls.lock().unwrap().clone()
     }
 
     pub fn tag_delete_remote_calls(&self) -> Vec<(PathBuf, String, String)> {
-        self.tag_delete_remote_calls.borrow().clone()
+        self.tag_delete_remote_calls.lock().unwrap().clone()
     }
 
     pub fn config_remove_section_calls(&self) -> Vec<(PathBuf, String)> {
-        self.config_remove_section_calls.borrow().clone()
+        self.config_remove_section_calls.lock().unwrap().clone()
     }
 
     pub fn lfs_prune_calls(&self) -> Vec<PathBuf> {
-        self.lfs_prune_calls.borrow().clone()
+        self.lfs_prune_calls.lock().unwrap().clone()
     }
 }
 
 impl GitOps for MockGit {
     fn fetch_prune(&self, repo: &Path) -> GitResult<()> {
-        self.fetch_prune_calls.borrow_mut().push(repo.to_path_buf());
+        self.fetch_prune_calls
+            .lock()
+            .unwrap()
+            .push(repo.to_path_buf());
         Ok(())
     }
 
@@ -812,7 +815,8 @@ impl GitOps for MockGit {
             });
         }
         self.remove_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), worktree_path.to_path_buf()));
         Ok(())
     }
@@ -828,19 +832,21 @@ impl GitOps for MockGit {
             });
         }
         self.remove_force_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), worktree_path.to_path_buf()));
         Ok(())
     }
 
     fn worktree_prune(&self, repo: &Path) -> GitResult<()> {
-        self.prune_calls.borrow_mut().push(repo.to_path_buf());
+        self.prune_calls.lock().unwrap().push(repo.to_path_buf());
         Ok(())
     }
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {
         self.branch_delete_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), branch.to_string()));
         Ok(())
     }
@@ -884,7 +890,8 @@ impl GitOps for MockGit {
             });
         }
         self.branch_delete_safe_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), branch.to_string()));
         Ok(())
     }
@@ -916,7 +923,7 @@ impl GitOps for MockGit {
                 message: err.clone(),
             });
         }
-        self.delete_remote_branch_calls.borrow_mut().push((
+        self.delete_remote_branch_calls.lock().unwrap().push((
             repo.to_path_buf(),
             remote.to_string(),
             branch.to_string(),
@@ -963,7 +970,8 @@ impl GitOps for MockGit {
             });
         }
         self.remote_remove_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), remote.to_string()));
         Ok(())
     }
@@ -978,7 +986,8 @@ impl GitOps for MockGit {
 
     fn prune_remote_refs(&self, repo: &Path, remote: &str) -> GitResult<usize> {
         self.prune_remote_refs_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), remote.to_string()));
         Ok(*self
             .prune_remote_refs_result
@@ -1016,7 +1025,8 @@ impl GitOps for MockGit {
             });
         }
         self.stash_drop_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), stash_ref.to_string()));
         Ok(())
     }
@@ -1068,7 +1078,8 @@ impl GitOps for MockGit {
             });
         }
         self.tag_delete_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), tag.to_string()));
         Ok(())
     }
@@ -1085,7 +1096,7 @@ impl GitOps for MockGit {
                 reason: err.clone(),
             });
         }
-        self.tag_delete_remote_calls.borrow_mut().push((
+        self.tag_delete_remote_calls.lock().unwrap().push((
             repo.to_path_buf(),
             remote.to_string(),
             tag.to_string(),
@@ -1153,7 +1164,8 @@ impl GitOps for MockGit {
             });
         }
         self.config_remove_section_calls
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push((repo.to_path_buf(), section.to_string()));
         Ok(())
     }
@@ -1184,7 +1196,10 @@ impl GitOps for MockGit {
                 reason: err.clone(),
             });
         }
-        self.lfs_prune_calls.borrow_mut().push(repo.to_path_buf());
+        self.lfs_prune_calls
+            .lock()
+            .unwrap()
+            .push(repo.to_path_buf());
         Ok(())
     }
 
