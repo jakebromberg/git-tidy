@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
 /// Classification of a remote.
@@ -14,9 +15,8 @@ pub enum RemoteClassification {
     Active,
 }
 
-impl RemoteClassification {
-    /// Priority for sorting (lower = more stale).
-    pub fn priority(self) -> u8 {
+impl ClassificationLabel for RemoteClassification {
+    fn priority(&self) -> u8 {
         match self {
             Self::Unreachable => 0,
             Self::Orphaned => 1,
@@ -24,8 +24,7 @@ impl RemoteClassification {
         }
     }
 
-    /// Human-readable label.
-    pub fn label(self) -> &'static str {
+    fn label(&self) -> &'static str {
         match self {
             Self::Unreachable => "unreachable",
             Self::Orphaned => "orphaned",
@@ -62,27 +61,11 @@ pub struct RemoteRepoGroup {
     pub remotes: Vec<RemoteInfo>,
 }
 
-/// Summary counts for a remote scan.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct RemoteCounts {
-    pub unreachable: usize,
-    pub orphaned: usize,
-    pub active: usize,
-}
-
-impl RemoteCounts {
-    pub fn increment(&mut self, classification: RemoteClassification) {
-        match classification {
-            RemoteClassification::Unreachable => self.unreachable += 1,
-            RemoteClassification::Orphaned => self.orphaned += 1,
-            RemoteClassification::Active => self.active += 1,
-        }
-    }
-
-    pub fn total(&self) -> usize {
-        self.unreachable + self.orphaned + self.active
-    }
-}
+git_tidy_core::define_counts!(RemoteCounts, RemoteClassification, {
+    RemoteClassification::Unreachable => unreachable,
+    RemoteClassification::Orphaned => orphaned,
+    RemoteClassification::Active => active,
+});
 
 /// Result of a full remote scan.
 #[derive(Debug, Clone, Serialize)]
@@ -95,6 +78,18 @@ pub struct RemoteScanResult {
     pub counts: RemoteCounts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
+}
+
+impl git_tidy_core::output::FlatJsonItems for RemoteScanResult {
+    type JsonItem = JsonRemote;
+
+    fn to_json_items(&self) -> Vec<JsonRemote> {
+        self.repos
+            .iter()
+            .flat_map(|g| g.remotes.iter())
+            .map(JsonRemote::from)
+            .collect()
+    }
 }
 
 /// Flat JSON representation of a remote.
@@ -146,10 +141,10 @@ mod tests {
     #[test]
     fn counts_increment_and_total() {
         let mut counts = RemoteCounts::default();
-        counts.increment(RemoteClassification::Unreachable);
-        counts.increment(RemoteClassification::Orphaned);
-        counts.increment(RemoteClassification::Active);
-        counts.increment(RemoteClassification::Active);
+        counts.increment(&RemoteClassification::Unreachable);
+        counts.increment(&RemoteClassification::Orphaned);
+        counts.increment(&RemoteClassification::Active);
+        counts.increment(&RemoteClassification::Active);
         assert_eq!(counts.unreachable, 1);
         assert_eq!(counts.orphaned, 1);
         assert_eq!(counts.active, 2);

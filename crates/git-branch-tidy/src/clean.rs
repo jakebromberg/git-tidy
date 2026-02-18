@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
-use git_tidy_core::types::Classification;
+use git_tidy_core::types::{Classification, CleanResult, FailedItem};
 
 use crate::types::BranchScanResult;
 
@@ -25,29 +25,11 @@ pub struct CleanOptions {
     pub include_remote: bool,
 }
 
-/// Result of a clean operation.
-#[derive(Debug)]
-pub struct CleanResult {
-    /// Branches that were deleted (or would be deleted in dry-run).
-    pub deleted: Vec<DeletedBranch>,
-    /// Branches that failed to delete.
-    pub failed: Vec<FailedBranch>,
-    /// Branches that were skipped (default, current, or filtered out).
-    pub skipped: usize,
-}
-
 #[derive(Debug)]
 pub struct DeletedBranch {
     pub repo: PathBuf,
     pub name: String,
     pub remote_deleted: bool,
-}
-
-#[derive(Debug)]
-pub struct FailedBranch {
-    pub repo: PathBuf,
-    pub name: String,
-    pub reason: String,
 }
 
 /// Run the clean operation on a scan result.
@@ -56,8 +38,8 @@ pub fn run_clean(
     scan_result: &BranchScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult, Error> {
-    let mut deleted = Vec::new();
+) -> Result<CleanResult<DeletedBranch>, Error> {
+    let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
 
@@ -81,7 +63,7 @@ pub fn run_clean(
                     write!(out, " (and remote)")?;
                 }
                 writeln!(out, " in {}", group.name)?;
-                deleted.push(DeletedBranch {
+                succeeded.push(DeletedBranch {
                     repo: branch.repo_path.clone(),
                     name: branch.name.clone(),
                     remote_deleted: false,
@@ -127,7 +109,7 @@ pub fn run_clean(
                         branch.name,
                         if remote_deleted { " (and remote)" } else { "" }
                     )?;
-                    deleted.push(DeletedBranch {
+                    succeeded.push(DeletedBranch {
                         repo: branch.repo_path.clone(),
                         name: branch.name.clone(),
                         remote_deleted,
@@ -135,7 +117,7 @@ pub fn run_clean(
                 }
                 Err(e) => {
                     writeln!(out, "error: could not delete {}: {e}", branch.name)?;
-                    failed.push(FailedBranch {
+                    failed.push(FailedItem {
                         repo: branch.repo_path.clone(),
                         name: branch.name.clone(),
                         reason: e.to_string(),
@@ -146,7 +128,7 @@ pub fn run_clean(
     }
 
     Ok(CleanResult {
-        deleted,
+        succeeded,
         failed,
         skipped,
     })
@@ -258,8 +240,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert_eq!(result.deleted[0].name, "feature/done");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "feature/done");
         assert_eq!(git.branch_delete_safe_calls().len(), 1);
     }
 
@@ -273,7 +255,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
     }
 
@@ -285,7 +267,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
     }
 
@@ -301,7 +283,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         // --all without --force uses branch_delete_safe
         assert_eq!(git.branch_delete_safe_calls().len(), 1);
     }
@@ -318,7 +300,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         // --force uses branch_delete (-D) instead of branch_delete_safe (-d)
         assert_eq!(git.branch_delete_calls().len(), 1);
         assert_eq!(git.branch_delete_safe_calls().len(), 0);
@@ -336,7 +318,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         assert_eq!(git.branch_delete_safe_calls().len(), 0);
         assert_eq!(git.branch_delete_calls().len(), 0);
 
@@ -362,8 +344,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert_eq!(result.deleted[0].name, "feature/merged");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "feature/merged");
         assert_eq!(result.skipped, 1);
     }
 
@@ -384,8 +366,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert!(result.deleted[0].remote_deleted);
+        assert_eq!(result.succeeded.len(), 1);
+        assert!(result.succeeded[0].remote_deleted);
         assert_eq!(git.delete_remote_branch_calls().len(), 1);
         assert_eq!(
             git.delete_remote_branch_calls()[0],
@@ -417,8 +399,8 @@ mod tests {
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
         // Local delete succeeded
-        assert_eq!(result.deleted.len(), 1);
-        assert!(!result.deleted[0].remote_deleted);
+        assert_eq!(result.succeeded.len(), 1);
+        assert!(!result.succeeded[0].remote_deleted);
         // Warning in output
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("warning: could not delete remote branch"));
@@ -434,7 +416,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].name, "feature/unmerged");
     }

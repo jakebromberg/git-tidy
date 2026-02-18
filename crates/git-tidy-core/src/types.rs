@@ -2,6 +2,59 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+/// Define a counts struct with `increment` and `total` methods.
+///
+/// Generates a `#[derive(Debug, Clone, Default, Serialize)]` struct with `usize` fields,
+/// an `increment(&mut self, classification: &$classification)` method, and a `total(&self) -> usize` method.
+#[macro_export]
+macro_rules! define_counts {
+    ($name:ident, $classification:ty, { $($variant:pat => $field:ident),+ $(,)? }) => {
+        #[derive(Debug, Clone, Default, serde::Serialize)]
+        pub struct $name {
+            $(pub $field: usize,)+
+        }
+
+        impl $name {
+            pub fn increment(&mut self, classification: &$classification) {
+                match classification {
+                    $($variant => self.$field += 1,)+
+                }
+            }
+
+            pub fn total(&self) -> usize {
+                0 $(+ self.$field)+
+            }
+        }
+    };
+}
+
+/// Shared interface for classification enums across all git-tidy tools.
+pub trait ClassificationLabel {
+    /// Sort priority (lower = more stale).
+    fn priority(&self) -> u8;
+    /// Short human-readable label.
+    fn label(&self) -> &'static str;
+}
+
+/// Generic record for an item that failed during a clean operation.
+#[derive(Debug)]
+pub struct FailedItem {
+    pub repo: PathBuf,
+    pub name: String,
+    pub reason: String,
+}
+
+/// Generic result of a clean operation.
+#[derive(Debug)]
+pub struct CleanResult<S> {
+    /// Items that were successfully cleaned (or would be in dry-run).
+    pub succeeded: Vec<S>,
+    /// Items that failed to clean.
+    pub failed: Vec<FailedItem>,
+    /// Items that were skipped (filtered out or protected).
+    pub skipped: usize,
+}
+
 /// Primary staleness classification for a worktree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -22,9 +75,8 @@ pub enum Classification {
     Local,
 }
 
-impl Classification {
-    /// Sort priority: merged=0, landed=1, partial=2, active=3, local=4.
-    pub fn priority(&self) -> u8 {
+impl ClassificationLabel for Classification {
+    fn priority(&self) -> u8 {
         match self {
             Classification::Merged => 0,
             Classification::Landed { .. } => 1,
@@ -34,8 +86,7 @@ impl Classification {
         }
     }
 
-    /// Short label for display.
-    pub fn label(&self) -> &'static str {
+    fn label(&self) -> &'static str {
         match self {
             Classification::Merged => "merged",
             Classification::Landed { .. } => "landed",
@@ -154,31 +205,13 @@ pub struct RepoGroup {
     pub worktrees: Vec<WorktreeInfo>,
 }
 
-/// Summary counts across all scanned worktrees.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct ScanCounts {
-    pub merged: usize,
-    pub landed: usize,
-    pub partial: usize,
-    pub active: usize,
-    pub local: usize,
-}
-
-impl ScanCounts {
-    pub fn total(&self) -> usize {
-        self.merged + self.landed + self.partial + self.active + self.local
-    }
-
-    pub fn increment(&mut self, classification: &Classification) {
-        match classification {
-            Classification::Merged => self.merged += 1,
-            Classification::Landed { .. } => self.landed += 1,
-            Classification::LandedPartial { .. } => self.partial += 1,
-            Classification::Active => self.active += 1,
-            Classification::Local => self.local += 1,
-        }
-    }
-}
+define_counts!(ScanCounts, Classification, {
+    Classification::Merged => merged,
+    Classification::Landed { .. } => landed,
+    Classification::LandedPartial { .. } => partial,
+    Classification::Active => active,
+    Classification::Local => local,
+});
 
 /// Flat JSON representation of a worktree matching the spec.
 #[derive(Debug, Serialize)]
@@ -239,9 +272,46 @@ pub struct ScanResult {
     pub warnings: Vec<String>,
 }
 
+impl crate::output::FlatJsonItems for ScanResult {
+    type JsonItem = JsonWorktree;
+
+    fn to_json_items(&self) -> Vec<JsonWorktree> {
+        self.repos
+            .iter()
+            .flat_map(|g| g.worktrees.iter())
+            .map(JsonWorktree::from)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classification_label_trait() {
+        assert_eq!(Classification::Merged.label(), "merged");
+        assert_eq!(
+            Classification::Landed {
+                matched: 1,
+                total: 1
+            }
+            .label(),
+            "landed"
+        );
+        assert_eq!(
+            Classification::LandedPartial {
+                matched: 1,
+                total: 2,
+                unmatched: vec![]
+            }
+            .label(),
+            "partial"
+        );
+        assert_eq!(Classification::Active.label(), "active");
+        assert_eq!(Classification::Local.label(), "local");
+        assert!(Classification::Merged.priority() < Classification::Active.priority());
+    }
 
     #[test]
     fn extract_landed_merged() {

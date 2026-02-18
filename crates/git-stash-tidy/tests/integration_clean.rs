@@ -57,7 +57,7 @@ fn clean_drops_stash_in_real_repo() {
     let result =
         git_stash_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert_eq!(result.dropped.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // Verify stash is gone
     let stashes = git_ops.list_stashes(&repo).unwrap();
@@ -93,7 +93,7 @@ fn clean_dry_run_does_not_drop() {
         git_stash_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
     // Reports it would drop
-    assert_eq!(result.dropped.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // But stash still exists
     let stashes = git_ops.list_stashes(&repo).unwrap();

@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
     RemoteClassification, RemoteCounts, RemoteInfo, RemoteRepoGroup, RemoteScanResult,
@@ -109,7 +110,7 @@ pub fn run_scan(
                 None
             };
 
-            counts.increment(classification);
+            counts.increment(&classification);
             total_scanned += 1;
 
             classified.push(RemoteInfo {

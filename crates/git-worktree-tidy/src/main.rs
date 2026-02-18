@@ -3,11 +3,12 @@ use std::process;
 
 use clap::Parser;
 use git_tidy_core::classification;
+use git_tidy_core::cli::{OutputFormat, validate_directory};
 use git_tidy_core::config;
 use git_tidy_core::error;
 use git_tidy_core::git;
 use git_tidy_core::output::repo_display_name;
-use git_tidy_core::types::{RepoGroup, ScanCounts, ScanResult};
+use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
 
 mod clean;
 mod cli;
@@ -18,9 +19,8 @@ fn main() {
     let cli = cli::Cli::parse();
     let directory = cli.target_directory();
 
-    if !directory.is_dir() {
-        eprintln!("error: directory not found: {}", directory.display());
-        process::exit(1);
+    if let Err(e) = validate_directory(&directory) {
+        error::exit_with_error(&e);
     }
 
     // Load config file and resolve noise patterns
@@ -40,9 +40,11 @@ fn main() {
 
     match &cli.command {
         None | Some(cli::Command::Scan { .. }) => {
-            let (json, porcelain) = match &cli.command {
-                Some(cli::Command::Scan { json, porcelain }) => (*json, *porcelain),
-                _ => (false, false),
+            let format = match &cli.command {
+                Some(cli::Command::Scan { json, porcelain }) => {
+                    OutputFormat::from_flags(*json, *porcelain)
+                }
+                _ => OutputFormat::Human,
             };
 
             match run_scan(
@@ -53,12 +55,10 @@ fn main() {
                 &noise_patterns,
             ) {
                 Ok(result) => {
-                    let write_result = if json {
-                        output::write_json(&mut stdout, &result)
-                    } else if porcelain {
-                        output::write_porcelain(&mut stdout, &result)
-                    } else {
-                        output::write_human(&mut stdout, &result)
+                    let write_result = match format {
+                        OutputFormat::Json => output::write_json(&mut stdout, &result),
+                        OutputFormat::Porcelain => output::write_porcelain(&mut stdout, &result),
+                        OutputFormat::Human => output::write_human(&mut stdout, &result),
                     };
                     if let Err(e) = write_result {
                         eprintln!("error writing output: {e}");

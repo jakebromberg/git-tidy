@@ -1,8 +1,9 @@
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{JsonStash, StashScanResult};
+use crate::types::StashScanResult;
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Result<()> {
@@ -45,14 +46,7 @@ fn write_stash_summary(out: &mut dyn Write, result: &StashScanResult) -> std::io
 
 /// Write JSON scan output using the flat spec format.
 pub fn write_json(out: &mut dyn Write, result: &StashScanResult) -> std::io::Result<()> {
-    let all_stashes: Vec<JsonStash> = result
-        .repos
-        .iter()
-        .flat_map(|g| g.stashes.iter())
-        .map(JsonStash::from)
-        .collect();
-
-    shared::write_json_pretty(out, &all_stashes)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

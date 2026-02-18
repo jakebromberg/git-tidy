@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
 /// Classification of a stash entry.
@@ -16,9 +17,8 @@ pub enum StashClassification {
     Active,
 }
 
-impl StashClassification {
-    /// Priority for sorting (lower = more stale).
-    pub fn priority(self) -> u8 {
+impl ClassificationLabel for StashClassification {
+    fn priority(&self) -> u8 {
         match self {
             Self::Committed => 0,
             Self::Orphaned => 1,
@@ -27,8 +27,7 @@ impl StashClassification {
         }
     }
 
-    /// Human-readable label.
-    pub fn label(self) -> &'static str {
+    fn label(&self) -> &'static str {
         match self {
             Self::Committed => "committed",
             Self::Orphaned => "orphaned",
@@ -66,29 +65,12 @@ pub struct StashRepoGroup {
     pub stashes: Vec<StashInfo>,
 }
 
-/// Summary counts for a stash scan.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct StashCounts {
-    pub committed: usize,
-    pub orphaned: usize,
-    pub aged: usize,
-    pub active: usize,
-}
-
-impl StashCounts {
-    pub fn increment(&mut self, classification: StashClassification) {
-        match classification {
-            StashClassification::Committed => self.committed += 1,
-            StashClassification::Orphaned => self.orphaned += 1,
-            StashClassification::Aged => self.aged += 1,
-            StashClassification::Active => self.active += 1,
-        }
-    }
-
-    pub fn total(&self) -> usize {
-        self.committed + self.orphaned + self.aged + self.active
-    }
-}
+git_tidy_core::define_counts!(StashCounts, StashClassification, {
+    StashClassification::Committed => committed,
+    StashClassification::Orphaned => orphaned,
+    StashClassification::Aged => aged,
+    StashClassification::Active => active,
+});
 
 /// Result of a full stash scan.
 #[derive(Debug, Clone, Serialize)]
@@ -101,6 +83,18 @@ pub struct StashScanResult {
     pub counts: StashCounts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
+}
+
+impl git_tidy_core::output::FlatJsonItems for StashScanResult {
+    type JsonItem = JsonStash;
+
+    fn to_json_items(&self) -> Vec<JsonStash> {
+        self.repos
+            .iter()
+            .flat_map(|g| g.stashes.iter())
+            .map(JsonStash::from)
+            .collect()
+    }
 }
 
 /// Flat JSON representation of a stash entry.
@@ -189,9 +183,9 @@ mod tests {
     #[test]
     fn counts_increment_and_total() {
         let mut counts = StashCounts::default();
-        counts.increment(StashClassification::Committed);
-        counts.increment(StashClassification::Orphaned);
-        counts.increment(StashClassification::Active);
+        counts.increment(&StashClassification::Committed);
+        counts.increment(&StashClassification::Orphaned);
+        counts.increment(&StashClassification::Active);
         assert_eq!(counts.committed, 1);
         assert_eq!(counts.orphaned, 1);
         assert_eq!(counts.active, 1);

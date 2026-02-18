@@ -61,8 +61,8 @@ fn clean_deletes_merged_branch_in_real_repo() {
     let result =
         git_branch_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert_eq!(result.deleted.len(), 1);
-    assert_eq!(result.deleted[0].name, "feature/done");
+    assert_eq!(result.succeeded.len(), 1);
+    assert_eq!(result.succeeded[0].name, "feature/done");
 
     // Verify it's actually gone
     let branches = git_ops.list_local_branches(&repo).unwrap();
@@ -94,7 +94,7 @@ fn clean_dry_run_does_not_delete() {
         git_branch_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
     // Reports it would delete
-    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // But the branch still exists
     let branches = git_ops.list_local_branches(&repo).unwrap();
@@ -135,7 +135,7 @@ fn clean_safe_refuses_unmerged_branch() {
         git_branch_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
     // Should fail (branch -d refuses unmerged)
-    assert_eq!(result.deleted.len(), 0);
+    assert_eq!(result.succeeded.len(), 0);
     assert_eq!(result.failed.len(), 1);
     assert_eq!(result.failed[0].name, "feature/wip");
 

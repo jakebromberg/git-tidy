@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
+use git_tidy_core::types::{CleanResult, FailedItem};
 
 use crate::types::{TagClassification, TagScanResult};
 
@@ -24,17 +25,6 @@ pub struct CleanOptions {
     pub all: bool,
 }
 
-/// Result of a clean operation.
-#[derive(Debug)]
-pub struct CleanResult {
-    /// Tags that were removed (or would be in dry-run).
-    pub removed: Vec<RemovedTag>,
-    /// Tags that failed to remove.
-    pub failed: Vec<FailedTag>,
-    /// Tags that were skipped (filtered out or protected).
-    pub skipped: usize,
-}
-
 /// A tag that was successfully removed.
 #[derive(Debug)]
 pub struct RemovedTag {
@@ -44,22 +34,14 @@ pub struct RemovedTag {
     pub remote_deleted: bool,
 }
 
-/// A tag that failed to be removed.
-#[derive(Debug)]
-pub struct FailedTag {
-    pub repo: PathBuf,
-    pub name: String,
-    pub reason: String,
-}
-
 /// Run the clean operation on a scan result.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &TagScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult, Error> {
-    let mut removed = Vec::new();
+) -> Result<CleanResult<RemovedTag>, Error> {
+    let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
 
@@ -90,7 +72,7 @@ pub fn run_clean(
                     ));
                 }
                 writeln!(out, "{action}")?;
-                removed.push(RemovedTag {
+                succeeded.push(RemovedTag {
                     repo: group.repo_path.clone(),
                     name: tag.name.clone(),
                     remote_deleted: false,
@@ -106,7 +88,7 @@ pub fn run_clean(
                     }
                     Err(e) => {
                         writeln!(out, "error: could not delete tag {}: {e}", tag.name,)?;
-                        failed.push(FailedTag {
+                        failed.push(FailedItem {
                             repo: group.repo_path.clone(),
                             name: tag.name.clone(),
                             reason: e.to_string(),
@@ -158,7 +140,7 @@ pub fn run_clean(
                                 "error: could not delete tag {} from remote {remote_name}: {e}",
                                 tag.name,
                             )?;
-                            failed.push(FailedTag {
+                            failed.push(FailedItem {
                                 repo: group.repo_path.clone(),
                                 name: tag.name.clone(),
                                 reason: e.to_string(),
@@ -168,7 +150,7 @@ pub fn run_clean(
                 }
             }
 
-            removed.push(RemovedTag {
+            succeeded.push(RemovedTag {
                 repo: group.repo_path.clone(),
                 name: tag.name.clone(),
                 remote_deleted,
@@ -177,7 +159,7 @@ pub fn run_clean(
     }
 
     Ok(CleanResult {
-        removed,
+        succeeded,
         failed,
         skipped,
     })
@@ -225,7 +207,7 @@ mod tests {
     fn make_scan_result(tags: Vec<TagInfo>) -> TagScanResult {
         let mut counts = TagCounts::default();
         for t in &tags {
-            counts.increment(t.classification);
+            counts.increment(&t.classification);
         }
         TagScanResult {
             repos: vec![TagRepoGroup {
@@ -272,8 +254,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].name, "old-tag");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "old-tag");
         assert_eq!(git.tag_delete_calls().len(), 1);
     }
 
@@ -285,8 +267,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].name, "local-tag");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "local-tag");
     }
 
     #[test]
@@ -297,7 +279,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.tag_delete_calls().len(), 0);
     }
@@ -310,7 +292,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
     }
 
@@ -329,8 +311,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].name, "stale-tag");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "stale-tag");
         assert_eq!(result.skipped, 1);
     }
 
@@ -349,8 +331,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].name, "local-tag");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "local-tag");
         assert_eq!(result.skipped, 1);
     }
 
@@ -375,7 +357,7 @@ mod tests {
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
         // Stale + local_only + remote_only removed, synced skipped
-        assert_eq!(result.removed.len(), 3);
+        assert_eq!(result.succeeded.len(), 3);
         assert_eq!(result.skipped, 1);
     }
 
@@ -392,7 +374,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         assert_eq!(git.tag_delete_calls().len(), 1);
     }
 
@@ -411,8 +393,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert!(result.removed[0].remote_deleted);
+        assert_eq!(result.succeeded.len(), 1);
+        assert!(result.succeeded[0].remote_deleted);
         assert_eq!(git.tag_delete_calls().len(), 1);
         assert_eq!(git.tag_delete_remote_calls().len(), 1);
     }
@@ -428,7 +410,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.tag_delete_calls().len(), 0);
 
@@ -452,7 +434,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         assert_eq!(git.tag_delete_calls().len(), 1);
     }
 
@@ -471,7 +453,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         assert_eq!(git.tag_delete_calls().len(), 0);
 
         let output = String::from_utf8(buf).unwrap();
@@ -489,7 +471,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].name, "bad-tag");
 

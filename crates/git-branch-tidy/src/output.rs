@@ -1,9 +1,9 @@
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::types::Classification;
+use git_tidy_core::types::{Classification, ClassificationLabel};
 
-use crate::types::{BranchInfo, BranchScanResult, JsonBranch};
+use crate::types::{BranchInfo, BranchScanResult};
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
@@ -72,14 +72,7 @@ fn write_branch_line(out: &mut dyn Write, branch: &BranchInfo) -> std::io::Resul
 
 /// Write JSON scan output using the flat spec format.
 pub fn write_json(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
-    let all_branches: Vec<JsonBranch> = result
-        .repos
-        .iter()
-        .flat_map(|g| g.branches.iter())
-        .map(JsonBranch::from)
-        .collect();
-
-    shared::write_json_pretty(out, &all_branches)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.
