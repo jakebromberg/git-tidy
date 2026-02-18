@@ -34,6 +34,10 @@ pub struct Cli {
     /// Filter worktrees by name substring (can be repeated, OR semantics)
     #[arg(long = "match", global = true)]
     pub match_patterns: Vec<String>,
+
+    /// Exclude worktrees by name substring (takes precedence over --match)
+    #[arg(long = "exclude", global = true)]
+    pub exclude_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -228,6 +232,42 @@ mod tests {
     fn match_pattern_with_subcommand() {
         let cli = Cli::parse_from(["git-worktree-tidy", "--match", "tubafrenzy", "scan"]);
         assert_eq!(cli.match_patterns, vec!["tubafrenzy".to_string()]);
+        assert!(matches!(cli.command, Some(Command::Scan { .. })));
+    }
+
+    #[test]
+    fn exclude_pattern_single() {
+        let cli = Cli::parse_from(["git-worktree-tidy", "--exclude", "wip"]);
+        assert_eq!(cli.exclude_patterns, vec!["wip".to_string()]);
+    }
+
+    #[test]
+    fn exclude_pattern_multiple() {
+        let cli = Cli::parse_from([
+            "git-worktree-tidy",
+            "--exclude",
+            "wip",
+            "--exclude",
+            "draft",
+        ]);
+        assert_eq!(
+            cli.exclude_patterns,
+            vec!["wip".to_string(), "draft".to_string()]
+        );
+    }
+
+    #[test]
+    fn match_and_exclude_combined() {
+        let cli = Cli::parse_from([
+            "git-worktree-tidy",
+            "--match",
+            "feat",
+            "--exclude",
+            "wip",
+            "scan",
+        ]);
+        assert_eq!(cli.match_patterns, vec!["feat".to_string()]);
+        assert_eq!(cli.exclude_patterns, vec!["wip".to_string()]);
         assert!(matches!(cli.command, Some(Command::Scan { .. })));
     }
 

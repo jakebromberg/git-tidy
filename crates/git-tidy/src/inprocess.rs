@@ -3,6 +3,7 @@ use std::path::Path;
 
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
+use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git::{GitOps, RealGit};
 use git_tidy_core::progress::Progress;
 
@@ -144,7 +145,7 @@ fn scan_worktrees(
         DEFAULT_BEHIND_THRESHOLD,
         false,
         noise_patterns,
-        &[],
+        &NameFilter::default(),
         progress,
     ) {
         Ok(result) => {
