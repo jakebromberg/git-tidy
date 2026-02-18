@@ -6,6 +6,7 @@ use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::landed::diff_similarity;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
     StashClassification, StashCounts, StashInfo, StashRepoGroup, StashScanResult,
@@ -100,7 +101,7 @@ pub fn run_scan(
             let age_days = days_since_iso_date(iso_date);
             let branch = parse_stash_branch(message);
 
-            counts.increment(classification);
+            counts.increment(&classification);
             total_scanned += 1;
 
             classified.push(StashInfo {

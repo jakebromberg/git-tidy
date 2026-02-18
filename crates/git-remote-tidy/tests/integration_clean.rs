@@ -54,7 +54,7 @@ fn clean_removes_remote_in_real_repo() {
     let result =
         git_remote_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert_eq!(result.removed.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // Verify remote is gone
     let remotes = git_ops.list_remotes(&repo).unwrap();
@@ -86,7 +86,7 @@ fn clean_dry_run_does_not_remove() {
         git_remote_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
     // Reports it would remove
-    assert_eq!(result.removed.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // But remote still exists
     let remotes = git_ops.list_remotes(&repo).unwrap();
@@ -135,8 +135,8 @@ fn clean_prunes_orphaned_refs() {
     let result =
         git_remote_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert_eq!(result.removed.len(), 1);
-    assert!(result.removed[0].refs_pruned > 0);
+    assert_eq!(result.succeeded.len(), 1);
+    assert!(result.succeeded[0].refs_pruned > 0);
 
     // Verify refs are gone
     let refs = git_ops.list_remote_tracking_refs(&repo).unwrap();

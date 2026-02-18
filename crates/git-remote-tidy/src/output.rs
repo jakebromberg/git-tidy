@@ -1,8 +1,9 @@
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{JsonRemote, RemoteScanResult};
+use crate::types::RemoteScanResult;
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Result<()> {
@@ -51,14 +52,7 @@ fn write_remote_summary(out: &mut dyn Write, result: &RemoteScanResult) -> std::
 
 /// Write JSON scan output using the flat spec format.
 pub fn write_json(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Result<()> {
-    let all_remotes: Vec<JsonRemote> = result
-        .repos
-        .iter()
-        .flat_map(|g| g.remotes.iter())
-        .map(JsonRemote::from)
-        .collect();
-
-    shared::write_json_pretty(out, &all_remotes)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

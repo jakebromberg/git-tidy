@@ -1,8 +1,9 @@
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{JsonTag, TagScanResult};
+use crate::types::TagScanResult;
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Result<()> {
@@ -51,14 +52,7 @@ fn write_tag_summary(out: &mut dyn Write, result: &TagScanResult) -> std::io::Re
 
 /// Write JSON scan output using the flat spec format.
 pub fn write_json(out: &mut dyn Write, result: &TagScanResult) -> std::io::Result<()> {
-    let all_tags: Vec<JsonTag> = result
-        .repos
-        .iter()
-        .flat_map(|g| g.tags.iter())
-        .map(JsonTag::from)
-        .collect();
-
-    shared::write_json_pretty(out, &all_tags)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

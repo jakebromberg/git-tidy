@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
     TagClassification, TagCounts, TagInfo, TagRepoGroup, TagScanResult, is_release_tag_name,
@@ -129,7 +130,7 @@ pub fn run_scan(git: &dyn GitOps, directory: &Path, offline: bool) -> Result<Tag
 
             let commit = local_commit.unwrap_or_else(|| remote_commit.unwrap_or("").to_string());
 
-            counts.increment(classification);
+            counts.increment(&classification);
             total_scanned += 1;
 
             classified.push(TagInfo {

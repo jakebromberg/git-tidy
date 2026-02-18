@@ -61,7 +61,7 @@ fn clean_removes_local_only_tag() {
     let result =
         git_tag_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert_eq!(result.removed.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // Verify tag is gone
     let tags = git_ops.list_local_tags(&repo).unwrap();
@@ -100,7 +100,7 @@ fn clean_dry_run_preserves_tags() {
         git_tag_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
     // Reports would-delete
-    assert_eq!(result.removed.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
 
     // But tag still exists
     let tags = git_ops.list_local_tags(&repo).unwrap();
@@ -146,7 +146,7 @@ fn clean_removes_stale_tag() {
     let result =
         git_tag_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert!(result.removed.iter().any(|r| r.name == "stale-tag"));
+    assert!(result.succeeded.iter().any(|r| r.name == "stale-tag"));
 
     // Verify tag is gone
     let tags = git_ops.list_local_tags(&repo).unwrap();
@@ -193,7 +193,7 @@ fn clean_include_remote_deletes_from_remote() {
     let result =
         git_tag_tidy::clean::run_clean(&git_ops, &scan_result, &options, &mut buf).unwrap();
 
-    assert!(result.removed.iter().any(|r| r.name == "stale-pushed"));
+    assert!(result.succeeded.iter().any(|r| r.name == "stale-pushed"));
 
     // Verify local tag is gone
     let tags = git_ops.list_local_tags(&repo).unwrap();

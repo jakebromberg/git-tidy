@@ -4,7 +4,7 @@ use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
-use git_tidy_core::types::ScanCounts;
+use git_tidy_core::types::{ClassificationLabel, ScanCounts};
 
 use crate::discovery;
 use crate::types::{BranchInfo, BranchRepoGroup, BranchScanResult};

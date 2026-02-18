@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
 /// Classification of a tag.
@@ -16,9 +17,8 @@ pub enum TagClassification {
     Synced,
 }
 
-impl TagClassification {
-    /// Priority for sorting (lower = more stale).
-    pub fn priority(self) -> u8 {
+impl ClassificationLabel for TagClassification {
+    fn priority(&self) -> u8 {
         match self {
             Self::Stale => 0,
             Self::LocalOnly => 1,
@@ -27,8 +27,7 @@ impl TagClassification {
         }
     }
 
-    /// Human-readable label.
-    pub fn label(self) -> &'static str {
+    fn label(&self) -> &'static str {
         match self {
             Self::Stale => "stale",
             Self::LocalOnly => "local_only",
@@ -70,29 +69,12 @@ pub struct TagRepoGroup {
     pub tags: Vec<TagInfo>,
 }
 
-/// Summary counts for a tag scan.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct TagCounts {
-    pub stale: usize,
-    pub local_only: usize,
-    pub remote_only: usize,
-    pub synced: usize,
-}
-
-impl TagCounts {
-    pub fn increment(&mut self, classification: TagClassification) {
-        match classification {
-            TagClassification::Stale => self.stale += 1,
-            TagClassification::LocalOnly => self.local_only += 1,
-            TagClassification::RemoteOnly => self.remote_only += 1,
-            TagClassification::Synced => self.synced += 1,
-        }
-    }
-
-    pub fn total(&self) -> usize {
-        self.stale + self.local_only + self.remote_only + self.synced
-    }
-}
+git_tidy_core::define_counts!(TagCounts, TagClassification, {
+    TagClassification::Stale => stale,
+    TagClassification::LocalOnly => local_only,
+    TagClassification::RemoteOnly => remote_only,
+    TagClassification::Synced => synced,
+});
 
 /// Result of a full tag scan.
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +87,18 @@ pub struct TagScanResult {
     pub counts: TagCounts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
+}
+
+impl git_tidy_core::output::FlatJsonItems for TagScanResult {
+    type JsonItem = JsonTag;
+
+    fn to_json_items(&self) -> Vec<JsonTag> {
+        self.repos
+            .iter()
+            .flat_map(|g| g.tags.iter())
+            .map(JsonTag::from)
+            .collect()
+    }
 }
 
 /// Flat JSON representation of a tag.
@@ -169,11 +163,11 @@ mod tests {
     #[test]
     fn counts_increment_and_total() {
         let mut counts = TagCounts::default();
-        counts.increment(TagClassification::Stale);
-        counts.increment(TagClassification::LocalOnly);
-        counts.increment(TagClassification::RemoteOnly);
-        counts.increment(TagClassification::Synced);
-        counts.increment(TagClassification::Synced);
+        counts.increment(&TagClassification::Stale);
+        counts.increment(&TagClassification::LocalOnly);
+        counts.increment(&TagClassification::RemoteOnly);
+        counts.increment(&TagClassification::Synced);
+        counts.increment(&TagClassification::Synced);
         assert_eq!(counts.stale, 1);
         assert_eq!(counts.local_only, 1);
         assert_eq!(counts.remote_only, 1);

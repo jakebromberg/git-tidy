@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
+use git_tidy_core::types::{CleanResult, FailedItem};
 
 use crate::types::{RemoteClassification, RemoteScanResult};
 
@@ -18,17 +19,6 @@ pub struct CleanOptions {
     pub all: bool,
 }
 
-/// Result of a clean operation.
-#[derive(Debug)]
-pub struct CleanResult {
-    /// Remotes that were removed (or would be in dry-run).
-    pub removed: Vec<RemovedRemote>,
-    /// Remotes that failed to remove.
-    pub failed: Vec<FailedRemote>,
-    /// Remotes that were skipped (filtered out or origin-protected).
-    pub skipped: usize,
-}
-
 /// A remote that was successfully removed.
 #[derive(Debug)]
 pub struct RemovedRemote {
@@ -38,22 +28,14 @@ pub struct RemovedRemote {
     pub refs_pruned: usize,
 }
 
-/// A remote that failed to be removed.
-#[derive(Debug)]
-pub struct FailedRemote {
-    pub repo: PathBuf,
-    pub name: String,
-    pub reason: String,
-}
-
 /// Run the clean operation on a scan result.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &RemoteScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult, Error> {
-    let mut removed = Vec::new();
+) -> Result<CleanResult<RemovedRemote>, Error> {
+    let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
 
@@ -82,7 +64,7 @@ pub fn run_clean(
                     "would remove"
                 };
                 writeln!(out, "{action} {} in {}", remote.name, group.name)?;
-                removed.push(RemovedRemote {
+                succeeded.push(RemovedRemote {
                     repo: group.repo_path.clone(),
                     name: remote.name.clone(),
                     refs_pruned: 0,
@@ -99,7 +81,7 @@ pub fn run_clean(
                             "pruned {count} refs for {} in {}",
                             remote.name, group.name,
                         )?;
-                        removed.push(RemovedRemote {
+                        succeeded.push(RemovedRemote {
                             repo: group.repo_path.clone(),
                             name: remote.name.clone(),
                             refs_pruned: count,
@@ -107,7 +89,7 @@ pub fn run_clean(
                     }
                     Err(e) => {
                         writeln!(out, "error: could not prune refs for {}: {e}", remote.name,)?;
-                        failed.push(FailedRemote {
+                        failed.push(FailedItem {
                             repo: group.repo_path.clone(),
                             name: remote.name.clone(),
                             reason: e.to_string(),
@@ -119,7 +101,7 @@ pub fn run_clean(
                 match git.remote_remove(&group.repo_path, &remote.name) {
                     Ok(()) => {
                         writeln!(out, "removed {} in {}", remote.name, group.name)?;
-                        removed.push(RemovedRemote {
+                        succeeded.push(RemovedRemote {
                             repo: group.repo_path.clone(),
                             name: remote.name.clone(),
                             refs_pruned: 0,
@@ -127,7 +109,7 @@ pub fn run_clean(
                     }
                     Err(e) => {
                         writeln!(out, "error: could not remove {}: {e}", remote.name)?;
-                        failed.push(FailedRemote {
+                        failed.push(FailedItem {
                             repo: group.repo_path.clone(),
                             name: remote.name.clone(),
                             reason: e.to_string(),
@@ -139,7 +121,7 @@ pub fn run_clean(
     }
 
     Ok(CleanResult {
-        removed,
+        succeeded,
         failed,
         skipped,
     })
@@ -172,7 +154,7 @@ mod tests {
     fn make_scan_result(remotes: Vec<RemoteInfo>) -> RemoteScanResult {
         let mut counts = RemoteCounts::default();
         for r in &remotes {
-            counts.increment(r.classification);
+            counts.increment(&r.classification);
         }
         RemoteScanResult {
             repos: vec![RemoteRepoGroup {
@@ -218,8 +200,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].name, "stale");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "stale");
         assert_eq!(git.remote_remove_calls().len(), 1);
     }
 
@@ -231,7 +213,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.remote_remove_calls().len(), 0);
     }
@@ -248,7 +230,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
     }
 
@@ -271,7 +253,7 @@ mod tests {
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
         // Unreachable + orphaned removed, active skipped
-        assert_eq!(result.removed.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         assert_eq!(result.skipped, 1);
     }
 
@@ -287,7 +269,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.remote_remove_calls().len(), 0);
 
@@ -312,7 +294,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         assert_eq!(git.remote_remove_calls().len(), 1);
     }
 
@@ -334,8 +316,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.removed[0].refs_pruned, 5);
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].refs_pruned, 5);
         // Should call prune_remote_refs, NOT remote_remove
         assert_eq!(git.prune_remote_refs_calls().len(), 1);
         assert_eq!(git.remote_remove_calls().len(), 0);
@@ -364,7 +346,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         assert_eq!(git.remote_remove_calls().len(), 0);
         assert_eq!(git.prune_remote_refs_calls().len(), 0);
 
@@ -387,7 +369,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.removed.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].name, "stale");
 

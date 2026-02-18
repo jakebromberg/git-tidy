@@ -51,6 +51,21 @@ pub fn repo_display_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// Trait for scan results that can be flattened into JSON items.
+pub trait FlatJsonItems {
+    /// The JSON-serializable item type.
+    type JsonItem: Serialize;
+
+    /// Flatten repo groups into a vec of JSON items.
+    fn to_json_items(&self) -> Vec<Self::JsonItem>;
+}
+
+/// Flatten a scan result into JSON items and write as pretty-printed JSON.
+pub fn write_json_flat<T: FlatJsonItems>(out: &mut dyn Write, result: &T) -> std::io::Result<()> {
+    let items = result.to_json_items();
+    write_json_pretty(out, &items)
+}
+
 /// Serialize a value as pretty-printed JSON and write to output.
 pub fn write_json_pretty(out: &mut dyn Write, value: &impl Serialize) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;

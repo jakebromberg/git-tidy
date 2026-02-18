@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
+use git_tidy_core::types::{CleanResult, FailedItem};
 
 use crate::types::{StashClassification, StashScanResult};
 
@@ -20,28 +21,10 @@ pub struct CleanOptions {
     pub all: bool,
 }
 
-/// Result of a clean operation.
-#[derive(Debug)]
-pub struct CleanResult {
-    /// Stashes that were dropped (or would be in dry-run).
-    pub dropped: Vec<DroppedStash>,
-    /// Stashes that failed to drop.
-    pub failed: Vec<FailedStash>,
-    /// Stashes that were skipped (filtered out).
-    pub skipped: usize,
-}
-
 #[derive(Debug)]
 pub struct DroppedStash {
     pub repo: PathBuf,
     pub stash_ref: String,
-}
-
-#[derive(Debug)]
-pub struct FailedStash {
-    pub repo: PathBuf,
-    pub stash_ref: String,
-    pub reason: String,
 }
 
 /// Run the clean operation on a scan result.
@@ -53,8 +36,8 @@ pub fn run_clean(
     scan_result: &StashScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult, Error> {
-    let mut dropped = Vec::new();
+) -> Result<CleanResult<DroppedStash>, Error> {
+    let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
 
@@ -79,7 +62,7 @@ pub fn run_clean(
         for (_, stash_ref, _) in &to_drop {
             if options.dry_run {
                 writeln!(out, "would drop {} in {}", stash_ref, group.name)?;
-                dropped.push(DroppedStash {
+                succeeded.push(DroppedStash {
                     repo: group.repo_path.clone(),
                     stash_ref: stash_ref.to_string(),
                 });
@@ -89,16 +72,16 @@ pub fn run_clean(
             match git.stash_drop(&group.repo_path, stash_ref) {
                 Ok(()) => {
                     writeln!(out, "dropped {} in {}", stash_ref, group.name)?;
-                    dropped.push(DroppedStash {
+                    succeeded.push(DroppedStash {
                         repo: group.repo_path.clone(),
                         stash_ref: stash_ref.to_string(),
                     });
                 }
                 Err(e) => {
                     writeln!(out, "error: could not drop {}: {e}", stash_ref)?;
-                    failed.push(FailedStash {
+                    failed.push(FailedItem {
                         repo: group.repo_path.clone(),
-                        stash_ref: stash_ref.to_string(),
+                        name: stash_ref.to_string(),
                         reason: e.to_string(),
                     });
                 }
@@ -107,7 +90,7 @@ pub fn run_clean(
     }
 
     Ok(CleanResult {
-        dropped,
+        succeeded,
         failed,
         skipped,
     })
@@ -158,7 +141,7 @@ mod tests {
     fn make_scan_result(stashes: Vec<StashInfo>) -> StashScanResult {
         let mut counts = StashCounts::default();
         for s in &stashes {
-            counts.increment(s.classification);
+            counts.increment(&s.classification);
         }
         StashScanResult {
             repos: vec![StashRepoGroup {
@@ -201,8 +184,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 1);
-        assert_eq!(result.dropped[0].stash_ref, "stash@{0}");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].stash_ref, "stash@{0}");
         assert_eq!(git.stash_drop_calls().len(), 1);
     }
 
@@ -214,7 +197,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         assert_eq!(git.stash_drop_calls().len(), 1);
     }
 
@@ -226,7 +209,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.stash_drop_calls().len(), 0);
     }
@@ -239,7 +222,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
     }
 
@@ -278,7 +261,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         assert_eq!(git.stash_drop_calls().len(), 0);
 
         let output = String::from_utf8(buf).unwrap();
@@ -301,8 +284,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 1);
-        assert_eq!(result.dropped[0].stash_ref, "stash@{0}");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].stash_ref, "stash@{0}");
         assert_eq!(result.skipped, 1);
     }
 
@@ -321,8 +304,8 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 1);
-        assert_eq!(result.dropped[0].stash_ref, "stash@{1}");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].stash_ref, "stash@{1}");
         assert_eq!(result.skipped, 1);
     }
 
@@ -344,7 +327,7 @@ mod tests {
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
         // All except active
-        assert_eq!(result.dropped.len(), 3);
+        assert_eq!(result.succeeded.len(), 3);
         assert_eq!(result.skipped, 1); // active skipped
     }
 
@@ -358,9 +341,9 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.dropped.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
-        assert_eq!(result.failed[0].stash_ref, "stash@{0}");
+        assert_eq!(result.failed[0].name, "stash@{0}");
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("error: could not drop stash@{0}"));

@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::types::{Classification, JsonWorktree, ScanResult, WorktreeInfo};
+use git_tidy_core::types::{Classification, ClassificationLabel, ScanResult, WorktreeInfo};
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
@@ -77,14 +77,7 @@ fn write_worktree_line(out: &mut dyn Write, wt: &WorktreeInfo) -> std::io::Resul
 
 /// Write JSON scan output using the flat spec format.
 pub fn write_json(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
-    let all_worktrees: Vec<JsonWorktree> = result
-        .repos
-        .iter()
-        .flat_map(|g| g.worktrees.iter())
-        .map(JsonWorktree::from)
-        .collect();
-
-    shared::write_json_pretty(out, &all_worktrees)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

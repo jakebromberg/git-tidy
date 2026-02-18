@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use git_tidy_core::types::{Classification, ScanCounts, UnmatchedCommit, extract_landed_fields};
+use git_tidy_core::types::{
+    Classification, ClassificationLabel, ScanCounts, UnmatchedCommit, extract_landed_fields,
+};
 use serde::Serialize;
 
 /// Information about a single local branch.
@@ -50,6 +52,18 @@ pub struct BranchScanResult {
     pub counts: ScanCounts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
+}
+
+impl git_tidy_core::output::FlatJsonItems for BranchScanResult {
+    type JsonItem = JsonBranch;
+
+    fn to_json_items(&self) -> Vec<JsonBranch> {
+        self.repos
+            .iter()
+            .flat_map(|g| g.branches.iter())
+            .map(JsonBranch::from)
+            .collect()
+    }
 }
 
 /// Flat JSON representation of a branch.
