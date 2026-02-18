@@ -2,6 +2,7 @@ use std::io;
 use std::process;
 
 use clap::Parser;
+use git_tidy_core::progress::Progress;
 
 mod cli;
 mod dispatch;
@@ -39,11 +40,12 @@ fn main() {
         Some(tools.as_slice())
     };
 
+    let progress = Progress::new();
     let result = if subprocess {
         let runner = runner::RealToolRunner;
-        runner::run_audit(&runner, &directory, tool_filter)
+        runner::run_audit(&runner, &directory, tool_filter, &progress)
     } else {
-        inprocess::run_audit_inprocess(&directory, tool_filter)
+        inprocess::run_audit_inprocess(&directory, tool_filter, &progress)
     };
 
     let mut stdout = io::stdout().lock();

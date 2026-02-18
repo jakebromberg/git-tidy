@@ -4,6 +4,7 @@ use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 use git_tidy_core::types::{ClassificationLabel, ScanCounts};
 
 use crate::discovery;
@@ -15,16 +16,18 @@ pub fn run_scan(
     directory: &Path,
     behind_threshold: usize,
     verbose: bool,
+    progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
 
     let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
-    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths);
+    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
     let mut repos = Vec::new();
     let mut counts = ScanCounts::default();
     let mut total_scanned = 0;
 
+    let pb = progress.bar(repo_paths.len() as u64, "Scanning branches");
     for repo_path in &repo_paths {
         // Detect default branch
         let default_branch = match classification::detect_default_branch(git, repo_path) {
@@ -109,7 +112,9 @@ pub fn run_scan(
                 branches: classified,
             });
         }
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(BranchScanResult {
         repos,

@@ -39,7 +39,13 @@ fn scan_real_repo_with_reachable_remote() {
     git(&repo, &["remote", "add", "origin", &bare.to_string_lossy()]);
     git(&repo, &["push", "-u", "origin", "main"]);
 
-    let result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
@@ -63,7 +69,13 @@ fn scan_repo_with_unreachable_remote() {
         &["remote", "add", "origin", "/nonexistent/path/repo.git"],
     );
 
-    let result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
@@ -86,7 +98,13 @@ fn scan_repo_with_orphaned_refs() {
         &["update-ref", "refs/remotes/stale/main", &head_hash],
     );
 
-    let result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
@@ -108,7 +126,13 @@ fn scan_empty_repo_no_remotes() {
     let scan_dir = dir.path().canonicalize().unwrap().join("projects");
     let git_ops = RealGit;
 
-    let result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Repo has no remotes, so no groups
     assert!(result.repos.is_empty());
@@ -127,7 +151,13 @@ fn scan_offline_mode() {
         &["remote", "add", "origin", "/nonexistent/path/repo.git"],
     );
 
-    let result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, true).unwrap();
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 

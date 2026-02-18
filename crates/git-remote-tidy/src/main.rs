@@ -5,6 +5,7 @@ use clap::Parser;
 use git_tidy_core::cli::{OutputFormat, validate_directory};
 use git_tidy_core::error;
 use git_tidy_core::git;
+use git_tidy_core::progress::Progress;
 
 mod clean;
 mod cli;
@@ -21,6 +22,7 @@ fn main() {
     }
 
     let git = git::RealGit;
+    let progress = Progress::new();
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -32,7 +34,7 @@ fn main() {
                 _ => OutputFormat::Human,
             };
 
-            match scan::run_scan(&git, &directory, cli.offline) {
+            match scan::run_scan(&git, &directory, cli.offline, &progress) {
                 Ok(result) => {
                     let write_result = match format {
                         OutputFormat::Json => output::write_json(&mut stdout, &result),
@@ -53,7 +55,7 @@ fn main() {
             force,
             all,
             ..
-        }) => match scan::run_scan(&git, &directory, cli.offline) {
+        }) => match scan::run_scan(&git, &directory, cli.offline, &progress) {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,

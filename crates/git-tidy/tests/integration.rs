@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use git_tidy::runner::{ToolRunner, run_audit};
+use git_tidy_core::progress::Progress;
 
 /// A test runner that simulates installed tools with canned responses.
 struct FakeToolRunner {
@@ -63,7 +64,7 @@ fn full_audit_multiple_tools() {
         ),
     ]);
 
-    let result = run_audit(&runner, Path::new("/tmp/test"), None);
+    let result = run_audit(&runner, Path::new("/tmp/test"), None, &Progress::disabled());
 
     // Check found/missing
     assert!(
@@ -105,7 +106,7 @@ fn full_audit_json_roundtrip() {
         r#"[{"classification":"active"}]"#,
     )]);
 
-    let result = run_audit(&runner, Path::new("/tmp/test"), None);
+    let result = run_audit(&runner, Path::new("/tmp/test"), None, &Progress::disabled());
 
     // Serialize to JSON and parse back
     let mut buf = Vec::new();
@@ -124,7 +125,7 @@ fn full_audit_porcelain_roundtrip() {
         r#"[{"classification":"active"},{"classification":"merged"}]"#,
     )]);
 
-    let result = run_audit(&runner, Path::new("/tmp"), None);
+    let result = run_audit(&runner, Path::new("/tmp"), None, &Progress::disabled());
 
     let mut buf = Vec::new();
     git_tidy::output::write_porcelain(&mut buf, &result).unwrap();
@@ -147,7 +148,7 @@ fn full_audit_human_output_end_to_end() {
         r#"[{"classification":"active"},{"classification":"active"},{"classification":"merged"}]"#,
     )]);
 
-    let result = run_audit(&runner, Path::new("/tmp/dev"), None);
+    let result = run_audit(&runner, Path::new("/tmp/dev"), None, &Progress::disabled());
 
     let mut buf = Vec::new();
     git_tidy::output::write_human(&mut buf, &result, false).unwrap();
@@ -171,7 +172,12 @@ fn audit_filter_limits_tools() {
     ]);
 
     let filter = vec!["branch".to_string()];
-    let result = run_audit(&runner, Path::new("/tmp"), Some(&filter));
+    let result = run_audit(
+        &runner,
+        Path::new("/tmp"),
+        Some(&filter),
+        &Progress::disabled(),
+    );
 
     assert_eq!(result.tools_found, vec!["git-branch-tidy"]);
     assert!(result.tools_missing.is_empty());

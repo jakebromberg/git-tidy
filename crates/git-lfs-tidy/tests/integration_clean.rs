@@ -32,7 +32,14 @@ fn run_scan_and_clean(
     options: &CleanOptions,
 ) -> (git_lfs_tidy::types::LfsScanResult, CleanResult) {
     let git_ops = RealGit;
-    let scan_result = git_lfs_tidy::scan::run_scan(&git_ops, scan_dir, 100_000, 1000).unwrap();
+    let scan_result = git_lfs_tidy::scan::run_scan(
+        &git_ops,
+        scan_dir,
+        100_000,
+        1000,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
     let mut buf = Vec::new();
     let clean_result =
         git_lfs_tidy::clean::run_clean(&git_ops, &scan_result, options, &mut buf).unwrap();

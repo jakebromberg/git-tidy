@@ -4,6 +4,7 @@ use std::process;
 use clap::Parser;
 use git_tidy_core::error;
 use git_tidy_core::git;
+use git_tidy_core::progress::Progress;
 
 mod cli;
 mod fix;
@@ -21,6 +22,7 @@ fn main() {
     }
 
     let git = git::RealGit;
+    let progress = Progress::new();
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -30,7 +32,7 @@ fn main() {
                 _ => (false, false),
             };
 
-            match lint::run_lint(&git, &directory) {
+            match lint::run_lint(&git, &directory, &progress) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -52,7 +54,7 @@ fn main() {
             yes,
             json,
             porcelain,
-        }) => match lint::run_lint(&git, &directory) {
+        }) => match lint::run_lint(&git, &directory, &progress) {
             Ok(lint_result) => {
                 // Show lint results first if requested
                 let write_result = if *json {

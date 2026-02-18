@@ -37,7 +37,13 @@ fn scan_real_repo_with_stashes() {
     git(&repo, &["add", "temp.txt"]);
     git(&repo, &["stash"]);
 
-    let result = git_stash_tidy::scan::run_scan(&git_ops, &scan_dir, 90).unwrap();
+    let result = git_stash_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        90,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
@@ -64,7 +70,13 @@ fn scan_repo_with_orphaned_stash() {
     git(&repo, &["checkout", "main"]);
     git(&repo, &["branch", "-D", "temp-feature"]);
 
-    let result = git_stash_tidy::scan::run_scan(&git_ops, &scan_dir, 90).unwrap();
+    let result = git_stash_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        90,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
@@ -80,7 +92,13 @@ fn scan_empty_repo_no_stashes() {
     let scan_dir = dir.path().canonicalize().unwrap().join("projects");
     let git_ops = RealGit;
 
-    let result = git_stash_tidy::scan::run_scan(&git_ops, &scan_dir, 90).unwrap();
+    let result = git_stash_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        90,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Repo exists but has no stashes, so no groups reported
     assert!(result.repos.is_empty());

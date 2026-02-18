@@ -41,7 +41,13 @@ fn clean_removes_remote_in_real_repo() {
     assert!(remotes.contains(&"stale".to_string()));
 
     // Scan then clean
-    let scan_result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let scan_result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_remote_tidy::clean::CleanOptions {
         dry_run: false,
@@ -72,7 +78,13 @@ fn clean_dry_run_does_not_remove() {
         &["remote", "add", "stale", "/nonexistent/path/repo.git"],
     );
 
-    let scan_result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let scan_result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_remote_tidy::clean::CleanOptions {
         dry_run: true,
@@ -122,7 +134,13 @@ fn clean_prunes_orphaned_refs() {
     assert_eq!(stale_refs.len(), 2);
 
     // Scan then clean with --all
-    let scan_result = git_remote_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let scan_result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_remote_tidy::clean::CleanOptions {
         dry_run: false,

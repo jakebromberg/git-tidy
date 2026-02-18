@@ -43,7 +43,13 @@ fn scan_synced_tag() {
     git(&repo, &["tag", "v1.0.0"]);
     git(&repo, &["push", "origin", "v1.0.0"]);
 
-    let result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert!(result.total_scanned >= 1);
@@ -75,7 +81,13 @@ fn scan_local_only_tag() {
     // Create a tag but don't push it
     git(&repo, &["tag", "local-only-tag"]);
 
-    let result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
@@ -104,7 +116,13 @@ fn scan_stale_tag() {
     git(&repo, &["checkout", "main"]);
     git(&repo, &["branch", "-D", "orphan-branch"]);
 
-    let result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, true).unwrap();
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
@@ -126,7 +144,13 @@ fn scan_annotated_tag() {
     // Create an annotated tag
     git(&repo, &["tag", "-a", "v2.0.0", "-m", "Release 2.0.0"]);
 
-    let result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, true).unwrap();
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
@@ -147,7 +171,13 @@ fn scan_empty_repo_no_tags() {
     let scan_dir = dir.path().canonicalize().unwrap().join("projects");
     let git_ops = RealGit;
 
-    let result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, true).unwrap();
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Repo has no tags, so no groups
     assert!(result.repos.is_empty());

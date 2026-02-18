@@ -43,7 +43,13 @@ fn clean_drops_stash_in_real_repo() {
     assert_eq!(stashes.len(), 1);
 
     // Scan then clean
-    let scan_result = git_stash_tidy::scan::run_scan(&git_ops, &scan_dir, 90).unwrap();
+    let scan_result = git_stash_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        90,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_stash_tidy::clean::CleanOptions {
         dry_run: false,
@@ -78,7 +84,13 @@ fn clean_dry_run_does_not_drop() {
     git(&repo, &["checkout", "main"]);
     git(&repo, &["branch", "-D", "temp"]);
 
-    let scan_result = git_stash_tidy::scan::run_scan(&git_ops, &scan_dir, 90).unwrap();
+    let scan_result = git_stash_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        90,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_stash_tidy::clean::CleanOptions {
         dry_run: true,

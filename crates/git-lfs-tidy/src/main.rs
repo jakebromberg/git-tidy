@@ -4,6 +4,7 @@ use std::process;
 use clap::Parser;
 use git_tidy_core::error;
 use git_tidy_core::git;
+use git_tidy_core::progress::Progress;
 
 mod clean;
 mod cli;
@@ -21,6 +22,7 @@ fn main() {
     }
 
     let git = git::RealGit;
+    let progress = Progress::new();
     let mut stdout = io::stdout().lock();
 
     // Extract scan parameters from whichever subcommand is active.
@@ -55,7 +57,7 @@ fn main() {
                 _ => (false, false),
             };
 
-            match scan::run_scan(&git, &directory, size_threshold, depth) {
+            match scan::run_scan(&git, &directory, size_threshold, depth, &progress) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -77,7 +79,7 @@ fn main() {
             yes,
             prune,
             ..
-        }) => match scan::run_scan(&git, &directory, size_threshold, depth) {
+        }) => match scan::run_scan(&git, &directory, size_threshold, depth, &progress) {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,

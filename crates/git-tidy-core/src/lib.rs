@@ -10,6 +10,7 @@ pub mod fetch;
 pub mod git;
 pub mod landed;
 pub mod output;
+pub mod progress;
 pub mod types;
 
 #[cfg(any(test, feature = "testutil"))]

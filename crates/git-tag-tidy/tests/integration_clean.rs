@@ -45,7 +45,13 @@ fn clean_removes_local_only_tag() {
     assert!(tags.contains(&"local-wip".to_string()));
 
     // Scan then clean
-    let scan_result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let scan_result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: false,
@@ -83,7 +89,13 @@ fn clean_dry_run_preserves_tags() {
 
     git(&repo, &["tag", "local-wip"]);
 
-    let scan_result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let scan_result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: true,
@@ -130,7 +142,13 @@ fn clean_removes_stale_tag() {
     assert!(tags.contains(&"stale-tag".to_string()));
 
     // Scan (offline since no remote) then clean
-    let scan_result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, true).unwrap();
+    let scan_result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: false,
@@ -177,7 +195,13 @@ fn clean_include_remote_deletes_from_remote() {
     git(&repo, &["branch", "-D", "orphan-branch"]);
 
     // Scan then clean with --include-remote
-    let scan_result = git_tag_tidy::scan::run_scan(&git_ops, &scan_dir, false).unwrap();
+    let scan_result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: false,

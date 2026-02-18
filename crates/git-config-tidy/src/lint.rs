@@ -5,6 +5,7 @@ use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 
 use crate::types::{
     ConfigIssue, ConfigLintResult, ConfigRepoGroup, IssueCounts, IssueKind,
@@ -69,7 +70,11 @@ pub fn lint_repo(
 }
 
 /// Run a config lint across all repos discovered under `directory`.
-pub fn run_lint(git: &dyn GitOps, directory: &Path) -> Result<ConfigLintResult, Error> {
+pub fn run_lint(
+    git: &dyn GitOps,
+    directory: &Path,
+    progress: &Progress,
+) -> Result<ConfigLintResult, Error> {
     let repo_paths = discover_repos(directory)?;
 
     let mut repos = Vec::new();
@@ -86,6 +91,7 @@ pub fn run_lint(git: &dyn GitOps, directory: &Path) -> Result<ConfigLintResult, 
         }
     };
 
+    let pb = progress.bar(repo_paths.len() as u64, "Linting config");
     for repo_path in &repo_paths {
         let issues = match lint_repo(git, repo_path, &builtin_commands) {
             Ok(issues) => issues,
@@ -112,7 +118,9 @@ pub fn run_lint(git: &dyn GitOps, directory: &Path) -> Result<ConfigLintResult, 
             name: repo_name,
             issues,
         });
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(ConfigLintResult {
         repos,

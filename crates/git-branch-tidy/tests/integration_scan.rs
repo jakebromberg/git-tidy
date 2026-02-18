@@ -56,7 +56,14 @@ fn scan_real_repo_with_mixed_branches() {
     git(&repo, &["commit", "-m", "wip commit"]);
     git(&repo, &["checkout", "main"]);
 
-    let result = git_branch_tidy::scan::run_scan(&git_ops, &scan_dir, 100, false).unwrap();
+    let result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Should find our repo
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
@@ -104,7 +111,14 @@ fn scan_marks_current_branch_in_real_repo() {
     git(&repo, &["commit", "-m", "commit on feature"]);
     // Don't switch back -- my-feature is the current branch
 
-    let result = git_branch_tidy::scan::run_scan(&git_ops, &scan_dir, 100, false).unwrap();
+    let result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let branch = &result.repos[0].branches[0];
@@ -128,7 +142,14 @@ fn scan_skips_repo_without_default_branch() {
     git(&repo, &["commit", "-m", "init"]);
 
     let git_ops = RealGit;
-    let result = git_branch_tidy::scan::run_scan(&git_ops, &base, 100, false).unwrap();
+    let result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &base,
+        100,
+        false,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
 
     // Repo should be skipped with a warning
     assert!(result.repos.is_empty());

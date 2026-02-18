@@ -6,6 +6,7 @@ use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::landed::diff_similarity;
 use git_tidy_core::output::repo_display_name;
+use git_tidy_core::progress::Progress;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
@@ -68,6 +69,7 @@ pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
     age_threshold: u64,
+    progress: &Progress,
 ) -> Result<StashScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
 
@@ -76,6 +78,7 @@ pub fn run_scan(
     let mut warnings = Vec::new();
     let mut total_scanned = 0;
 
+    let pb = progress.bar(repo_paths.len() as u64, "Scanning stashes");
     for repo_path in &repo_paths {
         let stashes = match git.list_stashes(repo_path) {
             Ok(s) => s,
@@ -129,7 +132,9 @@ pub fn run_scan(
             name: repo_name,
             stashes: classified,
         });
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     Ok(StashScanResult {
         repos,
