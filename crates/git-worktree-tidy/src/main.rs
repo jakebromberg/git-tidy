@@ -6,6 +6,7 @@ use git_tidy_core::cli::OutputFormat;
 use git_tidy_core::cli::validate_directory;
 use git_tidy_core::config;
 use git_tidy_core::error;
+use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git;
 use git_tidy_core::progress::Progress;
 
@@ -35,6 +36,8 @@ fn main() {
     };
     let noise_patterns = noise_config.resolve();
 
+    let entity_filter = NameFilter::new(&cli.match_patterns, &cli.exclude_patterns);
+
     let git = git::RealGit;
     let progress = Progress::new();
     let mut stdout = io::stdout().lock();
@@ -54,7 +57,7 @@ fn main() {
                 cli.behind_threshold,
                 cli.verbose,
                 &noise_patterns,
-                &cli.match_patterns,
+                &entity_filter,
                 &progress,
             ) {
                 Ok(result) => {
@@ -87,7 +90,7 @@ fn main() {
                 cli.behind_threshold,
                 cli.verbose,
                 &noise_patterns,
-                &cli.match_patterns,
+                &entity_filter,
                 &progress,
             ) {
                 Ok(scan_result) => {
