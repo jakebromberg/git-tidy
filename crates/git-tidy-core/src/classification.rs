@@ -52,32 +52,34 @@ pub fn classify_branch(
     // Ahead/behind counts
     let (behind, ahead) = git.rev_list_left_right_count(repo, &origin_default, branch_name)?;
 
-    // Check if merged — skip the subprocess call when ahead == 0 (already fully merged)
+    // Check if structurally landed — skip the subprocess call when ahead == 0
     let is_merged = ahead == 0 || git.is_ancestor(repo, branch_name, &origin_default)?;
 
     let classification = if is_merged {
-        Classification::Merged
+        Classification::Landed
     } else {
-        // Try landed detection
+        // Try content-based landed detection
         let landed_result =
             landed::detect_landed(git, repo, &origin_default, branch_name, verbose)?;
 
         enum Action {
-            UseLanded,
-            Merged,
+            UseContentResult,
+            Landed,
             Active,
             Local,
         }
         let action = match &landed_result.classification {
-            Classification::Landed { .. } if landed_result.total > 0 => Action::UseLanded,
-            Classification::Landed { .. } => Action::Merged,
-            Classification::LandedPartial { .. } => Action::UseLanded,
+            Classification::LandedByContent { .. } if landed_result.total > 0 => {
+                Action::UseContentResult
+            }
+            Classification::LandedByContent { .. } => Action::Landed,
+            Classification::LandedPartial { .. } => Action::UseContentResult,
             _ if has_remote => Action::Active,
             _ => Action::Local,
         };
         match action {
-            Action::UseLanded => landed_result.classification,
-            Action::Merged => Classification::Merged,
+            Action::UseContentResult => landed_result.classification,
+            Action::Landed => Classification::Landed,
             Action::Active => Classification::Active,
             Action::Local => Classification::Local,
         }
@@ -235,7 +237,7 @@ mod tests {
 
         let info =
             classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
-        assert_eq!(info.classification, Classification::Merged);
+        assert_eq!(info.classification, Classification::Landed);
         assert!(!info.annotations.dirty);
         assert!(!info.annotations.remote_deleted);
     }
@@ -344,7 +346,7 @@ mod tests {
 
         let info =
             classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
-        assert_eq!(info.classification, Classification::Merged);
+        assert_eq!(info.classification, Classification::Landed);
         assert!(info.annotations.remote_deleted);
     }
 
@@ -360,7 +362,7 @@ mod tests {
 
         let info =
             classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
-        assert_eq!(info.classification, Classification::Merged);
+        assert_eq!(info.classification, Classification::Landed);
         assert!(info.branch.is_none());
     }
 
@@ -375,7 +377,7 @@ mod tests {
             .build();
 
         let result = classify_branch(&git, &repo(), "feature/done", "main", 100, false).unwrap();
-        assert_eq!(result.classification, Classification::Merged);
+        assert_eq!(result.classification, Classification::Landed);
         assert!(result.remote_tracking);
         assert!(!result.remote_deleted);
         assert!(!result.diverged);
@@ -430,7 +432,7 @@ mod tests {
             .build();
 
         let result = classify_branch(&git, &repo(), "feature/gone", "main", 100, false).unwrap();
-        assert_eq!(result.classification, Classification::Merged);
+        assert_eq!(result.classification, Classification::Landed);
         assert!(result.remote_deleted);
     }
 
@@ -464,7 +466,7 @@ mod tests {
             .build();
 
         let result = classify_branch(&git, &repo(), "feature/behind", "main", 100, false).unwrap();
-        assert_eq!(result.classification, Classification::Merged);
+        assert_eq!(result.classification, Classification::Landed);
         assert_eq!(result.behind, 50);
         assert_eq!(result.ahead, 0);
     }

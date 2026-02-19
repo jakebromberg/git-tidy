@@ -75,8 +75,7 @@ fn main() {
             dry_run,
             force,
             yes,
-            merged_only,
-            landed,
+            strict,
             all,
             delete_branches,
             ..
@@ -96,8 +95,7 @@ fn main() {
                         dry_run: *dry_run,
                         force: *force,
                         yes: *yes,
-                        merged_only: *merged_only,
-                        landed: *landed,
+                        strict: *strict,
                         all: *all,
                         delete_branches: *delete_branches,
                     };

@@ -191,7 +191,7 @@ mod tests {
         let bc1 =
             classification::classify_branch(&git, &repo(), "feature/done", "main", 100, false)
                 .unwrap();
-        assert_eq!(bc1.classification, Classification::Merged);
+        assert_eq!(bc1.classification, Classification::Landed);
 
         let bc2 = classification::classify_branch(&git, &repo(), "feature/wip", "main", 100, false)
             .unwrap();

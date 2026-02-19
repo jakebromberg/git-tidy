@@ -169,17 +169,17 @@ mod tests {
     #[test]
     fn parse_classification_field() {
         let json = r#"[
-            {"name": "a", "classification": "merged"},
+            {"name": "a", "classification": "landed"},
             {"name": "b", "classification": "active"},
-            {"name": "c", "classification": "merged"},
-            {"name": "d", "classification": "landed"}
+            {"name": "c", "classification": "landed"},
+            {"name": "d", "classification": "landed-content"}
         ]"#;
 
         let (total, counts) = parse_tool_output(json, "classification").unwrap();
         assert_eq!(total, 4);
-        assert_eq!(counts["merged"], 2);
+        assert_eq!(counts["landed"], 2);
         assert_eq!(counts["active"], 1);
-        assert_eq!(counts["landed"], 1);
+        assert_eq!(counts["landed-content"], 1);
     }
 
     #[test]
@@ -304,9 +304,12 @@ mod tests {
         let runner = MockToolRunner::new(vec![
             (
                 "git-worktree-tidy",
-                Ok(r#"[{"classification":"active"},{"classification":"merged"}]"#),
+                Ok(r#"[{"classification":"active"},{"classification":"landed"}]"#),
             ),
-            ("git-branch-tidy", Ok(r#"[{"classification":"landed"}]"#)),
+            (
+                "git-branch-tidy",
+                Ok(r#"[{"classification":"landed-content"}]"#),
+            ),
             ("git-stash-tidy", Ok("[]")),
             ("git-remote-tidy", Ok("[]")),
             ("git-tag-tidy", Ok("[]")),
@@ -327,7 +330,7 @@ mod tests {
         assert_eq!(wt.name, "git-worktree-tidy");
         assert_eq!(wt.total, 2);
         assert_eq!(wt.counts["active"], 1);
-        assert_eq!(wt.counts["merged"], 1);
+        assert_eq!(wt.counts["landed"], 1);
         assert!(wt.error.is_none());
 
         let config = &result.results[6];

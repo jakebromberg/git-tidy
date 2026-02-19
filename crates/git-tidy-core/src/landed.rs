@@ -33,7 +33,7 @@ pub fn detect_landed(
 
     if total == 0 {
         return Ok(LandedResult {
-            classification: Classification::Landed {
+            classification: Classification::LandedByContent {
                 matched: 0,
                 total: 0,
             },
@@ -70,7 +70,7 @@ pub fn detect_landed(
     }
 
     let classification = if matched == total {
-        Classification::Landed { matched, total }
+        Classification::LandedByContent { matched, total }
     } else if matched > 0 {
         Classification::LandedPartial {
             matched,
@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(result.total, 2);
         assert!(matches!(
             result.classification,
-            Classification::Landed {
+            Classification::LandedByContent {
                 matched: 2,
                 total: 2
             }
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(result.total, 0);
         assert!(matches!(
             result.classification,
-            Classification::Landed {
+            Classification::LandedByContent {
                 matched: 0,
                 total: 0
             }

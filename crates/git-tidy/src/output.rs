@@ -121,8 +121,8 @@ mod tests {
                     total: 8,
                     counts: BTreeMap::from([
                         ("active".to_string(), 5),
-                        ("landed".to_string(), 2),
-                        ("merged".to_string(), 1),
+                        ("landed".to_string(), 1),
+                        ("landed-content".to_string(), 2),
                     ]),
                     error: None,
                 },
@@ -130,7 +130,7 @@ mod tests {
                     name: "git-branch-tidy".to_string(),
                     item_noun: "branches".to_string(),
                     total: 3,
-                    counts: BTreeMap::from([("active".to_string(), 2), ("merged".to_string(), 1)]),
+                    counts: BTreeMap::from([("active".to_string(), 2), ("landed".to_string(), 1)]),
                     error: None,
                 },
             ],
@@ -145,8 +145,10 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("git-tidy audit: /tmp/dev"));
-        assert!(output.contains("worktrees:       8 scanned (5 active, 2 landed, 1 merged)"));
-        assert!(output.contains("branches:        3 scanned (2 active, 1 merged)"));
+        assert!(
+            output.contains("worktrees:       8 scanned (5 active, 1 landed, 2 landed-content)")
+        );
+        assert!(output.contains("branches:        3 scanned (2 active, 1 landed)"));
         assert!(output.contains("not installed: git-repo-tidy"));
         assert!(output.contains("Run individual tools for details."));
     }
@@ -235,11 +237,11 @@ mod tests {
         assert_eq!(fields[0], "git-worktree-tidy");
         assert_eq!(fields[1], "worktrees");
         assert_eq!(fields[2], "8");
-        // Counts are sorted (BTreeMap): active, landed, merged
+        // Counts are sorted (BTreeMap): active, landed, landed-content
         let counts: serde_json::Value = serde_json::from_str(fields[3]).unwrap();
         assert_eq!(counts["active"], 5);
-        assert_eq!(counts["landed"], 2);
-        assert_eq!(counts["merged"], 1);
+        assert_eq!(counts["landed"], 1);
+        assert_eq!(counts["landed-content"], 2);
         assert_eq!(fields[4], ""); // no error
     }
 

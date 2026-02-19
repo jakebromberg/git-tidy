@@ -14,11 +14,8 @@ pub struct CleanOptions {
     /// Skip confirmation prompts.
     #[allow(dead_code)]
     pub yes: bool,
-    /// Only target merged worktrees.
-    pub merged_only: bool,
-    /// Target merged and fully landed worktrees (default behavior).
-    #[allow(dead_code)]
-    pub landed: bool,
+    /// Only target structurally-proven landed worktrees.
+    pub strict: bool,
     /// Include active and local worktrees in the clean flow.
     pub all: bool,
     /// Delete local branches after removing their worktrees.
@@ -119,14 +116,14 @@ fn should_clean(classification: &Classification, options: &CleanOptions) -> bool
         return true;
     }
 
-    if options.merged_only {
-        return matches!(classification, Classification::Merged);
+    if options.strict {
+        return matches!(classification, Classification::Landed);
     }
 
-    // Default: merged + landed (--landed flag is redundant but kept for consistency)
+    // Default: landed (structural) + landed-by-content
     matches!(
         classification,
-        Classification::Merged | Classification::Landed { .. }
+        Classification::Landed | Classification::LandedByContent { .. }
     )
 }
 
@@ -257,8 +254,7 @@ mod tests {
             dry_run: false,
             force: false,
             yes: false,
-            merged_only: false,
-            landed: false,
+            strict: false,
             all: false,
             delete_branches: false,
         }
@@ -267,7 +263,7 @@ mod tests {
     #[test]
     fn clean_removes_merged_worktrees() {
         let git = MockGitBuilder::new().build();
-        let wt = make_worktree("wt-done", "feature/done", Classification::Merged);
+        let wt = make_worktree("wt-done", "feature/done", Classification::Landed);
         let scan = make_scan(vec![wt]);
         let mut buf = Vec::new();
 
@@ -282,12 +278,12 @@ mod tests {
     }
 
     #[test]
-    fn clean_removes_landed_worktrees() {
+    fn clean_removes_landed_by_content_worktrees() {
         let git = MockGitBuilder::new().build();
         let wt = make_worktree(
             "wt-landed",
             "feature/landed",
-            Classification::Landed {
+            Classification::LandedByContent {
                 matched: 3,
                 total: 3,
             },
@@ -347,14 +343,14 @@ mod tests {
     }
 
     #[test]
-    fn clean_merged_only_skips_landed() {
+    fn clean_strict_skips_landed_by_content() {
         let git = MockGitBuilder::new().build();
         let scan = make_scan(vec![
-            make_worktree("wt-merged", "fix/done", Classification::Merged),
+            make_worktree("wt-landed", "fix/done", Classification::Landed),
             make_worktree(
-                "wt-landed",
-                "fix/landed",
-                Classification::Landed {
+                "wt-content",
+                "fix/content",
+                Classification::LandedByContent {
                     matched: 3,
                     total: 3,
                 },
@@ -362,14 +358,14 @@ mod tests {
         ]);
         let mut buf = Vec::new();
         let options = CleanOptions {
-            merged_only: true,
+            strict: true,
             ..default_options()
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
         assert_eq!(result.succeeded.len(), 1);
-        assert_eq!(result.succeeded[0].path, PathBuf::from("/dev/wt-merged"));
+        assert_eq!(result.succeeded[0].path, PathBuf::from("/dev/wt-landed"));
         assert_eq!(result.skipped, 1);
     }
 
@@ -377,8 +373,8 @@ mod tests {
     fn clean_dry_run_makes_zero_remove_calls() {
         let git = MockGitBuilder::new().build();
         let scan = make_scan(vec![
-            make_worktree("wt-a", "feature/a", Classification::Merged),
-            make_worktree("wt-b", "feature/b", Classification::Merged),
+            make_worktree("wt-a", "feature/a", Classification::Landed),
+            make_worktree("wt-b", "feature/b", Classification::Landed),
         ]);
         let mut buf = Vec::new();
         let options = CleanOptions {
@@ -400,7 +396,7 @@ mod tests {
     #[test]
     fn clean_dirty_blocked_without_force() {
         let git = MockGitBuilder::new().build();
-        let mut wt = make_worktree("wt-dirty", "fix/dirty", Classification::Merged);
+        let mut wt = make_worktree("wt-dirty", "fix/dirty", Classification::Landed);
         wt.annotations.dirty = true;
         wt.annotations.dirty_file_count = 3;
         let scan = make_scan(vec![wt]);
@@ -420,7 +416,7 @@ mod tests {
     #[test]
     fn clean_force_removes_dirty() {
         let git = MockGitBuilder::new().build();
-        let mut wt = make_worktree("wt-dirty", "fix/dirty", Classification::Merged);
+        let mut wt = make_worktree("wt-dirty", "fix/dirty", Classification::Landed);
         wt.annotations.dirty = true;
         wt.annotations.dirty_file_count = 2;
         let scan = make_scan(vec![wt]);
@@ -445,7 +441,7 @@ mod tests {
             .build();
         // The worktree path doesn't actually exist on disk, so rm -rf is a no-op,
         // but worktree_prune should be called.
-        let wt = make_worktree("wt-stubborn", "feature/stuck", Classification::Merged);
+        let wt = make_worktree("wt-stubborn", "feature/stuck", Classification::Landed);
         let scan = make_scan(vec![wt]);
         let mut buf = Vec::new();
 
@@ -460,7 +456,7 @@ mod tests {
     #[test]
     fn clean_delete_branches_after_removal() {
         let git = MockGitBuilder::new().build();
-        let wt = make_worktree("wt-done", "feature/done", Classification::Merged);
+        let wt = make_worktree("wt-done", "feature/done", Classification::Landed);
         let scan = make_scan(vec![wt]);
         let mut buf = Vec::new();
         let options = CleanOptions {
@@ -486,7 +482,7 @@ mod tests {
         let git = MockGitBuilder::new()
             .with_is_branch_checked_out(&repo(), "feature/done", true)
             .build();
-        let wt = make_worktree("wt-done", "feature/done", Classification::Merged);
+        let wt = make_worktree("wt-done", "feature/done", Classification::Landed);
         let scan = make_scan(vec![wt]);
         let mut buf = Vec::new();
         let options = CleanOptions {
@@ -507,7 +503,7 @@ mod tests {
     #[test]
     fn clean_dry_run_mentions_branch_deletion() {
         let git = MockGitBuilder::new().build();
-        let wt = make_worktree("wt-done", "feature/done", Classification::Merged);
+        let wt = make_worktree("wt-done", "feature/done", Classification::Landed);
         let scan = make_scan(vec![wt]);
         let mut buf = Vec::new();
         let options = CleanOptions {
@@ -534,7 +530,7 @@ mod tests {
         let git = MockGitBuilder::new()
             .with_worktree_remove_error(&wt_path, "tier 1 failed")
             .build();
-        let wt = make_worktree("wt-fail", "feature/fail", Classification::Merged);
+        let wt = make_worktree("wt-fail", "feature/fail", Classification::Landed);
         let scan = make_scan(vec![wt]);
         let mut buf = Vec::new();
 
@@ -545,12 +541,12 @@ mod tests {
     }
 
     #[test]
-    fn should_clean_default_includes_merged_and_landed() {
+    fn should_clean_default_includes_landed_and_by_content() {
         let options = default_options();
 
-        assert!(should_clean(&Classification::Merged, &options));
+        assert!(should_clean(&Classification::Landed, &options));
         assert!(should_clean(
-            &Classification::Landed {
+            &Classification::LandedByContent {
                 matched: 1,
                 total: 1
             },
@@ -575,21 +571,21 @@ mod tests {
             ..default_options()
         };
 
-        assert!(should_clean(&Classification::Merged, &options));
+        assert!(should_clean(&Classification::Landed, &options));
         assert!(should_clean(&Classification::Active, &options));
         assert!(should_clean(&Classification::Local, &options));
     }
 
     #[test]
-    fn should_clean_merged_only() {
+    fn should_clean_strict_only_structural() {
         let options = CleanOptions {
-            merged_only: true,
+            strict: true,
             ..default_options()
         };
 
-        assert!(should_clean(&Classification::Merged, &options));
+        assert!(should_clean(&Classification::Landed, &options));
         assert!(!should_clean(
-            &Classification::Landed {
+            &Classification::LandedByContent {
                 matched: 1,
                 total: 1
             },

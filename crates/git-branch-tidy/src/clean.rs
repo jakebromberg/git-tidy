@@ -16,11 +16,8 @@ pub struct CleanOptions {
     /// Skip confirmation prompts.
     #[allow(dead_code)]
     pub yes: bool,
-    /// Only target merged branches.
-    pub merged_only: bool,
-    /// Target merged and fully landed branches (default behavior).
-    #[allow(dead_code)]
-    pub landed: bool,
+    /// Only target structurally-proven landed branches.
+    pub strict: bool,
     /// Include all classifications in the interactive flow.
     pub all: bool,
     /// Also delete remote tracking branches.
@@ -143,14 +140,14 @@ fn should_clean(classification: &Classification, options: &CleanOptions) -> bool
         return true;
     }
 
-    if options.merged_only {
-        return matches!(classification, Classification::Merged);
+    if options.strict {
+        return matches!(classification, Classification::Landed);
     }
 
-    // Default: merged + landed (--landed flag is redundant but kept for consistency)
+    // Default: landed (structural) + landed-by-content
     matches!(
         classification,
-        Classification::Merged | Classification::Landed { .. }
+        Classification::Landed | Classification::LandedByContent { .. }
     )
 }
 
@@ -198,7 +195,7 @@ mod tests {
             repo_path: repo(),
             name: name.to_string(),
             default_branch: "main".to_string(),
-            classification: Classification::Merged,
+            classification: Classification::Landed,
             remote_tracking: false,
             remote_deleted: true,
             ahead: 0,
@@ -228,8 +225,7 @@ mod tests {
             dry_run: false,
             force: false,
             yes: false,
-            merged_only: false,
-            landed: false,
+            strict: false,
             all: false,
             include_remote: false,
         }
@@ -331,24 +327,24 @@ mod tests {
     }
 
     #[test]
-    fn clean_merged_only_skips_landed() {
+    fn clean_strict_skips_landed_by_content() {
         let git = MockGitBuilder::new().build();
-        let mut landed = merged_branch("feature/landed");
-        landed.classification = Classification::Landed {
+        let mut content = merged_branch("feature/content");
+        content.classification = Classification::LandedByContent {
             matched: 3,
             total: 3,
         };
-        let scan = make_scan_result(vec![merged_branch("feature/merged"), landed]);
+        let scan = make_scan_result(vec![merged_branch("feature/landed"), content]);
         let mut buf = Vec::new();
         let options = CleanOptions {
-            merged_only: true,
+            strict: true,
             ..default_options()
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
         assert_eq!(result.succeeded.len(), 1);
-        assert_eq!(result.succeeded[0].name, "feature/merged");
+        assert_eq!(result.succeeded[0].name, "feature/landed");
         assert_eq!(result.skipped, 1);
     }
 
