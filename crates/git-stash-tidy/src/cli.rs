@@ -26,6 +26,14 @@ pub struct Cli {
     /// Exclude repos by name substring (takes precedence over --match-repo)
     #[arg(long = "exclude-repo", global = true)]
     pub exclude_repo_patterns: Vec<String>,
+
+    /// Filter stashes by branch name substring (can be repeated, OR semantics)
+    #[arg(long = "match", global = true)]
+    pub match_patterns: Vec<String>,
+
+    /// Exclude stashes by branch name substring (takes precedence over --match)
+    #[arg(long = "exclude", global = true)]
+    pub exclude_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -179,6 +187,20 @@ mod tests {
             }
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn match_and_exclude_flags() {
+        let cli = Cli::parse_from([
+            "git-stash-tidy",
+            "--match",
+            "feature",
+            "--exclude",
+            "temp",
+            "scan",
+        ]);
+        assert_eq!(cli.match_patterns, vec!["feature".to_string()]);
+        assert_eq!(cli.exclude_patterns, vec!["temp".to_string()]);
     }
 
     #[test]

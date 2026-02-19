@@ -62,6 +62,7 @@ fn scan_real_repo_with_mixed_branches() {
         100,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -118,6 +119,7 @@ fn scan_marks_current_branch_in_real_repo() {
         100,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -149,6 +151,7 @@ fn scan_skips_repo_without_default_branch() {
         &base,
         100,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

@@ -48,6 +48,7 @@ fn scan_synced_tag() {
         &scan_dir,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -87,6 +88,7 @@ fn scan_local_only_tag() {
         &scan_dir,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -123,6 +125,7 @@ fn scan_stale_tag() {
         &scan_dir,
         true,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -152,6 +155,7 @@ fn scan_annotated_tag() {
         &scan_dir,
         true,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -179,6 +183,7 @@ fn scan_empty_repo_no_tags() {
         &git_ops,
         &scan_dir,
         true,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

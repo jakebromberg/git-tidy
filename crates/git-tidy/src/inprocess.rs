@@ -178,6 +178,7 @@ fn scan_branches(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Too
         DEFAULT_BEHIND_THRESHOLD,
         false,
         &NameFilter::default(),
+        &NameFilter::default(),
         progress,
     ) {
         Ok(result) => {
@@ -208,6 +209,7 @@ fn scan_stashes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Tool
         directory,
         DEFAULT_AGE_THRESHOLD,
         &NameFilter::default(),
+        &NameFilter::default(),
         progress,
     ) {
         Ok(result) => {
@@ -232,7 +234,14 @@ fn scan_stashes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Tool
 }
 
 fn scan_remotes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_remote_tidy::scan::run_scan(git, directory, false, &NameFilter::default(), progress) {
+    match git_remote_tidy::scan::run_scan(
+        git,
+        directory,
+        false,
+        &NameFilter::default(),
+        &NameFilter::default(),
+        progress,
+    ) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -254,7 +263,14 @@ fn scan_remotes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Tool
 }
 
 fn scan_tags(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_tag_tidy::scan::run_scan(git, directory, false, &NameFilter::default(), progress) {
+    match git_tag_tidy::scan::run_scan(
+        git,
+        directory,
+        false,
+        &NameFilter::default(),
+        &NameFilter::default(),
+        progress,
+    ) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[

@@ -48,6 +48,7 @@ fn clean_drops_stash_in_real_repo() {
         &scan_dir,
         90,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -89,6 +90,7 @@ fn clean_dry_run_does_not_drop() {
         &git_ops,
         &scan_dir,
         90,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

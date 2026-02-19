@@ -50,6 +50,7 @@ fn clean_removes_local_only_tag() {
         &scan_dir,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -94,6 +95,7 @@ fn clean_dry_run_preserves_tags() {
         &git_ops,
         &scan_dir,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -149,6 +151,7 @@ fn clean_removes_stale_tag() {
         &scan_dir,
         true,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -202,6 +205,7 @@ fn clean_include_remote_deletes_from_remote() {
         &git_ops,
         &scan_dir,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

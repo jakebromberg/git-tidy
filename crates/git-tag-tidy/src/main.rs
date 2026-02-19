@@ -25,6 +25,7 @@ fn main() {
     let git = git::RealGit;
     let progress = Progress::new();
     let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
+    let entity_filter = NameFilter::new(&cli.match_patterns, &cli.exclude_patterns);
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -36,7 +37,14 @@ fn main() {
                 _ => OutputFormat::Human,
             };
 
-            match scan::run_scan(&git, &directory, cli.offline, &repo_filter, &progress) {
+            match scan::run_scan(
+                &git,
+                &directory,
+                cli.offline,
+                &repo_filter,
+                &entity_filter,
+                &progress,
+            ) {
                 Ok(result) => {
                     let write_result = match format {
                         OutputFormat::Json => output::write_json(&mut stdout, &result),
@@ -60,7 +68,14 @@ fn main() {
             include_remote,
             all,
             ..
-        }) => match scan::run_scan(&git, &directory, cli.offline, &repo_filter, &progress) {
+        }) => match scan::run_scan(
+            &git,
+            &directory,
+            cli.offline,
+            &repo_filter,
+            &entity_filter,
+            &progress,
+        ) {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,

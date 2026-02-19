@@ -26,6 +26,14 @@ pub struct Cli {
     /// Exclude repos by name substring (takes precedence over --match-repo)
     #[arg(long = "exclude-repo", global = true)]
     pub exclude_repo_patterns: Vec<String>,
+
+    /// Filter tags by name substring (can be repeated, OR semantics)
+    #[arg(long = "match", global = true)]
+    pub match_patterns: Vec<String>,
+
+    /// Exclude tags by name substring (takes precedence over --match)
+    #[arg(long = "exclude", global = true)]
+    pub exclude_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -196,6 +204,13 @@ mod tests {
             Some(Command::Clean { dry_run, .. }) => assert!(dry_run),
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn match_and_exclude_flags() {
+        let cli = Cli::parse_from(["git-tag-tidy", "--match", "v1", "--exclude", "beta", "scan"]);
+        assert_eq!(cli.match_patterns, vec!["v1".to_string()]);
+        assert_eq!(cli.exclude_patterns, vec!["beta".to_string()]);
     }
 
     #[test]
