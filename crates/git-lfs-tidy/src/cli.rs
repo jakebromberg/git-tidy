@@ -14,6 +14,14 @@ pub struct Cli {
     /// Directory to scan (default: current directory)
     #[arg(global = true)]
     pub directory: Option<PathBuf>,
+
+    /// Filter repos by name substring (can be repeated, OR semantics)
+    #[arg(long = "match-repo", global = true)]
+    pub match_repo_patterns: Vec<String>,
+
+    /// Exclude repos by name substring (takes precedence over --match-repo)
+    #[arg(long = "exclude-repo", global = true)]
+    pub exclude_repo_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -163,5 +171,19 @@ mod tests {
             }
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn match_repo_and_exclude_repo_flags() {
+        let cli = Cli::parse_from([
+            "git-lfs-tidy",
+            "--match-repo",
+            "myproject",
+            "--exclude-repo",
+            "archive",
+            "scan",
+        ]);
+        assert_eq!(cli.match_repo_patterns, vec!["myproject".to_string()]);
+        assert_eq!(cli.exclude_repo_patterns, vec!["archive".to_string()]);
     }
 }

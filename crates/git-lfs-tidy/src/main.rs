@@ -3,6 +3,7 @@ use std::process;
 
 use clap::Parser;
 use git_tidy_core::error;
+use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git;
 use git_tidy_core::progress::Progress;
 
@@ -23,6 +24,7 @@ fn main() {
 
     let git = git::RealGit;
     let progress = Progress::new();
+    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
     let mut stdout = io::stdout().lock();
 
     // Extract scan parameters from whichever subcommand is active.
@@ -57,7 +59,14 @@ fn main() {
                 _ => (false, false),
             };
 
-            match scan::run_scan(&git, &directory, size_threshold, depth, &progress) {
+            match scan::run_scan(
+                &git,
+                &directory,
+                size_threshold,
+                depth,
+                &repo_filter,
+                &progress,
+            ) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -79,7 +88,14 @@ fn main() {
             yes,
             prune,
             ..
-        }) => match scan::run_scan(&git, &directory, size_threshold, depth, &progress) {
+        }) => match scan::run_scan(
+            &git,
+            &directory,
+            size_threshold,
+            depth,
+            &repo_filter,
+            &progress,
+        ) {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,

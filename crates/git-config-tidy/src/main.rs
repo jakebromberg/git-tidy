@@ -3,6 +3,7 @@ use std::process;
 
 use clap::Parser;
 use git_tidy_core::error;
+use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git;
 use git_tidy_core::progress::Progress;
 
@@ -23,6 +24,7 @@ fn main() {
 
     let git = git::RealGit;
     let progress = Progress::new();
+    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -32,7 +34,7 @@ fn main() {
                 _ => (false, false),
             };
 
-            match lint::run_lint(&git, &directory, &progress) {
+            match lint::run_lint(&git, &directory, &repo_filter, &progress) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -54,7 +56,7 @@ fn main() {
             yes,
             json,
             porcelain,
-        }) => match lint::run_lint(&git, &directory, &progress) {
+        }) => match lint::run_lint(&git, &directory, &repo_filter, &progress) {
             Ok(lint_result) => {
                 // Show lint results first if requested
                 let write_result = if *json {

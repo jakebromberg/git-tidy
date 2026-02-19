@@ -37,6 +37,7 @@ fn main() {
     let noise_patterns = noise_config.resolve();
 
     let entity_filter = NameFilter::new(&cli.match_patterns, &cli.exclude_patterns);
+    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
 
     let git = git::RealGit;
     let progress = Progress::new();
@@ -58,6 +59,7 @@ fn main() {
                 cli.verbose,
                 &noise_patterns,
                 &entity_filter,
+                &repo_filter,
                 &progress,
             ) {
                 Ok(result) => {
@@ -92,6 +94,7 @@ fn main() {
                 cli.verbose,
                 &noise_patterns,
                 &entity_filter,
+                &repo_filter,
                 &progress,
             ) {
                 Ok(scan_result) => {

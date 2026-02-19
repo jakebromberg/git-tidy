@@ -3,6 +3,7 @@ use std::path::Path;
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
+use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
@@ -43,9 +44,11 @@ pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
     offline: bool,
+    repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RemoteScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
+    let repo_paths = filter_paths(repo_paths, repo_filter);
 
     let mut repos = Vec::new();
     let mut counts = RemoteCounts::default();

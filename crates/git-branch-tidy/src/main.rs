@@ -4,6 +4,7 @@ use std::process;
 use clap::Parser;
 use git_tidy_core::cli::{OutputFormat, validate_directory};
 use git_tidy_core::error;
+use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git;
 use git_tidy_core::progress::Progress;
 
@@ -24,6 +25,7 @@ fn main() {
 
     let git = git::RealGit;
     let progress = Progress::new();
+    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -40,6 +42,7 @@ fn main() {
                 &directory,
                 cli.behind_threshold,
                 cli.verbose,
+                &repo_filter,
                 &progress,
             ) {
                 Ok(result) => {
@@ -72,6 +75,7 @@ fn main() {
                 &directory,
                 cli.behind_threshold,
                 cli.verbose,
+                &repo_filter,
                 &progress,
             ) {
                 Ok(scan_result) => {

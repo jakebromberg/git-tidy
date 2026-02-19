@@ -37,6 +37,7 @@ fn run_scan_and_clean(
         scan_dir,
         100_000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();

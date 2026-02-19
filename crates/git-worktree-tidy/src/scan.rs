@@ -45,6 +45,7 @@ fn filter_worktrees(
 }
 
 /// Scan all worktrees under `directory` and classify them.
+#[allow(clippy::too_many_arguments)]
 pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
@@ -52,10 +53,22 @@ pub fn run_scan(
     verbose: bool,
     noise_patterns: &[String],
     entity_filter: &NameFilter,
+    repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<ScanResult, Error> {
     let groups = discovery::discover_worktrees(directory)?;
     let groups = filter_worktrees(groups, entity_filter);
+    let groups = if repo_filter.is_empty() {
+        groups
+    } else {
+        groups
+            .into_iter()
+            .filter(|(repo_path, _)| {
+                let basename = repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                repo_filter.matches(basename)
+            })
+            .collect()
+    };
 
     let repo_paths: Vec<&std::path::Path> = groups.keys().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &repo_paths, progress);
