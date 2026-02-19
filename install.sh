@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-for crate in crates/git-worktree-tidy crates/git-branch-tidy crates/git-stash-tidy \
-             crates/git-remote-tidy crates/git-tag-tidy crates/git-tidy; do
-  if [ -d "$crate" ]; then
-    name=$(basename "$crate")
-    echo "Installing $name..."
-    cargo install --path "$crate"
-  fi
+# Auto-discover binary crates (those with src/main.rs), install git-tidy last
+for crate in crates/*/; do
+  [ -f "$crate/src/main.rs" ] || continue
+  [[ "$crate" == crates/git-tidy/ ]] && continue
+  name=$(basename "$crate")
+  echo "Installing $name..."
+  cargo install --path "$crate"
 done
+
+# Install the umbrella binary last
+if [ -d crates/git-tidy ]; then
+  echo "Installing git-tidy..."
+  cargo install --path crates/git-tidy
+fi
 
 echo "All tools installed."
