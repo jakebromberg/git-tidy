@@ -4,6 +4,7 @@ use std::process;
 use clap::Parser;
 use git_tidy_core::config::{NoiseConfig, default_config_path, load_config_file};
 use git_tidy_core::error;
+use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git;
 use git_tidy_core::progress::Progress;
 
@@ -39,6 +40,8 @@ fn main() {
     };
     let noise_patterns = noise_config.resolve();
 
+    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
+
     let stale_days = cli.stale_threshold_days();
 
     match &cli.command {
@@ -54,6 +57,7 @@ fn main() {
                 stale_days,
                 &noise_patterns,
                 cli.offline,
+                &repo_filter,
                 &progress,
             ) {
                 Ok(result) => {
@@ -86,6 +90,7 @@ fn main() {
             stale_days,
             &noise_patterns,
             cli.offline,
+            &repo_filter,
             &progress,
         ) {
             Ok(scan_result) => {

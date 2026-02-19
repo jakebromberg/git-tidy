@@ -2,6 +2,7 @@ use std::path::Path;
 
 use git_tidy_core::classification;
 use git_tidy_core::error::Error;
+use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
@@ -16,9 +17,11 @@ pub fn run_scan(
     directory: &Path,
     behind_threshold: usize,
     verbose: bool,
+    repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
+    let repo_paths = filter_paths(repo_paths, repo_filter);
 
     let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);

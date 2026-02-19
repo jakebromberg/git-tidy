@@ -50,6 +50,7 @@ fn clean_removes_orphaned_repo() {
         180,
         &[],
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -77,6 +78,7 @@ fn clean_dry_run_preserves_repo() {
         180,
         &[],
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -114,6 +116,7 @@ fn clean_skips_dirty_repo() {
         180,
         &[],
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -145,6 +148,7 @@ fn clean_force_deletes_dirty_repo() {
         180,
         &[],
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();

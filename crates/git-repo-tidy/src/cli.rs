@@ -30,6 +30,14 @@ pub struct Cli {
     /// Disable default noise patterns
     #[arg(long, global = true)]
     pub no_default_noise: bool,
+
+    /// Filter repos by name substring (can be repeated, OR semantics)
+    #[arg(long = "match-repo", global = true)]
+    pub match_repo_patterns: Vec<String>,
+
+    /// Exclude repos by name substring (takes precedence over --match-repo)
+    #[arg(long = "exclude-repo", global = true)]
+    pub exclude_repo_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -208,5 +216,19 @@ mod tests {
     fn no_default_noise_flag() {
         let cli = Cli::parse_from(["git-repo-tidy", "--no-default-noise", "scan"]);
         assert!(cli.no_default_noise);
+    }
+
+    #[test]
+    fn match_repo_and_exclude_repo_flags() {
+        let cli = Cli::parse_from([
+            "git-repo-tidy",
+            "--match-repo",
+            "myproject",
+            "--exclude-repo",
+            "archive",
+            "scan",
+        ]);
+        assert_eq!(cli.match_repo_patterns, vec!["myproject".to_string()]);
+        assert_eq!(cli.exclude_repo_patterns, vec!["archive".to_string()]);
     }
 }

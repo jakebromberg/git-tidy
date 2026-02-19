@@ -41,6 +41,7 @@ fn scan_real_repo_with_stashes() {
         &git_ops,
         &scan_dir,
         90,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -74,6 +75,7 @@ fn scan_repo_with_orphaned_stash() {
         &git_ops,
         &scan_dir,
         90,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -96,6 +98,7 @@ fn scan_empty_repo_no_stashes() {
         &git_ops,
         &scan_dir,
         90,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();

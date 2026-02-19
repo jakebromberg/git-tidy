@@ -5,6 +5,7 @@ use git_tidy_core::date::days_since_iso_date;
 use git_tidy_core::dirty::check_dirty;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
+use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
@@ -119,6 +120,7 @@ pub fn run_scan(
     stale_days: u64,
     noise_patterns: &[String],
     offline: bool,
+    repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
     run_scan_with_du(
@@ -127,22 +129,26 @@ pub fn run_scan(
         stale_days,
         noise_patterns,
         offline,
+        repo_filter,
         &disk_usage,
         progress,
     )
 }
 
 /// Scan with an injectable disk-usage function (for testing).
+#[allow(clippy::too_many_arguments)]
 pub fn run_scan_with_du(
     git: &dyn GitOps,
     directory: &Path,
     stale_days: u64,
     noise_patterns: &[String],
     offline: bool,
+    repo_filter: &NameFilter,
     du_fn: &dyn Fn(&Path) -> u64,
     progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
+    let repo_paths = filter_paths(repo_paths, repo_filter);
 
     let mut repos = Vec::new();
     let mut counts = RepoCounts::default();

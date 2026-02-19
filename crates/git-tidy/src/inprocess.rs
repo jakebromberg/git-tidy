@@ -146,6 +146,7 @@ fn scan_worktrees(
         false,
         noise_patterns,
         &NameFilter::default(),
+        &NameFilter::default(),
         progress,
     ) {
         Ok(result) => {
@@ -171,8 +172,14 @@ fn scan_worktrees(
 }
 
 fn scan_branches(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_branch_tidy::scan::run_scan(git, directory, DEFAULT_BEHIND_THRESHOLD, false, progress)
-    {
+    match git_branch_tidy::scan::run_scan(
+        git,
+        directory,
+        DEFAULT_BEHIND_THRESHOLD,
+        false,
+        &NameFilter::default(),
+        progress,
+    ) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -196,7 +203,13 @@ fn scan_branches(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Too
 }
 
 fn scan_stashes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_stash_tidy::scan::run_scan(git, directory, DEFAULT_AGE_THRESHOLD, progress) {
+    match git_stash_tidy::scan::run_scan(
+        git,
+        directory,
+        DEFAULT_AGE_THRESHOLD,
+        &NameFilter::default(),
+        progress,
+    ) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -219,7 +232,7 @@ fn scan_stashes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Tool
 }
 
 fn scan_remotes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_remote_tidy::scan::run_scan(git, directory, false, progress) {
+    match git_remote_tidy::scan::run_scan(git, directory, false, &NameFilter::default(), progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -241,7 +254,7 @@ fn scan_remotes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Tool
 }
 
 fn scan_tags(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_tag_tidy::scan::run_scan(git, directory, false, progress) {
+    match git_tag_tidy::scan::run_scan(git, directory, false, &NameFilter::default(), progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -275,6 +288,7 @@ fn scan_repos(
         DEFAULT_STALE_DAYS,
         noise_patterns,
         false,
+        &NameFilter::default(),
         progress,
     ) {
         Ok(result) => {
@@ -298,7 +312,7 @@ fn scan_repos(
 }
 
 fn lint_config(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_config_tidy::lint::run_lint(git, directory, progress) {
+    match git_config_tidy::lint::run_lint(git, directory, &NameFilter::default(), progress) {
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
@@ -324,6 +338,7 @@ fn scan_lfs(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResu
         directory,
         DEFAULT_LFS_SIZE_THRESHOLD,
         DEFAULT_LFS_DEPTH,
+        &NameFilter::default(),
         progress,
     ) {
         Ok(result) => {

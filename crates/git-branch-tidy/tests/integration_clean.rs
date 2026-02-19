@@ -50,6 +50,7 @@ fn clean_deletes_merged_branch_in_real_repo() {
         &scan_dir,
         100,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -88,6 +89,7 @@ fn clean_dry_run_does_not_delete() {
         &scan_dir,
         100,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -134,6 +136,7 @@ fn clean_safe_refuses_unmerged_branch() {
         &scan_dir,
         100,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();

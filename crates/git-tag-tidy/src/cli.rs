@@ -18,6 +18,14 @@ pub struct Cli {
     /// Skip remote tag queries (no network access)
     #[arg(long, global = true)]
     pub offline: bool,
+
+    /// Filter repos by name substring (can be repeated, OR semantics)
+    #[arg(long = "match-repo", global = true)]
+    pub match_repo_patterns: Vec<String>,
+
+    /// Exclude repos by name substring (takes precedence over --match-repo)
+    #[arg(long = "exclude-repo", global = true)]
+    pub exclude_repo_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -188,5 +196,19 @@ mod tests {
             Some(Command::Clean { dry_run, .. }) => assert!(dry_run),
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn match_repo_and_exclude_repo_flags() {
+        let cli = Cli::parse_from([
+            "git-tag-tidy",
+            "--match-repo",
+            "myproject",
+            "--exclude-repo",
+            "archive",
+            "scan",
+        ]);
+        assert_eq!(cli.match_repo_patterns, vec!["myproject".to_string()]);
+        assert_eq!(cli.exclude_repo_patterns, vec!["archive".to_string()]);
     }
 }
