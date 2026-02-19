@@ -44,14 +44,14 @@ fn full_audit_multiple_tools() {
             "git-worktree-tidy",
             r#"[
                 {"classification":"active","name":"a"},
-                {"classification":"merged","name":"b"},
+                {"classification":"landed","name":"b"},
                 {"classification":"active","name":"c"}
             ]"#,
         ),
         (
             "git-branch-tidy",
             r#"[
-                {"classification":"landed","name":"feature"},
+                {"classification":"landed-content","name":"feature"},
                 {"classification":"active","name":"main"}
             ]"#,
         ),
@@ -85,7 +85,7 @@ fn full_audit_multiple_tools() {
         .unwrap();
     assert_eq!(wt.total, 3);
     assert_eq!(wt.counts["active"], 2);
-    assert_eq!(wt.counts["merged"], 1);
+    assert_eq!(wt.counts["landed"], 1);
     assert!(wt.error.is_none());
 
     // Config results (uses "kind" field)
@@ -122,7 +122,7 @@ fn full_audit_json_roundtrip() {
 fn full_audit_porcelain_roundtrip() {
     let runner = FakeToolRunner::new(vec![(
         "git-branch-tidy",
-        r#"[{"classification":"active"},{"classification":"merged"}]"#,
+        r#"[{"classification":"active"},{"classification":"landed"}]"#,
     )]);
 
     let result = run_audit(&runner, Path::new("/tmp"), None, &Progress::disabled());
@@ -145,7 +145,7 @@ fn full_audit_porcelain_roundtrip() {
 fn full_audit_human_output_end_to_end() {
     let runner = FakeToolRunner::new(vec![(
         "git-worktree-tidy",
-        r#"[{"classification":"active"},{"classification":"active"},{"classification":"merged"}]"#,
+        r#"[{"classification":"active"},{"classification":"active"},{"classification":"landed"}]"#,
     )]);
 
     let result = run_audit(&runner, Path::new("/tmp/dev"), None, &Progress::disabled());
@@ -158,7 +158,7 @@ fn full_audit_human_output_end_to_end() {
     assert!(output.contains("worktrees:"));
     assert!(output.contains("3 scanned"));
     assert!(output.contains("2 active"));
-    assert!(output.contains("1 merged"));
+    assert!(output.contains("1 landed"));
     assert!(output.contains("not installed:"));
     assert!(output.contains("Run individual tools for details."));
 }

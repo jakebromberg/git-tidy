@@ -78,8 +78,8 @@ In subprocess mode (`--subprocess`), only installed tools are run. Missing tools
 ```
 git-tidy audit: ~/Developer
 
-  worktrees:       8 scanned (1 merged, 2 landed, 5 active)
-  branches:       22 scanned (3 merged, 5 landed, 2 partial, 12 active)
+  worktrees:       8 scanned (1 landed, 2 content, 5 active)
+  branches:       22 scanned (3 landed, 5 content, 2 partial, 12 active)
   stashes:         6 scanned (2 committed, 1 orphaned, 3 active)
   remotes:         4 scanned (1 unreachable, 3 active)
   tags:           15 scanned (2 stale, 3 local_only, 10 synced)
@@ -103,7 +103,7 @@ Run individual tools for details.
       "name": "git-worktree-tidy",
       "item_noun": "worktrees",
       "total": 8,
-      "counts": { "active": 5, "landed": 2, "merged": 1 },
+      "counts": { "active": 5, "landed_content": 2, "landed": 1 },
       "error": null
     }
   ]

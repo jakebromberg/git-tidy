@@ -121,7 +121,7 @@ mod tests {
                         repo_path: PathBuf::from("/repos/Backend"),
                         name: "fix/skip-db-init".to_string(),
                         default_branch: "main".to_string(),
-                        classification: Classification::Merged,
+                        classification: Classification::Landed,
                         remote_tracking: true,
                         remote_deleted: true,
                         ahead: 0,
@@ -145,8 +145,8 @@ mod tests {
             }],
             total_scanned: 2,
             counts: ScanCounts {
-                merged: 1,
-                landed: 0,
+                landed: 1,
+                landed_content: 0,
                 partial: 0,
                 active: 1,
                 local: 0,
@@ -163,13 +163,14 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("Backend (2 branches)"));
-        assert!(output.contains("merged"));
+        assert!(output.contains("landed"));
         assert!(output.contains("active"));
         assert!(output.contains("fix/skip-db-init"));
         assert!(output.contains("* feature/caps"));
         assert!(output.contains("remote deleted"));
         assert!(
-            output.contains("2 branches scanned: 1 merged, 0 landed, 0 partial, 1 active, 0 local")
+            output
+                .contains("2 branches scanned: 1 landed, 0 content, 0 partial, 1 active, 0 local")
         );
     }
 
@@ -234,7 +235,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         let arr = parsed.as_array().unwrap();
         assert_eq!(arr.len(), 2);
-        assert_eq!(arr[0]["classification"], "merged");
+        assert_eq!(arr[0]["classification"], "landed");
         assert_eq!(arr[0]["remote_deleted"], true);
         assert_eq!(arr[1]["classification"], "active");
         assert_eq!(arr[1]["is_current"], true);
@@ -254,7 +255,7 @@ mod tests {
         assert_eq!(fields.len(), 8);
         assert_eq!(fields[0], "/repos/Backend");
         assert_eq!(fields[1], "fix/skip-db-init");
-        assert_eq!(fields[2], "merged");
+        assert_eq!(fields[2], "landed");
         assert_eq!(fields[7], "remote_deleted");
 
         let fields2: Vec<&str> = lines[1].split('\t').collect();

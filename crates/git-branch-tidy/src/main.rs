@@ -60,8 +60,7 @@ fn main() {
             dry_run,
             force,
             yes,
-            merged_only,
-            landed,
+            strict,
             all,
             include_remote,
             ..
@@ -79,8 +78,7 @@ fn main() {
                         dry_run: *dry_run,
                         force: *force,
                         yes: *yes,
-                        merged_only: *merged_only,
-                        landed: *landed,
+                        strict: *strict,
                         all: *all,
                         include_remote: *include_remote,
                     };

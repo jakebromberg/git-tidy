@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::types::{Classification, ScanCounts};
 
-/// Write the summary line: "N {item_noun} scanned: X merged, Y landed, ..."
+/// Write the summary line: "N {item_noun} scanned: X landed, Y content, ..."
 pub fn write_summary_line(
     out: &mut dyn Write,
     total: usize,
@@ -16,8 +16,8 @@ pub fn write_summary_line(
 ) -> std::io::Result<()> {
     writeln!(
         out,
-        "\n{total} {item_noun} scanned: {} merged, {} landed, {} partial, {} active, {} local",
-        counts.merged, counts.landed, counts.partial, counts.active, counts.local,
+        "\n{total} {item_noun} scanned: {} landed, {} content, {} partial, {} active, {} local",
+        counts.landed, counts.landed_content, counts.partial, counts.active, counts.local,
     )
 }
 
@@ -75,7 +75,7 @@ pub fn write_json_pretty(out: &mut dyn Write, value: &impl Serialize) -> std::io
 /// Format the landed ratio for display. Returns empty string for non-landed classifications.
 pub fn format_landed_ratio(classification: &Classification) -> String {
     match classification {
-        Classification::Landed { matched, total } => format!("{matched}/{total}"),
+        Classification::LandedByContent { matched, total } => format!("{matched}/{total}"),
         Classification::LandedPartial { matched, total, .. } => format!("{matched}/{total}"),
         _ => String::new(),
     }
@@ -88,8 +88,8 @@ mod tests {
     #[test]
     fn summary_line_format() {
         let counts = ScanCounts {
-            merged: 3,
-            landed: 1,
+            landed: 3,
+            landed_content: 1,
             partial: 0,
             active: 2,
             local: 1,
@@ -99,14 +99,14 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
-            "\n7 branches scanned: 3 merged, 1 landed, 0 partial, 2 active, 1 local\n"
+            "\n7 branches scanned: 3 landed, 1 content, 0 partial, 2 active, 1 local\n"
         );
     }
 
     #[test]
     fn summary_line_worktrees() {
         let counts = ScanCounts {
-            merged: 1,
+            landed: 1,
             ..Default::default()
         };
         let mut buf = Vec::new();
@@ -155,9 +155,9 @@ mod tests {
     }
 
     #[test]
-    fn landed_ratio_landed() {
+    fn landed_ratio_by_content() {
         assert_eq!(
-            format_landed_ratio(&Classification::Landed {
+            format_landed_ratio(&Classification::LandedByContent {
                 matched: 3,
                 total: 3
             }),

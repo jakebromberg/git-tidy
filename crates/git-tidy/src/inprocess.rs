@@ -150,8 +150,8 @@ fn scan_worktrees(
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
-                ("merged", c.merged),
                 ("landed", c.landed),
+                ("landed-content", c.landed_content),
                 ("partial", c.partial),
                 ("active", c.active),
                 ("local", c.local),
@@ -175,8 +175,8 @@ fn scan_branches(git: &dyn GitOps, directory: &Path, progress: &Progress) -> Too
         Ok(result) => {
             let c = &result.counts;
             let counts = counts_map(&[
-                ("merged", c.merged),
                 ("landed", c.landed),
+                ("landed-content", c.landed_content),
                 ("partial", c.partial),
                 ("active", c.active),
                 ("local", c.local),
@@ -370,11 +370,11 @@ mod tests {
 
     #[test]
     fn counts_map_omits_zeros() {
-        let m = counts_map(&[("active", 5), ("merged", 0), ("landed", 2)]);
+        let m = counts_map(&[("active", 5), ("landed", 0), ("landed-content", 2)]);
         assert_eq!(m.len(), 2);
         assert_eq!(m["active"], 5);
-        assert_eq!(m["landed"], 2);
-        assert!(!m.contains_key("merged"));
+        assert_eq!(m["landed-content"], 2);
+        assert!(!m.contains_key("landed"));
     }
 
     #[test]

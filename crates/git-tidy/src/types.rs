@@ -204,7 +204,7 @@ mod tests {
             name: "git-branch-tidy".to_string(),
             item_noun: "branches".to_string(),
             total: 5,
-            counts: BTreeMap::from([("active".to_string(), 3), ("merged".to_string(), 2)]),
+            counts: BTreeMap::from([("active".to_string(), 3), ("landed".to_string(), 2)]),
             error: None,
         };
         let json = serde_json::to_value(&result).unwrap();

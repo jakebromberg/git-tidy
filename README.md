@@ -1,6 +1,6 @@
 # git-tidy
 
-A Cargo workspace for Git housekeeping tools that share classification logic (merged/landed/active/local) and a common git abstraction layer.
+A Cargo workspace for Git housekeeping tools that share classification logic (landed/landed-content/active/local) and a common git abstraction layer.
 
 ## Usage
 
@@ -91,8 +91,7 @@ git-worktree-tidy scan ~/Developer --porcelain  # machine-readable
 
 # Clean stale worktrees
 git-worktree-tidy clean ~/Developer                    # interactive
-git-worktree-tidy clean ~/Developer --merged-only --yes  # non-interactive, merged only
-git-worktree-tidy clean ~/Developer --landed --yes       # merged + fully landed
+git-worktree-tidy clean ~/Developer --strict --yes         # non-interactive, landed (ancestor proof) only
 git-worktree-tidy clean ~/Developer --dry-run            # preview removals
 
 # Filter by worktree name (substring match, case-insensitive)
@@ -111,8 +110,8 @@ git-branch-tidy scan ~/Developer --json     # JSON output
 git-branch-tidy scan ~/Developer --porcelain  # machine-readable
 
 # Clean stale branches
-git-branch-tidy clean ~/Developer                         # delete merged + landed
-git-branch-tidy clean ~/Developer --merged-only --yes      # non-interactive, merged only
+git-branch-tidy clean ~/Developer                         # delete landed + landed-content
+git-branch-tidy clean ~/Developer --strict --yes           # non-interactive, landed (ancestor proof) only
 git-branch-tidy clean ~/Developer --all --force            # force-delete all classifications
 git-branch-tidy clean ~/Developer --dry-run                # preview deletions
 git-branch-tidy clean ~/Developer --include-remote --yes   # also delete remote branches
@@ -253,11 +252,11 @@ git-tidy ~/Developer --tools branch,tag  # run only specific tools
 
 | Classification | Meaning | Removal safety |
 |----------------|---------|----------------|
-| **merged** | Branch tip is an ancestor of the default branch | Safe |
-| **landed** | All branch commits matched on the default branch (rebase/squash/cherry-pick) | Safe |
+| **landed** | Branch tip is a structural ancestor of the default branch | Safe |
+| **landed-content** | All branch commits matched on the default branch by content (rebase/squash/cherry-pick) | Safe |
 | **partial** | Some branch commits matched (reports ratio like "4/6 landed") | Review required |
-| **active** | Has a remote tracking branch; not merged or landed | Keep |
-| **local** | No remote tracking branch; not merged or landed | Keep |
+| **active** | Has a remote tracking branch; not landed | Keep |
+| **local** | No remote tracking branch; not landed | Keep |
 
 ### Stash classifications
 

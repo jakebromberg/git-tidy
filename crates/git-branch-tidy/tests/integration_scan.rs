@@ -78,7 +78,7 @@ fn scan_real_repo_with_mixed_branches() {
         .iter()
         .find(|b| b.name == "feature/done")
         .expect("should find feature/done");
-    assert_eq!(done.classification, Classification::Merged);
+    assert_eq!(done.classification, Classification::Landed);
 
     // feature/wip should be local (no remote tracking, has unique commits)
     let wip = repo_group
@@ -94,7 +94,7 @@ fn scan_real_repo_with_mixed_branches() {
 
     // Counts
     assert_eq!(result.total_scanned, 2);
-    assert_eq!(result.counts.merged, 1);
+    assert_eq!(result.counts.landed, 1);
     assert_eq!(result.counts.local, 1);
 }
 

@@ -55,31 +55,32 @@ pub struct CleanResult<S> {
     pub skipped: usize,
 }
 
-/// Primary staleness classification for a worktree.
+/// Primary staleness classification for a worktree or branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Classification {
-    /// Branch tip is an ancestor of the default branch.
-    Merged,
-    /// All branch commits have matching commits on the default branch.
-    Landed { matched: usize, total: usize },
-    /// Some but not all branch commits matched.
+    /// Branch tip is a structural ancestor of the default branch (git merge-base proof).
+    Landed,
+    /// All branch commits have matching commits on the default branch (heuristic content matching).
+    #[serde(rename = "landed-content")]
+    LandedByContent { matched: usize, total: usize },
+    /// Some but not all branch commits matched (heuristic, partial).
     LandedPartial {
         matched: usize,
         total: usize,
         unmatched: Vec<UnmatchedCommit>,
     },
-    /// Has a remote tracking branch; not merged or landed.
+    /// Has a remote tracking branch; not landed.
     Active,
-    /// No remote tracking branch; not merged or landed.
+    /// No remote tracking branch; not landed.
     Local,
 }
 
 impl ClassificationLabel for Classification {
     fn priority(&self) -> u8 {
         match self {
-            Classification::Merged => 0,
-            Classification::Landed { .. } => 1,
+            Classification::Landed => 0,
+            Classification::LandedByContent { .. } => 1,
             Classification::LandedPartial { .. } => 2,
             Classification::Active => 3,
             Classification::Local => 4,
@@ -88,8 +89,8 @@ impl ClassificationLabel for Classification {
 
     fn label(&self) -> &'static str {
         match self {
-            Classification::Merged => "merged",
-            Classification::Landed { .. } => "landed",
+            Classification::Landed => "landed",
+            Classification::LandedByContent { .. } => "landed-content",
             Classification::LandedPartial { .. } => "partial",
             Classification::Active => "active",
             Classification::Local => "local",
@@ -108,7 +109,7 @@ pub struct LandedFields {
 /// Extract landed ratio, total, and unmatched commits from a classification.
 pub fn extract_landed_fields(classification: &Classification) -> LandedFields {
     match classification {
-        Classification::Landed { matched, total } => LandedFields {
+        Classification::LandedByContent { matched, total } => LandedFields {
             ratio: Some(format!("{matched}/{total}")),
             total: Some(*total),
             unmatched: vec![],
@@ -206,8 +207,8 @@ pub struct RepoGroup {
 }
 
 define_counts!(ScanCounts, Classification, {
-    Classification::Merged => merged,
-    Classification::Landed { .. } => landed,
+    Classification::Landed => landed,
+    Classification::LandedByContent { .. } => landed_content,
     Classification::LandedPartial { .. } => partial,
     Classification::Active => active,
     Classification::Local => local,
@@ -290,14 +291,14 @@ mod tests {
 
     #[test]
     fn classification_label_trait() {
-        assert_eq!(Classification::Merged.label(), "merged");
+        assert_eq!(Classification::Landed.label(), "landed");
         assert_eq!(
-            Classification::Landed {
+            Classification::LandedByContent {
                 matched: 1,
                 total: 1
             }
             .label(),
-            "landed"
+            "landed-content"
         );
         assert_eq!(
             Classification::LandedPartial {
@@ -310,12 +311,12 @@ mod tests {
         );
         assert_eq!(Classification::Active.label(), "active");
         assert_eq!(Classification::Local.label(), "local");
-        assert!(Classification::Merged.priority() < Classification::Active.priority());
+        assert!(Classification::Landed.priority() < Classification::Active.priority());
     }
 
     #[test]
-    fn extract_landed_merged() {
-        let c = Classification::Merged;
+    fn extract_landed_structural() {
+        let c = Classification::Landed;
         let f = extract_landed_fields(&c);
         assert!(f.ratio.is_none());
         assert!(f.total.is_none());
@@ -323,8 +324,8 @@ mod tests {
     }
 
     #[test]
-    fn extract_landed_landed() {
-        let c = Classification::Landed {
+    fn extract_landed_by_content() {
+        let c = Classification::LandedByContent {
             matched: 3,
             total: 3,
         };

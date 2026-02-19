@@ -51,13 +51,9 @@ pub enum Command {
         #[arg(short = 'y', long)]
         yes: bool,
 
-        /// Only target merged branches
+        /// Only target structurally-proven landed branches
         #[arg(long)]
-        merged_only: bool,
-
-        /// Target merged and fully landed branches (not partial)
-        #[arg(long)]
-        landed: bool,
+        strict: bool,
 
         /// Include active and local branches in the interactive clean flow
         #[arg(long)]
@@ -111,7 +107,7 @@ mod tests {
             "--dry-run",
             "--force",
             "--yes",
-            "--merged-only",
+            "--strict",
             "--include-remote",
         ]);
         match cli.command {
@@ -119,14 +115,14 @@ mod tests {
                 dry_run,
                 force,
                 yes,
-                merged_only,
+                strict,
                 include_remote,
                 ..
             }) => {
                 assert!(dry_run);
                 assert!(force);
                 assert!(yes);
-                assert!(merged_only);
+                assert!(strict);
                 assert!(include_remote);
             }
             _ => panic!("expected Clean command"),
@@ -166,17 +162,6 @@ mod tests {
                 assert!(porcelain);
             }
             _ => panic!("expected Scan command"),
-        }
-    }
-
-    #[test]
-    fn clean_landed_flag() {
-        let cli = Cli::parse_from(["git-branch-tidy", "clean", "--landed"]);
-        match cli.command {
-            Some(Command::Clean { landed, .. }) => {
-                assert!(landed);
-            }
-            _ => panic!("expected Clean command"),
         }
     }
 

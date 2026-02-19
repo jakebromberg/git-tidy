@@ -131,7 +131,7 @@ mod tests {
                         parent_repo: PathBuf::from("/repos/Backend"),
                         branch: Some("fix/skip-db-init".to_string()),
                         default_branch: "main".to_string(),
-                        classification: Classification::Merged,
+                        classification: Classification::Landed,
                         annotations: Annotations::default(),
                         remote_tracking: true,
                         ahead: 0,
@@ -156,8 +156,8 @@ mod tests {
             }],
             total_scanned: 2,
             counts: ScanCounts {
-                merged: 1,
-                landed: 0,
+                landed: 1,
+                landed_content: 0,
                 partial: 0,
                 active: 1,
                 local: 0,
@@ -174,13 +174,13 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("Backend (2 worktrees)"));
-        assert!(output.contains("merged"));
+        assert!(output.contains("landed"));
         assert!(output.contains("active"));
         assert!(output.contains("Backend-parallel"));
         assert!(output.contains("Backend-caps"));
         assert!(
             output
-                .contains("2 worktrees scanned: 1 merged, 0 landed, 0 partial, 1 active, 0 local")
+                .contains("2 worktrees scanned: 1 landed, 0 content, 0 partial, 1 active, 0 local")
         );
     }
 
@@ -252,7 +252,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         let arr = parsed.as_array().unwrap();
         assert_eq!(arr.len(), 2);
-        assert_eq!(arr[0]["classification"], "merged");
+        assert_eq!(arr[0]["classification"], "landed");
         assert_eq!(arr[1]["classification"], "active");
     }
 
@@ -268,7 +268,7 @@ mod tests {
 
         let fields: Vec<&str> = lines[0].split('\t').collect();
         assert_eq!(fields.len(), 9);
-        assert_eq!(fields[3], "merged");
+        assert_eq!(fields[3], "landed");
 
         let fields2: Vec<&str> = lines[1].split('\t').collect();
         assert_eq!(fields2[3], "active");

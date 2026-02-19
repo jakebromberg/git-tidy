@@ -63,13 +63,9 @@ pub enum Command {
         #[arg(short = 'y', long)]
         yes: bool,
 
-        /// Only target merged worktrees
+        /// Only target structurally-proven landed worktrees
         #[arg(long)]
-        merged_only: bool,
-
-        /// Target merged and fully landed worktrees (not partial)
-        #[arg(long)]
-        landed: bool,
+        strict: bool,
 
         /// Include active and local worktrees in the interactive clean flow
         #[arg(long)]
@@ -123,7 +119,7 @@ mod tests {
             "--dry-run",
             "--force",
             "--yes",
-            "--merged-only",
+            "--strict",
             "--delete-branches",
         ]);
         match cli.command {
@@ -131,14 +127,14 @@ mod tests {
                 dry_run,
                 force,
                 yes,
-                merged_only,
+                strict,
                 delete_branches,
                 ..
             }) => {
                 assert!(dry_run);
                 assert!(force);
                 assert!(yes);
-                assert!(merged_only);
+                assert!(strict);
                 assert!(delete_branches);
             }
             _ => panic!("expected Clean command"),
@@ -178,17 +174,6 @@ mod tests {
                 assert!(porcelain);
             }
             _ => panic!("expected Scan command"),
-        }
-    }
-
-    #[test]
-    fn clean_landed_flag() {
-        let cli = Cli::parse_from(["git-worktree-tidy", "clean", "--landed"]);
-        match cli.command {
-            Some(Command::Clean { landed, .. }) => {
-                assert!(landed);
-            }
-            _ => panic!("expected Clean command"),
         }
     }
 

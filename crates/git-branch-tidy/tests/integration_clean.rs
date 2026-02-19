@@ -58,8 +58,7 @@ fn clean_deletes_merged_branch_in_real_repo() {
         dry_run: false,
         force: false,
         yes: true,
-        merged_only: false,
-        landed: false,
+        strict: false,
         all: false,
         include_remote: false,
     };
@@ -97,8 +96,7 @@ fn clean_dry_run_does_not_delete() {
         dry_run: true,
         force: false,
         yes: true,
-        merged_only: false,
-        landed: false,
+        strict: false,
         all: false,
         include_remote: false,
     };
@@ -145,8 +143,7 @@ fn clean_safe_refuses_unmerged_branch() {
         dry_run: false,
         force: false,
         yes: true,
-        merged_only: false,
-        landed: false,
+        strict: false,
         all: true,
         include_remote: false,
     };
