@@ -3,6 +3,60 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::types::{Classification, ClassificationLabel, ScanResult, WorktreeInfo};
 
+const MIN_DIR_NAME_WIDTH: usize = 20;
+const MIN_BRANCH_WIDTH: usize = 20;
+const MIN_RATIO_WIDTH: usize = 5;
+const MIN_AHEAD_BEHIND_WIDTH: usize = 10;
+
+struct ColumnWidths {
+    dir_name: usize,
+    branch: usize,
+    ratio: usize,
+    ahead_behind: usize,
+    has_ratio: bool,
+    has_ahead_behind: bool,
+}
+
+fn compute_column_widths(worktrees: &[WorktreeInfo]) -> ColumnWidths {
+    let mut max_dir = 0usize;
+    let mut max_branch = 0usize;
+    let mut max_ratio = 0usize;
+    let mut max_ab = 0usize;
+    let mut has_ratio = false;
+    let mut has_ahead_behind = false;
+
+    for wt in worktrees {
+        let dir_name = wt
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().len())
+            .unwrap_or(0);
+        let branch = wt.branch.as_deref().unwrap_or("(detached)").len();
+        let ratio = shared::format_landed_ratio(&wt.classification);
+        let ab = shared::format_ahead_behind(wt.ahead, wt.behind);
+
+        max_dir = max_dir.max(dir_name);
+        max_branch = max_branch.max(branch);
+        if !ratio.is_empty() {
+            has_ratio = true;
+            max_ratio = max_ratio.max(ratio.len());
+        }
+        if !ab.is_empty() {
+            has_ahead_behind = true;
+            max_ab = max_ab.max(ab.len());
+        }
+    }
+
+    ColumnWidths {
+        dir_name: max_dir.max(MIN_DIR_NAME_WIDTH),
+        branch: max_branch.max(MIN_BRANCH_WIDTH),
+        ratio: max_ratio.max(MIN_RATIO_WIDTH),
+        ahead_behind: max_ab.max(MIN_AHEAD_BEHIND_WIDTH),
+        has_ratio,
+        has_ahead_behind,
+    }
+}
+
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
     shared::write_warnings(out, &result.warnings)?;
@@ -15,8 +69,10 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
             group.worktrees.len()
         )?;
 
+        let widths = compute_column_widths(&group.worktrees);
+
         for wt in &group.worktrees {
-            write_worktree_line(out, wt)?;
+            write_worktree_line(out, wt, &widths)?;
 
             // For partial landings, list unmatched commits
             if let Classification::LandedPartial { unmatched, .. } = &wt.classification {
@@ -36,7 +92,11 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
     Ok(())
 }
 
-fn write_worktree_line(out: &mut dyn Write, wt: &WorktreeInfo) -> std::io::Result<()> {
+fn write_worktree_line(
+    out: &mut dyn Write,
+    wt: &WorktreeInfo,
+    widths: &ColumnWidths,
+) -> std::io::Result<()> {
     let label = format!("{:<8}", wt.classification.label());
     let dir_name = wt
         .path
@@ -60,17 +120,22 @@ fn write_worktree_line(out: &mut dyn Write, wt: &WorktreeInfo) -> std::io::Resul
         annotations.push("remote deleted".to_string());
     }
 
-    write!(out, "  {label} {dir_name:<32} {branch:<32}")?;
-    if !ratio.is_empty() {
-        write!(out, " {ratio:<8}")?;
+    let dw = widths.dir_name;
+    let bw = widths.branch;
+    let mut line = format!("  {label} {dir_name:<dw$} {branch:<bw$}");
+    if widths.has_ratio {
+        let rw = widths.ratio;
+        line.push_str(&format!(" {ratio:<rw$}"));
     }
-    if !ahead_behind.is_empty() {
-        write!(out, " {ahead_behind:<10}")?;
+    if widths.has_ahead_behind {
+        let aw = widths.ahead_behind;
+        line.push_str(&format!(" {ahead_behind:<aw$}"));
     }
     for ann in &annotations {
-        write!(out, "  {ann}")?;
+        line.push_str(&format!("  {ann}"));
     }
-    writeln!(out)?;
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")?;
 
     Ok(())
 }
@@ -272,6 +337,192 @@ mod tests {
 
         let fields2: Vec<&str> = lines[1].split('\t').collect();
         assert_eq!(fields2[3], "active");
+    }
+
+    /// Collect worktree data lines from human output (lines starting with "  " but not "    unmatched:").
+    fn worktree_lines(output: &str) -> Vec<&str> {
+        output
+            .lines()
+            .filter(|l| l.starts_with("  ") && !l.starts_with("    unmatched:"))
+            .collect()
+    }
+
+    /// Find the byte offset where the annotation region starts on a worktree line,
+    /// or None if the line has no annotations.
+    fn annotation_start(line: &str) -> Option<usize> {
+        for keyword in &["  dirty", "  diverged", "  remote deleted"] {
+            if let Some(pos) = line.find(keyword) {
+                return Some(pos);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn human_output_columns_align() {
+        // Three worktrees with varying name lengths and a mix of ratio/ahead_behind.
+        let result = ScanResult {
+            repos: vec![RepoGroup {
+                repo_path: PathBuf::from("/repos/MyApp"),
+                name: "MyApp".to_string(),
+                worktrees: vec![
+                    WorktreeInfo {
+                        path: PathBuf::from("/dev/short"),
+                        parent_repo: PathBuf::from("/repos/MyApp"),
+                        branch: Some("fix/a".to_string()),
+                        default_branch: "main".to_string(),
+                        classification: Classification::Merged,
+                        annotations: Annotations::default(),
+                        remote_tracking: true,
+                        ahead: 0,
+                        behind: 0,
+                        dirty_files: vec![],
+                        meaningful_dirty_files: vec![],
+                    },
+                    WorktreeInfo {
+                        path: PathBuf::from(
+                            "/dev/a-very-long-worktree-directory-name-that-exceeds-thirty-two",
+                        ),
+                        parent_repo: PathBuf::from("/repos/MyApp"),
+                        branch: Some(
+                            "feature/also-a-very-long-branch-name-exceeding-thirty-two-chars"
+                                .to_string(),
+                        ),
+                        default_branch: "main".to_string(),
+                        classification: Classification::Active,
+                        annotations: Annotations {
+                            dirty: true,
+                            dirty_file_count: 3,
+                            ..Default::default()
+                        },
+                        remote_tracking: true,
+                        ahead: 5,
+                        behind: 12,
+                        dirty_files: vec![],
+                        meaningful_dirty_files: vec!["x".into(); 3],
+                    },
+                    WorktreeInfo {
+                        path: PathBuf::from("/dev/medium-length-name"),
+                        parent_repo: PathBuf::from("/repos/MyApp"),
+                        branch: Some("feature/partial-work".to_string()),
+                        default_branch: "main".to_string(),
+                        classification: Classification::LandedPartial {
+                            matched: 3,
+                            total: 5,
+                            unmatched: vec![],
+                        },
+                        annotations: Annotations {
+                            dirty: true,
+                            dirty_file_count: 1,
+                            diverged: true,
+                            ..Default::default()
+                        },
+                        remote_tracking: true,
+                        ahead: 2,
+                        behind: 100,
+                        dirty_files: vec![],
+                        meaningful_dirty_files: vec!["y".into()],
+                    },
+                ],
+            }],
+            total_scanned: 3,
+            counts: ScanCounts {
+                merged: 1,
+                partial: 1,
+                active: 1,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_human(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        let lines = worktree_lines(&output);
+        assert_eq!(lines.len(), 3, "expected 3 worktree lines, got: {lines:?}");
+
+        // All annotated lines must have their annotations start at the same byte offset.
+        let starts: Vec<usize> = lines.iter().filter_map(|l| annotation_start(l)).collect();
+        assert!(
+            starts.len() >= 2,
+            "expected at least 2 annotated lines, got {}: {starts:?}",
+            starts.len()
+        );
+        assert!(
+            starts.windows(2).all(|w| w[0] == w[1]),
+            "annotation starts differ: {starts:?}\nlines:\n{}",
+            lines.join("\n")
+        );
+
+        // Lines without annotations should not have trailing whitespace.
+        for line in &lines {
+            if annotation_start(line).is_none() {
+                assert_eq!(
+                    *line,
+                    line.trim_end(),
+                    "non-annotated line has trailing whitespace: {line:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn human_output_omits_unused_columns() {
+        // Merged-only group: no ratio, no ahead/behind.
+        let result = ScanResult {
+            repos: vec![RepoGroup {
+                repo_path: PathBuf::from("/repos/Lib"),
+                name: "Lib".to_string(),
+                worktrees: vec![
+                    WorktreeInfo {
+                        path: PathBuf::from("/dev/Lib-old"),
+                        parent_repo: PathBuf::from("/repos/Lib"),
+                        branch: Some("cleanup/old".to_string()),
+                        default_branch: "main".to_string(),
+                        classification: Classification::Merged,
+                        annotations: Annotations::default(),
+                        remote_tracking: true,
+                        ahead: 0,
+                        behind: 0,
+                        dirty_files: vec![],
+                        meaningful_dirty_files: vec![],
+                    },
+                    WorktreeInfo {
+                        path: PathBuf::from("/dev/Lib-stale"),
+                        parent_repo: PathBuf::from("/repos/Lib"),
+                        branch: Some("fix/stale".to_string()),
+                        default_branch: "main".to_string(),
+                        classification: Classification::Merged,
+                        annotations: Annotations::default(),
+                        remote_tracking: true,
+                        ahead: 0,
+                        behind: 0,
+                        dirty_files: vec![],
+                        meaningful_dirty_files: vec![],
+                    },
+                ],
+            }],
+            total_scanned: 2,
+            counts: ScanCounts {
+                merged: 2,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_human(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        // No line should have trailing whitespace from empty ratio/ahead_behind columns.
+        for line in worktree_lines(&output) {
+            assert_eq!(
+                line,
+                line.trim_end(),
+                "worktree line has trailing whitespace: {line:?}"
+            );
+        }
     }
 
     #[test]
