@@ -3,6 +3,7 @@ use std::path::Path;
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
+use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
@@ -45,9 +46,11 @@ pub fn run_scan(
     directory: &Path,
     size_threshold: u64,
     depth: usize,
+    repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<LfsScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
+    let repo_paths = filter_paths(repo_paths, repo_filter);
 
     let lfs_installed = git.lfs_installed().unwrap_or(false);
 

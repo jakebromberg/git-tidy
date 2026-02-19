@@ -38,6 +38,7 @@ fn scan_repo_with_no_large_blobs() {
         &scan_dir,
         1_000_000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -63,6 +64,7 @@ fn scan_repo_with_large_blob() {
         &scan_dir,
         100_000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -101,6 +103,7 @@ fn scan_repo_with_large_blob_below_threshold() {
         &scan_dir,
         100_000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -149,6 +152,7 @@ fn scan_multiple_repos() {
         &scan_dir,
         100_000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -181,6 +185,7 @@ fn scan_repo_with_no_commits() {
         &scan_dir,
         1_000_000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -208,6 +213,7 @@ fn scan_threshold_edge_case() {
         &scan_dir,
         1000,
         1000,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();

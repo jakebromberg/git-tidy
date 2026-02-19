@@ -38,6 +38,14 @@ pub struct Cli {
     /// Exclude worktrees by name substring (takes precedence over --match)
     #[arg(long = "exclude", global = true)]
     pub exclude_patterns: Vec<String>,
+
+    /// Filter repos by name substring (can be repeated, OR semantics)
+    #[arg(long = "match-repo", global = true)]
+    pub match_repo_patterns: Vec<String>,
+
+    /// Exclude repos by name substring (takes precedence over --match-repo)
+    #[arg(long = "exclude-repo", global = true)]
+    pub exclude_repo_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -295,5 +303,19 @@ mod tests {
         assert_eq!(cli.noise_patterns, vec!["*.swp".to_string()]);
         assert!(cli.no_default_noise);
         assert!(matches!(cli.command, Some(Command::Scan { .. })));
+    }
+
+    #[test]
+    fn match_repo_and_exclude_repo_flags() {
+        let cli = Cli::parse_from([
+            "git-worktree-tidy",
+            "--match-repo",
+            "myproject",
+            "--exclude-repo",
+            "archive",
+            "scan",
+        ]);
+        assert_eq!(cli.match_repo_patterns, vec!["myproject".to_string()]);
+        assert_eq!(cli.exclude_repo_patterns, vec!["archive".to_string()]);
     }
 }
