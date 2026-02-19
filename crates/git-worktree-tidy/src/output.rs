@@ -371,7 +371,7 @@ mod tests {
                         parent_repo: PathBuf::from("/repos/MyApp"),
                         branch: Some("fix/a".to_string()),
                         default_branch: "main".to_string(),
-                        classification: Classification::Merged,
+                        classification: Classification::Landed,
                         annotations: Annotations::default(),
                         remote_tracking: true,
                         ahead: 0,
@@ -427,7 +427,7 @@ mod tests {
             }],
             total_scanned: 3,
             counts: ScanCounts {
-                merged: 1,
+                landed: 1,
                 partial: 1,
                 active: 1,
                 ..Default::default()
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn human_output_omits_unused_columns() {
-        // Merged-only group: no ratio, no ahead/behind.
+        // Landed-only group: no ratio, no ahead/behind.
         let result = ScanResult {
             repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/Lib"),
@@ -480,7 +480,7 @@ mod tests {
                         parent_repo: PathBuf::from("/repos/Lib"),
                         branch: Some("cleanup/old".to_string()),
                         default_branch: "main".to_string(),
-                        classification: Classification::Merged,
+                        classification: Classification::Landed,
                         annotations: Annotations::default(),
                         remote_tracking: true,
                         ahead: 0,
@@ -493,7 +493,7 @@ mod tests {
                         parent_repo: PathBuf::from("/repos/Lib"),
                         branch: Some("fix/stale".to_string()),
                         default_branch: "main".to_string(),
-                        classification: Classification::Merged,
+                        classification: Classification::Landed,
                         annotations: Annotations::default(),
                         remote_tracking: true,
                         ahead: 0,
@@ -505,7 +505,7 @@ mod tests {
             }],
             total_scanned: 2,
             counts: ScanCounts {
-                merged: 2,
+                landed: 2,
                 ..Default::default()
             },
             warnings: vec![],
