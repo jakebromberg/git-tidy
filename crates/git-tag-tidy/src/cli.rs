@@ -41,6 +41,9 @@ pub enum Command {
         porcelain: bool,
     },
 
+    #[command(flatten)]
+    Shared(git_tidy_core::cli::SharedCommands),
+
     /// Scan and interactively remove stale tags
     Clean {
         /// Show what would be removed without removing
@@ -196,6 +199,17 @@ mod tests {
             Some(Command::Clean { dry_run, .. }) => assert!(dry_run),
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn completions_subcommand_zsh() {
+        let cli = Cli::parse_from(["git-tag-tidy", "completions", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Shared(
+                git_tidy_core::cli::SharedCommands::Completions { .. }
+            ))
+        ));
     }
 
     #[test]

@@ -15,6 +15,12 @@ mod types;
 
 fn main() {
     let cli = cli::Cli::parse();
+
+    if let Some(cli::Command::Shared(shared)) = &cli.command {
+        shared.run::<cli::Cli>("git-lfs-tidy");
+        return;
+    }
+
     let directory = cli.target_directory();
 
     if !directory.is_dir() {
@@ -39,7 +45,7 @@ fn main() {
             depth,
             ..
         }) => (size_threshold.as_str(), *depth),
-        None => ("1MB", 1000),
+        None | Some(cli::Command::Shared(_)) => ("1MB", 1000),
     };
 
     let size_threshold = match scan::parse_size(size_threshold_str) {
@@ -114,5 +120,6 @@ fn main() {
             }
             Err(e) => error::exit_with_error(&e),
         },
+        Some(cli::Command::Shared(_)) => unreachable!("handled above"),
     }
 }

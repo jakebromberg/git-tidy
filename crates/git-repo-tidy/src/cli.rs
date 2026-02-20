@@ -53,6 +53,9 @@ pub enum Command {
         porcelain: bool,
     },
 
+    #[command(flatten)]
+    Shared(git_tidy_core::cli::SharedCommands),
+
     /// Scan and interactively remove stale repositories
     Clean {
         /// Show what would be removed without removing
@@ -216,6 +219,17 @@ mod tests {
     fn no_default_noise_flag() {
         let cli = Cli::parse_from(["git-repo-tidy", "--no-default-noise", "scan"]);
         assert!(cli.no_default_noise);
+    }
+
+    #[test]
+    fn completions_subcommand_zsh() {
+        let cli = Cli::parse_from(["git-repo-tidy", "completions", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Shared(
+                git_tidy_core::cli::SharedCommands::Completions { .. }
+            ))
+        ));
     }
 
     #[test]

@@ -36,7 +36,7 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 - **`GitOps` trait** (`git-tidy-core/src/git.rs`): All git operations go through this trait (`Send + Sync` for thread safety). `RealGit` shells out to `git`; `MockGit` (in `testutil.rs`) returns canned data. `MockGit` uses `Mutex` for call-tracking fields.
 - **Output to `&mut dyn Write`**: Enables unit testing output formatters without process capture.
 - **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`. All tools call these to avoid duplicating formatting logic.
-- **Shared CLI utilities** (`git-tidy-core/src/cli.rs`): `resolve_directory` for resolving optional directory arguments, used by all tools.
+- **Shared CLI utilities** (`git-tidy-core/src/cli.rs`): `resolve_directory` for resolving optional directory arguments, `SharedCommands` enum (hidden `completions` subcommand flattened into all tools via `#[command(flatten)]`), used by all tools.
 - **Shared error handling** (`git-tidy-core/src/error.rs`): `exit_with_error` for consistent error-exit behavior across all tools.
 - **Shared type helpers** (`git-tidy-core/src/types.rs`): `extract_landed_fields` for extracting landed ratio/total/unmatched from `Classification` for JSON serialization.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
@@ -83,6 +83,7 @@ crates/
       main.rs                                 # Pre-clap dispatch, then CLI audit
       lib.rs                                  # Public module exports
       cli.rs                                  # clap definitions (Audit subcommand, after_help aliases)
+      completions.rs                          # Custom zsh dispatcher completion generator
       dispatch.rs                             # Alias resolution + Unix exec dispatch
       types.rs                                # ToolSpec (with aliases), TOOL_SPECS, ToolResult, AuditResult
       runner.rs                               # ToolRunner trait, RealToolRunner, run_audit (subprocess mode)
@@ -93,7 +94,7 @@ crates/
   git-tidy-core/                              # Shared library
     src/
       lib.rs                                  # Module exports
-      cli.rs                                  # Shared CLI utilities (resolve_directory)
+      cli.rs                                  # Shared CLI utilities (resolve_directory, SharedCommands)
       git.rs                                  # GitOps trait + RealGit implementation
       types.rs                                # Classification, BranchClassification, WorktreeInfo, etc.
       error.rs                                # thiserror Error enum + exit_with_error

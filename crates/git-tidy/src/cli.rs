@@ -31,6 +31,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    #[command(flatten)]
+    Shared(git_tidy_core::cli::SharedCommands),
+
     /// Run audit across all installed git-tidy tools (default)
     Audit {
         /// Output results as JSON
@@ -139,6 +142,17 @@ mod tests {
             }
             _ => panic!("expected Audit command"),
         }
+    }
+
+    #[test]
+    fn completions_subcommand_zsh() {
+        let cli = Cli::parse_from(["git-tidy", "completions", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Shared(
+                git_tidy_core::cli::SharedCommands::Completions { .. }
+            ))
+        ));
     }
 
     #[test]

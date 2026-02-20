@@ -15,6 +15,12 @@ mod types;
 
 fn main() {
     let cli = cli::Cli::parse();
+
+    if let Some(cli::Command::Shared(shared)) = &cli.command {
+        shared.run::<cli::Cli>("git-config-tidy");
+        return;
+    }
+
     let directory = cli.target_directory();
 
     if !directory.is_dir() {
@@ -87,5 +93,6 @@ fn main() {
             }
             Err(e) => error::exit_with_error(&e),
         },
+        Some(cli::Command::Shared(_)) => unreachable!("handled above"),
     }
 }
