@@ -54,16 +54,18 @@ pub fn generate_zsh(out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "    args)")?;
     writeln!(out, "      case ${{line[1]}} in")?;
 
-    // For each tool spec, map all its aliases to the tool's completer
+    // For each tool spec, map all its aliases to the tool's completer.
+    // Prepend the binary name to words (since '*::arg:->args' already
+    // stripped the alias) so the sub-tool's completion function sees the
+    // expected command context.
     for spec in TOOL_SPECS {
         let patterns: Vec<&str> = spec.aliases.to_vec();
         let pattern = patterns.join("|");
+        let bin = spec.binary;
         writeln!(out, "        {pattern})")?;
-        writeln!(
-            out,
-            "          _dispatch {} {} \"$@\"",
-            spec.binary, spec.binary
-        )?;
+        writeln!(out, "          words=({bin} \"${{words[@]}}\")")?;
+        writeln!(out, "          (( CURRENT++ ))")?;
+        writeln!(out, "          _{bin}")?;
         writeln!(out, "          ;;")?;
     }
 
@@ -167,10 +169,14 @@ mod tests {
     fn output_contains_tool_delegation() {
         let output = generated_output();
         for spec in TOOL_SPECS {
+            let bin = spec.binary;
             assert!(
-                output.contains(spec.binary),
-                "missing delegation for {}",
-                spec.binary
+                output.contains(&format!("_{bin}")),
+                "missing delegation call for {bin}"
+            );
+            assert!(
+                output.contains(&format!("words=({bin}")),
+                "missing words prepend for {bin}"
             );
         }
     }
