@@ -78,6 +78,39 @@ cargo install --path crates/git-config-tidy
 cargo install --path crates/git-lfs-tidy
 ```
 
+## Shell Completions
+
+All tools support generating shell completions via a hidden `completions` subcommand.
+
+### Zsh
+
+The `install.sh` script automatically installs zsh completions. To install manually:
+
+```bash
+# Install all completions (dispatcher + all sub-tools)
+for tool in git-tidy git-worktree-tidy git-branch-tidy git-stash-tidy \
+            git-remote-tidy git-tag-tidy git-repo-tidy git-config-tidy git-lfs-tidy; do
+  $tool completions zsh > /usr/local/share/zsh/site-functions/_${tool}
+done
+
+# Rebuild completions cache
+rm -f ~/.zcompdump*
+exec zsh
+```
+
+This enables full tab completion:
+- `git tidy <TAB>` lists all dispatch aliases and `audit`
+- `git tidy worktree <TAB>` lists `scan` and `clean`
+- `git tidy worktree scan --<TAB>` lists `--json`, `--porcelain`
+- `git tidy audit --<TAB>` lists audit flags
+
+### Bash / Fish
+
+```bash
+git-tidy completions bash > /etc/bash_completion.d/git-tidy
+git-tidy completions fish > ~/.config/fish/completions/git-tidy.fish
+```
+
 ## Usage
 
 ### git-worktree-tidy

@@ -2,9 +2,12 @@ use std::io;
 use std::process;
 
 use clap::Parser;
+use clap_complete::Shell;
+use git_tidy_core::cli::SharedCommands;
 use git_tidy_core::progress::Progress;
 
 mod cli;
+mod completions;
 mod dispatch;
 mod inprocess;
 mod output;
@@ -16,6 +19,17 @@ fn main() {
     dispatch::try_dispatch_default(&args);
 
     let cli = cli::Cli::parse();
+
+    if let Some(cli::Command::Shared(shared)) = &cli.command {
+        match shared {
+            SharedCommands::Completions { shell } if *shell == Shell::Zsh => {
+                completions::generate_zsh(&mut io::stdout()).unwrap();
+            }
+            _ => shared.run::<cli::Cli>("git-tidy"),
+        }
+        return;
+    }
+
     let directory = cli.target_directory();
 
     if !directory.is_dir() {
@@ -32,6 +46,7 @@ fn main() {
             subprocess,
         }) => (*json, *porcelain, *verbose, tools.clone(), *subprocess),
         None => (false, false, false, vec![], false),
+        Some(cli::Command::Shared(_)) => unreachable!("handled above"),
     };
 
     let tool_filter = if tools.is_empty() {

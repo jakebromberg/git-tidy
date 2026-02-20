@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn tool_specs_aliases_dont_collide_with_commands() {
-        let reserved = ["audit", "help"];
+        let reserved = ["audit", "completions", "help"];
         for spec in TOOL_SPECS {
             for alias in spec.aliases {
                 assert!(

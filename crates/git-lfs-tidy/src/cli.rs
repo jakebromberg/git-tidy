@@ -45,6 +45,9 @@ pub enum Command {
         depth: usize,
     },
 
+    #[command(flatten)]
+    Shared(git_tidy_core::cli::SharedCommands),
+
     /// Scan and clean up orphaned LFS objects
     Clean {
         /// Show what would be removed without removing
@@ -171,6 +174,17 @@ mod tests {
             }
             _ => panic!("expected Clean command"),
         }
+    }
+
+    #[test]
+    fn completions_subcommand_zsh() {
+        let cli = Cli::parse_from(["git-lfs-tidy", "completions", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Shared(
+                git_tidy_core::cli::SharedCommands::Completions { .. }
+            ))
+        ));
     }
 
     #[test]

@@ -61,6 +61,9 @@ pub enum Command {
         porcelain: bool,
     },
 
+    #[command(flatten)]
+    Shared(git_tidy_core::cli::SharedCommands),
+
     /// Scan and interactively remove stale worktrees
     Clean {
         /// Show what would be removed without removing
@@ -303,6 +306,17 @@ mod tests {
         assert_eq!(cli.noise_patterns, vec!["*.swp".to_string()]);
         assert!(cli.no_default_noise);
         assert!(matches!(cli.command, Some(Command::Scan { .. })));
+    }
+
+    #[test]
+    fn completions_subcommand_zsh() {
+        let cli = Cli::parse_from(["git-worktree-tidy", "completions", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Shared(
+                git_tidy_core::cli::SharedCommands::Completions { .. }
+            ))
+        ));
     }
 
     #[test]

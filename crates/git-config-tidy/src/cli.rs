@@ -37,6 +37,9 @@ pub enum Command {
         porcelain: bool,
     },
 
+    #[command(flatten)]
+    Shared(git_tidy_core::cli::SharedCommands),
+
     /// Fix auto-fixable config issues
     Fix {
         /// Show what would be fixed without fixing
@@ -140,6 +143,17 @@ mod tests {
             }
             _ => panic!("expected Fix command"),
         }
+    }
+
+    #[test]
+    fn completions_subcommand_zsh() {
+        let cli = Cli::parse_from(["git-config-tidy", "completions", "zsh"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Shared(
+                git_tidy_core::cli::SharedCommands::Completions { .. }
+            ))
+        ));
     }
 
     #[test]
