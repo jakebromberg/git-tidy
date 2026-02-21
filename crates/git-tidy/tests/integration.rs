@@ -27,7 +27,7 @@ impl ToolRunner for FakeToolRunner {
             .map(|_| PathBuf::from(format!("/fake/bin/{binary}")))
     }
 
-    fn run_tool(&self, path: &Path, _scan_cmd: &str, _directory: &Path) -> Result<String, String> {
+    fn run_tool(&self, path: &Path, _scan_cmd: &str, _directory: &Path, _verbose: bool) -> Result<String, String> {
         let binary = path.file_name().unwrap().to_str().unwrap();
         self.available
             .iter()
@@ -64,7 +64,7 @@ fn full_audit_multiple_tools() {
         ),
     ]);
 
-    let result = run_audit(&runner, Path::new("/tmp/test"), None, &Progress::disabled());
+    let result = run_audit(&runner, Path::new("/tmp/test"), None, false, &Progress::disabled());
 
     // Check found/missing
     assert!(
@@ -106,7 +106,7 @@ fn full_audit_json_roundtrip() {
         r#"[{"classification":"active"}]"#,
     )]);
 
-    let result = run_audit(&runner, Path::new("/tmp/test"), None, &Progress::disabled());
+    let result = run_audit(&runner, Path::new("/tmp/test"), None, false, &Progress::disabled());
 
     // Serialize to JSON and parse back
     let mut buf = Vec::new();
@@ -125,7 +125,7 @@ fn full_audit_porcelain_roundtrip() {
         r#"[{"classification":"active"},{"classification":"landed"}]"#,
     )]);
 
-    let result = run_audit(&runner, Path::new("/tmp"), None, &Progress::disabled());
+    let result = run_audit(&runner, Path::new("/tmp"), None, false, &Progress::disabled());
 
     let mut buf = Vec::new();
     git_tidy::output::write_porcelain(&mut buf, &result).unwrap();
@@ -148,7 +148,7 @@ fn full_audit_human_output_end_to_end() {
         r#"[{"classification":"active"},{"classification":"active"},{"classification":"landed"}]"#,
     )]);
 
-    let result = run_audit(&runner, Path::new("/tmp/dev"), None, &Progress::disabled());
+    let result = run_audit(&runner, Path::new("/tmp/dev"), None, false, &Progress::disabled());
 
     let mut buf = Vec::new();
     git_tidy::output::write_human(&mut buf, &result, false).unwrap();
@@ -176,6 +176,7 @@ fn audit_filter_limits_tools() {
         &runner,
         Path::new("/tmp"),
         Some(&filter),
+        false,
         &Progress::disabled(),
     );
 

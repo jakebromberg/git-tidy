@@ -40,6 +40,7 @@ pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
     offline: bool,
+    verbose: bool,
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<TagScanResult, Error> {
@@ -104,6 +105,15 @@ pub fn run_scan(
         }
 
         let repo_name = repo_display_name(repo_path);
+
+        if verbose {
+            eprintln!(
+                "{repo_name}: {} local, {} remote tags",
+                local_tags.len(),
+                remote_tag_map.len()
+            );
+        }
+
         let mut classified = Vec::with_capacity(all_tag_names.len());
 
         for tag_name in &all_tag_names {
@@ -141,6 +151,14 @@ pub fn run_scan(
             );
 
             let commit = local_commit.unwrap_or_else(|| remote_commit.unwrap_or_else(String::new));
+
+            if verbose {
+                eprintln!(
+                    "  {tag_name}: {} (reachable={is_reachable}, local={is_local}, remote={})",
+                    classification.label(),
+                    remote_names.len(),
+                );
+            }
 
             counts.increment(&classification);
             total_scanned += 1;

@@ -46,6 +46,7 @@ pub fn run_scan(
     directory: &Path,
     size_threshold: u64,
     depth: usize,
+    verbose: bool,
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<LfsScanResult, Error> {
@@ -151,6 +152,14 @@ pub fn run_scan(
                     "could not scan large blobs for {}: {e}",
                     repo_path.display()
                 ));
+            }
+        }
+
+        if verbose && !items.is_empty() {
+            eprintln!("{repo_name}: {} LFS items", items.len());
+            for item in &items {
+                eprintln!("  {}: {} ({})", item.path, item.classification.label(),
+                    item.size_bytes.map_or("?".to_string(), |s| format!("{s} bytes")));
             }
         }
 

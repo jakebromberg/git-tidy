@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(global = true)]
     pub directory: Option<PathBuf>,
 
+    /// Show detailed classification reasoning
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
     /// Number of months without commits before a repo is considered stale
     #[arg(long, default_value = "6", global = true)]
     pub stale_months: u64,

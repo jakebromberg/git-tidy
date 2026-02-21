@@ -26,10 +26,14 @@ pub fn detect_landed(
     repo: &Path,
     default_branch_ref: &str,
     branch_ref: &str,
-    _verbose: bool,
+    verbose: bool,
 ) -> Result<LandedResult, Error> {
     let unique_commits = git.log_exclusive(repo, default_branch_ref, branch_ref)?;
     let total = unique_commits.len();
+
+    if verbose {
+        eprintln!("    landed detection: {total} unique commits on {branch_ref}");
+    }
 
     if total == 0 {
         return Ok(LandedResult {
@@ -50,17 +54,30 @@ pub fn detect_landed(
 
         if try_exact_subject_match(git, repo, default_branch_ref, subject)? {
             matched += 1;
+            if verbose {
+                eprintln!("    {short_hash}: exact subject match \"{subject}\"");
+            }
             continue;
         }
 
         if try_fuzzy_subject_match(git, repo, default_branch_ref, subject)? {
             matched += 1;
+            if verbose {
+                eprintln!("    {short_hash}: fuzzy subject match \"{subject}\"");
+            }
             continue;
         }
 
         if try_patch_similarity(git, repo, default_branch_ref, hash)? {
             matched += 1;
+            if verbose {
+                eprintln!("    {short_hash}: patch similarity match \"{subject}\"");
+            }
             continue;
+        }
+
+        if verbose {
+            eprintln!("    {short_hash}: no match \"{subject}\"");
         }
 
         unmatched.push(UnmatchedCommit {

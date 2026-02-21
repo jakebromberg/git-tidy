@@ -93,6 +93,13 @@ pub fn run_scan(
 
         let repo_name = repo_display_name(repo_path);
 
+        if verbose {
+            eprintln!(
+                "{repo_name}: {} worktrees (default_branch={default_branch})",
+                worktrees.len(),
+            );
+        }
+
         let mut classified = Vec::new();
         for wt in worktrees {
             match classification::classify_worktree(
@@ -105,6 +112,16 @@ pub fn run_scan(
                 noise_patterns,
             ) {
                 Ok(info) => {
+                    if verbose {
+                        let wt_name = wt.path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                        eprintln!(
+                            "  {wt_name}: {} (branch={}, ahead={}, behind={})",
+                            info.classification.label(),
+                            info.branch.as_deref().unwrap_or("(detached)"),
+                            info.ahead,
+                            info.behind,
+                        );
+                    }
                     counts.increment(&info.classification);
                     total_scanned += 1;
                     classified.push(info);

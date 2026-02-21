@@ -8,7 +8,7 @@ use git_tidy_core::git::{GitOps, RealGit};
 use git_tidy_core::progress::Progress;
 
 use crate::runner::matches_filter;
-use crate::types::{AuditResult, TOOL_SPECS, ToolResult};
+use crate::types::{AuditResult, TOOL_SPECS, ToolResult, ToolSpec};
 
 // Default parameter values matching each tool's CLI defaults.
 
@@ -28,6 +28,7 @@ const DEFAULT_LFS_DEPTH: usize = 1000;
 pub fn run_audit_inprocess(
     directory: &Path,
     tool_filter: Option<&[String]>,
+    verbose: bool,
     progress: &Progress,
 ) -> AuditResult {
     let git = RealGit;
@@ -64,10 +65,11 @@ pub fn run_audit_inprocess(
         tools_found.push(spec.binary.to_string());
 
         let result = run_tool_scan(
-            spec.binary,
+            spec,
             &caching,
             directory,
             &noise_patterns,
+            verbose,
             &sub_progress,
         );
         results.push(result);
@@ -97,282 +99,155 @@ fn resolve_noise_patterns() -> Vec<String> {
     noise_config.resolve()
 }
 
-/// Call the appropriate scan/lint function for a tool and convert to `ToolResult`.
-fn run_tool_scan(
-    binary: &str,
-    git: &dyn GitOps,
-    directory: &Path,
-    noise_patterns: &[String],
-    progress: &Progress,
+/// Convert a tool scan/lint `Result` into a `ToolResult`, extracting counts
+/// via a closure. Handles the Ok→counts and Err→error paths uniformly.
+fn scan_to_result<T>(
+    scan_result: Result<T, git_tidy_core::error::Error>,
+    spec: &ToolSpec,
+    extract_counts: impl FnOnce(&T) -> Vec<(&str, usize)>,
 ) -> ToolResult {
-    match binary {
-        "git-worktree-tidy" => scan_worktrees(git, directory, noise_patterns, progress),
-        "git-branch-tidy" => scan_branches(git, directory, progress),
-        "git-stash-tidy" => scan_stashes(git, directory, progress),
-        "git-remote-tidy" => scan_remotes(git, directory, progress),
-        "git-tag-tidy" => scan_tags(git, directory, progress),
-        "git-repo-tidy" => scan_repos(git, directory, noise_patterns, progress),
-        "git-config-tidy" => lint_config(git, directory, progress),
-        "git-lfs-tidy" => scan_lfs(git, directory, progress),
-        _ => ToolResult {
-            name: binary.to_string(),
-            item_noun: "unknown".to_string(),
+    match scan_result {
+        Ok(r) => {
+            let counts: BTreeMap<String, usize> = extract_counts(&r)
+                .into_iter()
+                .filter(|(_, count)| *count > 0)
+                .map(|(label, count)| (label.to_string(), count))
+                .collect();
+            let total: usize = counts.values().sum();
+            ToolResult {
+                name: spec.binary.to_string(),
+                item_noun: spec.item_noun.to_string(),
+                total,
+                counts,
+                error: None,
+            }
+        }
+        Err(e) => ToolResult {
+            name: spec.binary.to_string(),
+            item_noun: spec.item_noun.to_string(),
             total: 0,
             counts: BTreeMap::new(),
-            error: Some(format!("unknown tool: {binary}")),
+            error: Some(e.to_string()),
         },
     }
 }
 
-/// Helper to build a `BTreeMap` from (label, count) pairs, omitting zeros.
-fn counts_map(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-    entries
-        .iter()
-        .filter(|(_, count)| *count > 0)
-        .map(|(label, count)| (label.to_string(), *count))
-        .collect()
-}
-
-fn scan_worktrees(
+/// Call the appropriate scan/lint function for a tool and convert to `ToolResult`.
+fn run_tool_scan(
+    spec: &ToolSpec,
     git: &dyn GitOps,
     directory: &Path,
     noise_patterns: &[String],
+    verbose: bool,
     progress: &Progress,
 ) -> ToolResult {
-    match git_worktree_tidy::scan::run_scan(
-        git,
-        directory,
-        DEFAULT_BEHIND_THRESHOLD,
-        false,
-        noise_patterns,
-        &NameFilter::default(),
-        &NameFilter::default(),
-        progress,
-    ) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("landed", c.landed),
-                ("landed-content", c.landed_content),
-                ("partial", c.partial),
-                ("active", c.active),
-                ("local", c.local),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-worktree-tidy".to_string(),
-                item_noun: "worktrees".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-worktree-tidy", "worktrees", e),
-    }
-}
+    let filter = NameFilter::default();
 
-fn scan_branches(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_branch_tidy::scan::run_scan(
-        git,
-        directory,
-        DEFAULT_BEHIND_THRESHOLD,
-        false,
-        &NameFilter::default(),
-        progress,
-    ) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("landed", c.landed),
-                ("landed-content", c.landed_content),
-                ("partial", c.partial),
-                ("active", c.active),
-                ("local", c.local),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-branch-tidy".to_string(),
-                item_noun: "branches".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-branch-tidy", "branches", e),
-    }
-}
-
-fn scan_stashes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_stash_tidy::scan::run_scan(
-        git,
-        directory,
-        DEFAULT_AGE_THRESHOLD,
-        &NameFilter::default(),
-        progress,
-    ) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("committed", c.committed),
-                ("orphaned", c.orphaned),
-                ("aged", c.aged),
-                ("active", c.active),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-stash-tidy".to_string(),
-                item_noun: "stashes".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-stash-tidy", "stashes", e),
-    }
-}
-
-fn scan_remotes(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_remote_tidy::scan::run_scan(git, directory, false, &NameFilter::default(), progress) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("unreachable", c.unreachable),
-                ("orphaned", c.orphaned),
-                ("active", c.active),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-remote-tidy".to_string(),
-                item_noun: "remotes".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-remote-tidy", "remotes", e),
-    }
-}
-
-fn scan_tags(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_tag_tidy::scan::run_scan(git, directory, false, &NameFilter::default(), progress) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("stale", c.stale),
-                ("local_only", c.local_only),
-                ("remote_only", c.remote_only),
-                ("synced", c.synced),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-tag-tidy".to_string(),
-                item_noun: "tags".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-tag-tidy", "tags", e),
-    }
-}
-
-fn scan_repos(
-    git: &dyn GitOps,
-    directory: &Path,
-    noise_patterns: &[String],
-    progress: &Progress,
-) -> ToolResult {
-    match git_repo_tidy::scan::run_scan(
-        git,
-        directory,
-        DEFAULT_STALE_DAYS,
-        noise_patterns,
-        false,
-        &NameFilter::default(),
-        progress,
-    ) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("stale", c.stale),
-                ("orphaned", c.orphaned),
-                ("active", c.active),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-repo-tidy".to_string(),
-                item_noun: "repos".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-repo-tidy", "repos", e),
-    }
-}
-
-fn lint_config(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_config_tidy::lint::run_lint(git, directory, &NameFilter::default(), progress) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("orphaned_branch_config", c.orphaned_branch_config),
-                ("alias_shadows_builtin", c.alias_shadows_builtin),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-config-tidy".to_string(),
-                item_noun: "config issues".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-config-tidy", "config issues", e),
-    }
-}
-
-fn scan_lfs(git: &dyn GitOps, directory: &Path, progress: &Progress) -> ToolResult {
-    match git_lfs_tidy::scan::run_scan(
-        git,
-        directory,
-        DEFAULT_LFS_SIZE_THRESHOLD,
-        DEFAULT_LFS_DEPTH,
-        &NameFilter::default(),
-        progress,
-    ) {
-        Ok(result) => {
-            let c = &result.counts;
-            let counts = counts_map(&[
-                ("untracked", c.untracked),
-                ("missing", c.missing),
-                ("orphaned", c.orphaned),
-                ("healthy", c.healthy),
-            ]);
-            let total: usize = counts.values().sum();
-            ToolResult {
-                name: "git-lfs-tidy".to_string(),
-                item_noun: "LFS files".to_string(),
-                total,
-                counts,
-                error: None,
-            }
-        }
-        Err(e) => make_error_result("git-lfs-tidy", "LFS files", e),
-    }
-}
-
-fn make_error_result(
-    name: &str,
-    item_noun: &str,
-    error: git_tidy_core::error::Error,
-) -> ToolResult {
-    ToolResult {
-        name: name.to_string(),
-        item_noun: item_noun.to_string(),
-        total: 0,
-        counts: BTreeMap::new(),
-        error: Some(error.to_string()),
+    match spec.binary {
+        "git-worktree-tidy" => scan_to_result(
+            git_worktree_tidy::scan::run_scan(
+                git, directory, DEFAULT_BEHIND_THRESHOLD, verbose,
+                noise_patterns, &filter, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("landed", r.counts.landed),
+                ("landed-content", r.counts.landed_content),
+                ("partial", r.counts.partial),
+                ("active", r.counts.active),
+                ("local", r.counts.local),
+            ],
+        ),
+        "git-branch-tidy" => scan_to_result(
+            git_branch_tidy::scan::run_scan(
+                git, directory, DEFAULT_BEHIND_THRESHOLD, verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("landed", r.counts.landed),
+                ("landed-content", r.counts.landed_content),
+                ("partial", r.counts.partial),
+                ("active", r.counts.active),
+                ("local", r.counts.local),
+            ],
+        ),
+        "git-stash-tidy" => scan_to_result(
+            git_stash_tidy::scan::run_scan(
+                git, directory, DEFAULT_AGE_THRESHOLD, verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("committed", r.counts.committed),
+                ("orphaned", r.counts.orphaned),
+                ("aged", r.counts.aged),
+                ("active", r.counts.active),
+            ],
+        ),
+        "git-remote-tidy" => scan_to_result(
+            git_remote_tidy::scan::run_scan(
+                git, directory, false, verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("unreachable", r.counts.unreachable),
+                ("orphaned", r.counts.orphaned),
+                ("active", r.counts.active),
+            ],
+        ),
+        "git-tag-tidy" => scan_to_result(
+            git_tag_tidy::scan::run_scan(
+                git, directory, false, verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("stale", r.counts.stale),
+                ("local_only", r.counts.local_only),
+                ("remote_only", r.counts.remote_only),
+                ("synced", r.counts.synced),
+            ],
+        ),
+        "git-repo-tidy" => scan_to_result(
+            git_repo_tidy::scan::run_scan(
+                git, directory, DEFAULT_STALE_DAYS, noise_patterns,
+                false, verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("stale", r.counts.stale),
+                ("orphaned", r.counts.orphaned),
+                ("active", r.counts.active),
+            ],
+        ),
+        "git-config-tidy" => scan_to_result(
+            git_config_tidy::lint::run_lint(
+                git, directory, verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("orphaned_branch_config", r.counts.orphaned_branch_config),
+                ("alias_shadows_builtin", r.counts.alias_shadows_builtin),
+            ],
+        ),
+        "git-lfs-tidy" => scan_to_result(
+            git_lfs_tidy::scan::run_scan(
+                git, directory, DEFAULT_LFS_SIZE_THRESHOLD, DEFAULT_LFS_DEPTH,
+                verbose, &filter, progress,
+            ),
+            spec,
+            |r| vec![
+                ("untracked", r.counts.untracked),
+                ("missing", r.counts.missing),
+                ("orphaned", r.counts.orphaned),
+                ("healthy", r.counts.healthy),
+            ],
+        ),
+        _ => ToolResult {
+            name: spec.binary.to_string(),
+            item_noun: spec.item_noun.to_string(),
+            total: 0,
+            counts: BTreeMap::new(),
+            error: Some(format!("unknown tool: {}", spec.binary)),
+        },
     }
 }
 
@@ -384,22 +259,43 @@ mod tests {
 
     use super::*;
 
+    fn spec_for(binary: &str) -> &'static ToolSpec {
+        TOOL_SPECS.iter().find(|s| s.binary == binary).unwrap()
+    }
+
     #[test]
-    fn counts_map_omits_zeros() {
-        let m = counts_map(&[("active", 5), ("landed", 0), ("landed-content", 2)]);
-        assert_eq!(m.len(), 2);
-        assert_eq!(m["active"], 5);
-        assert_eq!(m["landed-content"], 2);
-        assert!(!m.contains_key("landed"));
+    fn scan_to_result_omits_zero_counts() {
+        let ok: Result<Vec<(&str, usize)>, git_tidy_core::error::Error> =
+            Ok(vec![("active", 5), ("landed", 0), ("stale", 2)]);
+        let spec = spec_for("git-branch-tidy");
+        let result = scan_to_result(ok, spec, |entries| entries.clone());
+        assert_eq!(result.counts.len(), 2);
+        assert_eq!(result.counts["active"], 5);
+        assert_eq!(result.counts["stale"], 2);
+        assert!(!result.counts.contains_key("landed"));
+        assert_eq!(result.total, 7);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn scan_to_result_captures_error() {
+        let err: Result<(), _> = Err(git_tidy_core::error::Error::DirectoryNotFound {
+            path: "/test".into(),
+        });
+        let spec = spec_for("git-branch-tidy");
+        let result = scan_to_result(err, spec, |_| vec![]);
+        assert_eq!(result.name, "git-branch-tidy");
+        assert_eq!(result.total, 0);
+        assert!(result.error.as_ref().unwrap().contains("directory not found"));
     }
 
     #[test]
     fn scan_worktrees_with_empty_mock() {
-        // MockGit with no data will produce zero worktrees
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
-        let result = scan_worktrees(&mock, Path::new("/nonexistent"), &[], &p);
-        // discover_worktrees will fail on nonexistent dir, giving an error
+        let result = run_tool_scan(
+            spec_for("git-worktree-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+        );
         assert!(result.error.is_some() || result.total == 0);
     }
 
@@ -407,7 +303,9 @@ mod tests {
     fn scan_branches_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
-        let result = scan_branches(&mock, Path::new("/nonexistent"), &p);
+        let result = run_tool_scan(
+            spec_for("git-branch-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+        );
         assert!(result.error.is_some() || result.total == 0);
     }
 
@@ -415,7 +313,9 @@ mod tests {
     fn scan_stashes_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
-        let result = scan_stashes(&mock, Path::new("/nonexistent"), &p);
+        let result = run_tool_scan(
+            spec_for("git-stash-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+        );
         assert!(result.error.is_some() || result.total == 0);
     }
 
@@ -423,7 +323,9 @@ mod tests {
     fn lint_config_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
-        let result = lint_config(&mock, Path::new("/nonexistent"), &p);
+        let result = run_tool_scan(
+            spec_for("git-config-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+        );
         assert!(result.error.is_some() || result.total == 0);
     }
 
@@ -431,32 +333,24 @@ mod tests {
     fn scan_lfs_with_empty_mock() {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
-        let result = scan_lfs(&mock, Path::new("/nonexistent"), &p);
-        assert!(result.error.is_some() || result.total == 0);
-    }
-
-    #[test]
-    fn make_error_result_captures_message() {
-        let err = git_tidy_core::error::Error::DirectoryNotFound {
-            path: "/test".into(),
-        };
-        let result = make_error_result("git-test-tidy", "items", err);
-        assert_eq!(result.name, "git-test-tidy");
-        assert_eq!(result.total, 0);
-        assert!(
-            result
-                .error
-                .as_ref()
-                .unwrap()
-                .contains("directory not found")
+        let result = run_tool_scan(
+            spec_for("git-lfs-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
         );
+        assert!(result.error.is_some() || result.total == 0);
     }
 
     #[test]
     fn unknown_tool_returns_error() {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
-        let result = run_tool_scan("git-unknown-tidy", &mock, Path::new("/tmp"), &[], &p);
+        let unknown = ToolSpec {
+            binary: "git-unknown-tidy",
+            item_noun: "unknowns",
+            scan_command: "scan",
+            count_field: "classification",
+            aliases: &[],
+        };
+        let result = run_tool_scan(&unknown, &mock, Path::new("/tmp"), &[], false, &p);
         assert!(result.error.is_some());
         assert!(result.error.as_ref().unwrap().contains("unknown tool"));
     }

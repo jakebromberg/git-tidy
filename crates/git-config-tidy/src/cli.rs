@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(global = true)]
     pub directory: Option<PathBuf>,
 
+    /// Show detailed lint reasoning
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
     /// Filter repos by name substring (can be repeated, OR semantics)
     #[arg(long = "match-repo", global = true)]
     pub match_repo_patterns: Vec<String>,

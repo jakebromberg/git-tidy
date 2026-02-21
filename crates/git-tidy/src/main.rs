@@ -58,9 +58,9 @@ fn main() {
     let progress = Progress::new();
     let result = if subprocess {
         let runner = runner::RealToolRunner;
-        runner::run_audit(&runner, &directory, tool_filter, &progress)
+        runner::run_audit(&runner, &directory, tool_filter, verbose, &progress)
     } else {
-        inprocess::run_audit_inprocess(&directory, tool_filter, &progress)
+        inprocess::run_audit_inprocess(&directory, tool_filter, verbose, &progress)
     };
 
     let mut stdout = io::stdout().lock();

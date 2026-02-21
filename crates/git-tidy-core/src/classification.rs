@@ -4,7 +4,9 @@ use crate::dirty;
 use crate::error::Error;
 use crate::git::GitOps;
 use crate::landed;
-use crate::types::{Annotations, BranchClassification, Classification, WorktreeInfo};
+use crate::types::{
+    Annotations, BranchClassification, Classification, ClassificationLabel, WorktreeInfo,
+};
 
 /// Detect the default branch for a repo.
 /// 1. Try `git symbolic-ref refs/remotes/origin/HEAD`
@@ -52,10 +54,19 @@ pub fn classify_branch(
     // Ahead/behind counts
     let (behind, ahead) = git.rev_list_left_right_count(repo, &origin_default, branch_name)?;
 
+    if verbose {
+        eprintln!(
+            "  {branch_name}: remote={has_remote}, ahead={ahead}, behind={behind}",
+        );
+    }
+
     // Check if structurally landed — skip the subprocess call when ahead == 0
     let is_merged = ahead == 0 || git.is_ancestor(repo, branch_name, &origin_default)?;
 
     let classification = if is_merged {
+        if verbose {
+            eprintln!("  {branch_name}: structurally merged → landed");
+        }
         Classification::Landed
     } else {
         // Try content-based landed detection
@@ -77,12 +88,19 @@ pub fn classify_branch(
             _ if has_remote => Action::Active,
             _ => Action::Local,
         };
-        match action {
+        let cls = match action {
             Action::UseContentResult => landed_result.classification,
             Action::Landed => Classification::Landed,
             Action::Active => Classification::Active,
             Action::Local => Classification::Local,
+        };
+        if verbose {
+            eprintln!(
+                "  {branch_name}: content detection ({}/{}) → {}",
+                landed_result.matched, landed_result.total, cls.label(),
+            );
         }
+        cls
     };
 
     Ok(BranchClassification {
@@ -136,6 +154,16 @@ pub fn classify_worktree(
 
     // Dirty detection (worktree-specific)
     let dirty_result = dirty::check_dirty(git, worktree_path, noise_patterns)?;
+
+    if verbose && !dirty_result.meaningful_files.is_empty() {
+        eprintln!(
+            "  {}: {} dirty files (total={}, noise-filtered={})",
+            branch_ref,
+            dirty_result.meaningful_files.len(),
+            dirty_result.all_files.len(),
+            dirty_result.all_files.len() - dirty_result.meaningful_files.len(),
+        );
+    }
 
     let annotations = Annotations {
         // For detached HEAD, there's no branch so remote_deleted doesn't apply.

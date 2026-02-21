@@ -40,7 +40,7 @@ fn main() {
                 _ => (false, false),
             };
 
-            match lint::run_lint(&git, &directory, &repo_filter, &progress) {
+            match lint::run_lint(&git, &directory, cli.verbose, &repo_filter, &progress) {
                 Ok(result) => {
                     let write_result = if json {
                         output::write_json(&mut stdout, &result)
@@ -62,7 +62,7 @@ fn main() {
             yes,
             json,
             porcelain,
-        }) => match lint::run_lint(&git, &directory, &repo_filter, &progress) {
+        }) => match lint::run_lint(&git, &directory, cli.verbose, &repo_filter, &progress) {
             Ok(lint_result) => {
                 // Show lint results first if requested
                 let write_result = if *json {

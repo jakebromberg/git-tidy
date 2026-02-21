@@ -61,6 +61,13 @@ pub fn run_scan(
 
         let repo_name = repo_display_name(repo_path);
 
+        if verbose {
+            eprintln!(
+                "{repo_name}: {} branches (default_branch={default_branch})",
+                branches.len() - 1, // subtract default branch
+            );
+        }
+
         let mut classified = Vec::with_capacity(branches.len());
 
         for branch_name in &branches {
@@ -80,6 +87,15 @@ pub fn run_scan(
                 verbose,
             ) {
                 Ok(bc) => {
+                    if verbose {
+                        eprintln!(
+                            "  {branch_name}: {} (remote={}, ahead={}, behind={})",
+                            bc.classification.label(),
+                            bc.remote_tracking,
+                            bc.ahead,
+                            bc.behind,
+                        );
+                    }
                     counts.increment(&bc.classification);
                     total_scanned += 1;
                     classified.push(BranchInfo {

@@ -8,10 +8,14 @@ use clap::{Parser, Subcommand};
     about = "Audit runner for git-tidy tools",
     after_help = "\
 Tool commands (dispatch to individual tools):
-  worktrees    git-worktree-tidy      branches     git-branch-tidy
-  stashes      git-stash-tidy         remotes      git-remote-tidy
-  tags         git-tag-tidy           repos        git-repo-tidy
-  config       git-config-tidy        lfs          git-lfs-tidy
+  worktrees    git-worktree-tidy
+  branches     git-branch-tidy
+  stashes      git-stash-tidy
+  remotes      git-remote-tidy
+  tags         git-tag-tidy
+  repos        git-repo-tidy
+  config       git-config-tidy
+  lfs          git-lfs-tidy
 
 Singular forms also accepted (worktree, branch, stash, etc.).
 
@@ -44,7 +48,7 @@ pub enum Command {
         #[arg(long)]
         porcelain: bool,
 
-        /// Show verbose output (tool paths, timing)
+        /// Show verbose output (tool paths, per-item classification details)
         #[arg(long, short)]
         verbose: bool,
 

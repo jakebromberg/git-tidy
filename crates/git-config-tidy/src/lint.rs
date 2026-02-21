@@ -74,6 +74,7 @@ pub fn lint_repo(
 pub fn run_lint(
     git: &dyn GitOps,
     directory: &Path,
+    verbose: bool,
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<ConfigLintResult, Error> {
@@ -111,11 +112,18 @@ pub fn run_lint(
             continue;
         }
 
+        let repo_name = repo_display_name(repo_path);
+
+        if verbose {
+            eprintln!("{repo_name}: {} issues", issues.len());
+            for issue in &issues {
+                eprintln!("  {}: {} ({})", issue.kind.label(), issue.message, issue.severity.label());
+            }
+        }
+
         for issue in &issues {
             counts.increment(issue.kind);
         }
-
-        let repo_name = repo_display_name(repo_path);
         repos.push(ConfigRepoGroup {
             repo_path: repo_path.clone(),
             name: repo_name,

@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(global = true)]
     pub directory: Option<PathBuf>,
 
+    /// Show detailed classification reasoning
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
     /// Skip reachability checks (no network access)
     #[arg(long, global = true)]
     pub offline: bool,

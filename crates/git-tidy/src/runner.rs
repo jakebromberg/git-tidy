@@ -11,7 +11,13 @@ pub trait ToolRunner {
     /// Check if a binary is available, returning its path.
     fn find_tool(&self, binary: &str) -> Option<PathBuf>;
     /// Run a tool's scan/lint command and return its stdout as a string.
-    fn run_tool(&self, path: &Path, scan_cmd: &str, directory: &Path) -> Result<String, String>;
+    fn run_tool(
+        &self,
+        path: &Path,
+        scan_cmd: &str,
+        directory: &Path,
+        verbose: bool,
+    ) -> Result<String, String>;
 }
 
 /// Real implementation that uses `which` and `std::process::Command`.
@@ -22,8 +28,18 @@ impl ToolRunner for RealToolRunner {
         which::which(binary).ok()
     }
 
-    fn run_tool(&self, path: &Path, scan_cmd: &str, directory: &Path) -> Result<String, String> {
-        let output = Command::new(path)
+    fn run_tool(
+        &self,
+        path: &Path,
+        scan_cmd: &str,
+        directory: &Path,
+        verbose: bool,
+    ) -> Result<String, String> {
+        let mut cmd = Command::new(path);
+        if verbose {
+            cmd.arg("--verbose");
+        }
+        let output = cmd
             .arg(scan_cmd)
             .arg("--json")
             .arg(directory)
@@ -90,6 +106,7 @@ pub fn run_audit(
     runner: &dyn ToolRunner,
     directory: &Path,
     tool_filter: Option<&[String]>,
+    verbose: bool,
     progress: &Progress,
 ) -> AuditResult {
     let mut tools_found = Vec::new();
@@ -124,7 +141,7 @@ pub fn run_audit(
 
         tools_found.push(spec.binary.to_string());
 
-        let result = match runner.run_tool(&path, spec.scan_command, directory) {
+        let result = match runner.run_tool(&path, spec.scan_command, directory, verbose) {
             Ok(output) => match parse_tool_output(&output, spec.count_field) {
                 Ok((total, counts)) => make_tool_result(spec, total, counts, None),
                 Err(e) => make_tool_result(spec, 0, BTreeMap::new(), Some(e)),
@@ -289,6 +306,7 @@ mod tests {
             path: &Path,
             _scan_cmd: &str,
             _directory: &Path,
+            _verbose: bool,
         ) -> Result<String, String> {
             let binary = path.file_name().unwrap().to_str().unwrap();
             self.tools
@@ -321,7 +339,7 @@ mod tests {
             ("git-lfs-tidy", Ok("[]")),
         ]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
+        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
         assert_eq!(result.tools_found.len(), 8);
         assert!(result.tools_missing.is_empty());
         assert_eq!(result.results.len(), 8);
@@ -346,7 +364,7 @@ mod tests {
             Ok(r#"[{"classification":"active"}]"#),
         )]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
+        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
         assert_eq!(result.tools_found, vec!["git-branch-tidy"]);
         assert!(
             result
@@ -361,7 +379,7 @@ mod tests {
     fn audit_tool_returns_error() {
         let runner = MockToolRunner::new(vec![("git-branch-tidy", Err("process failed"))]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
+        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
         assert_eq!(result.results.len(), 1);
         assert_eq!(result.results[0].error.as_deref(), Some("process failed"));
         assert_eq!(result.results[0].total, 0);
@@ -371,7 +389,7 @@ mod tests {
     fn audit_tool_returns_invalid_json() {
         let runner = MockToolRunner::new(vec![("git-branch-tidy", Ok("not json"))]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
+        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
         assert_eq!(result.results.len(), 1);
         assert!(result.results[0].error.is_some());
         assert!(
@@ -396,6 +414,7 @@ mod tests {
             &runner,
             Path::new("/dev"),
             Some(&filter),
+            false,
             &Progress::disabled(),
         );
 
@@ -409,7 +428,7 @@ mod tests {
     fn audit_no_tools_found() {
         let runner = MockToolRunner::new(vec![]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, &Progress::disabled());
+        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
         assert!(result.tools_found.is_empty());
         assert_eq!(result.tools_missing.len(), 8);
         assert!(result.results.is_empty());

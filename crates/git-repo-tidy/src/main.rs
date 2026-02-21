@@ -63,6 +63,7 @@ fn main() {
                 stale_days,
                 &noise_patterns,
                 cli.offline,
+                cli.verbose,
                 &repo_filter,
                 &progress,
             ) {
@@ -96,6 +97,7 @@ fn main() {
             stale_days,
             &noise_patterns,
             cli.offline,
+            cli.verbose,
             &repo_filter,
             &progress,
         ) {

@@ -44,6 +44,7 @@ fn scan_active_repo_with_remote() {
         180,
         &[],
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -69,6 +70,7 @@ fn scan_orphaned_no_remote() {
         &scan_dir,
         180,
         &[],
+        false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
@@ -113,6 +115,7 @@ fn scan_stale_repo() {
         180,
         &[],
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -139,6 +142,7 @@ fn scan_dirty_repo() {
         180,
         &[],
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -162,6 +166,7 @@ fn scan_reclaimable_bytes() {
         &scan_dir,
         180,
         &[],
+        false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),

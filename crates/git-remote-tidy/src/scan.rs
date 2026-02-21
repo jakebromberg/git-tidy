@@ -44,6 +44,7 @@ pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
     offline: bool,
+    verbose: bool,
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RemoteScanResult, Error> {
@@ -107,6 +108,13 @@ pub fn run_scan(
 
         let repo_name = repo_display_name(repo_path);
 
+        if verbose {
+            eprintln!(
+                "{repo_name}: {configured_count} configured, {} orphaned",
+                all_remote_names.len() - configured_count
+            );
+        }
+
         let mut classified = Vec::new();
 
         for (idx, remote_name) in all_remote_names.iter().enumerate() {
@@ -120,6 +128,13 @@ pub fn run_scan(
             } else {
                 None
             };
+
+            if verbose {
+                eprintln!(
+                    "  {remote_name}: {} (tracking_refs={tracking_count})",
+                    classification.label(),
+                );
+            }
 
             counts.increment(&classification);
             total_scanned += 1;

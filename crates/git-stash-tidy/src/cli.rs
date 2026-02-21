@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(global = true)]
     pub directory: Option<PathBuf>,
 
+    /// Show detailed classification reasoning
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
     /// Days before a stash is considered aged
     #[arg(long, default_value_t = 90, global = true)]
     pub age_threshold: u64,

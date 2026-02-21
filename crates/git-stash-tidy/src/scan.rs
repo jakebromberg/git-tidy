@@ -70,6 +70,7 @@ pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
     age_threshold: u64,
+    verbose: bool,
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<StashScanResult, Error> {
@@ -101,6 +102,10 @@ pub fn run_scan(
         let repo_name = repo_display_name(repo_path);
         let local_branches = git.list_local_branches(repo_path).unwrap_or_default();
 
+        if verbose {
+            eprintln!("{repo_name}: {} stash entries", stashes.len());
+        }
+
         let mut classified = Vec::with_capacity(stashes.len());
 
         for (stash_ref, message, iso_date) in &stashes {
@@ -113,6 +118,15 @@ pub fn run_scan(
                 age_threshold,
                 &local_branches,
             );
+
+            if verbose {
+                eprintln!(
+                    "  {stash_ref}: {classification} (branch={branch}, age={age}d)",
+                    classification = classification.label(),
+                    branch = branch.as_deref().unwrap_or("?"),
+                    age = age_days.map_or("?".to_string(), |d| d.to_string()),
+                );
+            }
 
             counts.increment(&classification);
             total_scanned += 1;

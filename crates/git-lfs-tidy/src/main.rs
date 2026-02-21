@@ -70,6 +70,7 @@ fn main() {
                 &directory,
                 size_threshold,
                 depth,
+                cli.verbose,
                 &repo_filter,
                 &progress,
             ) {
@@ -99,6 +100,7 @@ fn main() {
             &directory,
             size_threshold,
             depth,
+            cli.verbose,
             &repo_filter,
             &progress,
         ) {

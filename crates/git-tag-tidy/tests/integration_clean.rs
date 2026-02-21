@@ -49,6 +49,7 @@ fn clean_removes_local_only_tag() {
         &git_ops,
         &scan_dir,
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -93,6 +94,7 @@ fn clean_dry_run_preserves_tags() {
     let scan_result = git_tag_tidy::scan::run_scan(
         &git_ops,
         &scan_dir,
+        false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
@@ -148,6 +150,7 @@ fn clean_removes_stale_tag() {
         &git_ops,
         &scan_dir,
         true,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -201,6 +204,7 @@ fn clean_include_remote_deletes_from_remote() {
     let scan_result = git_tag_tidy::scan::run_scan(
         &git_ops,
         &scan_dir,
+        false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),

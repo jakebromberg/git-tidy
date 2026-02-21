@@ -43,6 +43,7 @@ fn scan_real_repo_with_reachable_remote() {
         &git_ops,
         &scan_dir,
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -74,6 +75,7 @@ fn scan_repo_with_unreachable_remote() {
         &git_ops,
         &scan_dir,
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -104,6 +106,7 @@ fn scan_repo_with_orphaned_refs() {
         &git_ops,
         &scan_dir,
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -133,6 +136,7 @@ fn scan_empty_repo_no_remotes() {
         &git_ops,
         &scan_dir,
         false,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -159,6 +163,7 @@ fn scan_offline_mode() {
         &git_ops,
         &scan_dir,
         true,
+        false,
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

@@ -120,6 +120,7 @@ pub fn run_scan(
     stale_days: u64,
     noise_patterns: &[String],
     offline: bool,
+    verbose: bool,
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
@@ -129,6 +130,7 @@ pub fn run_scan(
         stale_days,
         noise_patterns,
         offline,
+        verbose,
         repo_filter,
         &disk_usage,
         progress,
@@ -143,6 +145,7 @@ pub fn run_scan_with_du(
     stale_days: u64,
     noise_patterns: &[String],
     offline: bool,
+    verbose: bool,
     repo_filter: &NameFilter,
     du_fn: &dyn Fn(&Path) -> u64,
     progress: &Progress,
@@ -159,6 +162,18 @@ pub fn run_scan_with_du(
     let pb = progress.bar(repo_paths.len() as u64, "Scanning repos");
     for repo_path in &repo_paths {
         let info = classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
+
+        if verbose {
+            eprintln!(
+                "{}: {} (age={}d, remote={}, dirty={})",
+                info.name,
+                info.classification.label(),
+                info.last_commit_age_days
+                    .map_or("?".to_string(), |d| d.to_string()),
+                info.has_remote,
+                info.is_dirty,
+            );
+        }
 
         counts.increment(info.classification, info.is_dirty);
         total_disk_usage_bytes += info.disk_usage_bytes;
