@@ -7,6 +7,7 @@ use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 
 use crate::types::{
     ConfigIssue, ConfigLintResult, ConfigRepoGroup, IssueCounts, IssueKind,
@@ -81,8 +82,6 @@ pub fn run_lint(
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
 
-    let mut repos = Vec::new();
-    let mut counts = IssueCounts::default();
     let mut warnings = Vec::new();
     let total_scanned = repo_paths.len();
 
@@ -95,21 +94,22 @@ pub fn run_lint(
         }
     };
 
-    let pb = progress.bar(repo_paths.len() as u64, "Linting config");
-    for repo_path in &repo_paths {
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
+        let mut local_warnings = Vec::new();
+
         let issues = match lint_repo(git, repo_path, &builtin_commands) {
             Ok(issues) => issues,
             Err(e) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not lint config for {}: {e}",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
         if issues.is_empty() {
-            continue;
+            return (None, local_warnings);
         }
 
         let repo_name = repo_display_name(repo_path);
@@ -121,17 +121,22 @@ pub fn run_lint(
             }
         }
 
-        for issue in &issues {
-            counts.increment(issue.kind);
-        }
-        repos.push(ConfigRepoGroup {
-            repo_path: repo_path.clone(),
+        let group = ConfigRepoGroup {
+            repo_path: repo_path.to_path_buf(),
             name: repo_name,
             issues,
-        });
-        pb.inc(1);
+        };
+
+        (Some(group), local_warnings)
+    }, "Linting config", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = IssueCounts::default();
+    for g in &repos {
+        for issue in &g.issues {
+            counts.increment(issue.kind);
+        }
     }
-    pb.finish_and_clear();
 
     Ok(ConfigLintResult {
         repos,

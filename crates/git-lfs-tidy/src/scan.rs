@@ -7,6 +7,7 @@ use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 
 use crate::types::{LfsClassification, LfsCounts, LfsInfo, LfsRepoGroup, LfsScanResult};
 
@@ -55,27 +56,22 @@ pub fn run_scan(
 
     let lfs_installed = git.lfs_installed().unwrap_or(false);
 
-    let mut repos = Vec::new();
-    let mut counts = LfsCounts::default();
     let mut warnings = Vec::new();
-    let mut total_scanned = 0;
 
     if !lfs_installed {
         warnings.push("git-lfs is not installed; skipping LFS-specific checks".to_string());
     }
 
-    let pb = progress.bar(repo_paths.len() as u64, "Scanning LFS");
-    for repo_path in &repo_paths {
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
         let repo_name = repo_display_name(repo_path);
+        let mut local_warnings = Vec::new();
         let mut items = Vec::new();
         let mut lfs_paths: HashSet<String> = HashSet::new();
         let mut track_patterns = Vec::new();
 
         if lfs_installed {
-            // Get LFS tracking patterns
             track_patterns = git.lfs_track_patterns(repo_path).unwrap_or_default();
 
-            // Classify tracked files as Healthy or Missing
             match git.lfs_ls_files(repo_path) {
                 Ok(files) => {
                     for (oid, status, path) in files {
@@ -85,10 +81,8 @@ pub fn run_scan(
                         } else {
                             LfsClassification::Healthy
                         };
-                        counts.increment(classification);
-                        total_scanned += 1;
                         items.push(LfsInfo {
-                            repo_path: repo_path.clone(),
+                            repo_path: repo_path.to_path_buf(),
                             path,
                             classification,
                             oid,
@@ -97,29 +91,25 @@ pub fn run_scan(
                     }
                 }
                 Err(e) => {
-                    warnings.push(format!(
+                    local_warnings.push(format!(
                         "could not list LFS files for {}: {e}",
                         repo_path.display()
                     ));
                 }
             }
 
-            // Check for orphaned (prunable) objects
             match git.lfs_prune_dry_run(repo_path) {
                 Ok((count, bytes)) if count > 0 => {
-                    let classification = LfsClassification::Orphaned;
-                    counts.increment(classification);
-                    total_scanned += 1;
                     items.push(LfsInfo {
-                        repo_path: repo_path.clone(),
+                        repo_path: repo_path.to_path_buf(),
                         path: format!("<{count} orphaned LFS objects>"),
-                        classification,
+                        classification: LfsClassification::Orphaned,
                         oid: String::new(),
                         size_bytes: Some(bytes),
                     });
                 }
                 Err(e) => {
-                    warnings.push(format!(
+                    local_warnings.push(format!(
                         "could not check prunable LFS objects for {}: {e}",
                         repo_path.display()
                     ));
@@ -128,27 +118,23 @@ pub fn run_scan(
             }
         }
 
-        // Find large blobs not tracked by LFS
         match git.find_large_blobs(repo_path, size_threshold, depth) {
             Ok(blobs) => {
                 for (hash, size, path) in blobs {
                     if lfs_paths.contains(&path) {
                         continue;
                     }
-                    let classification = LfsClassification::Untracked;
-                    counts.increment(classification);
-                    total_scanned += 1;
                     items.push(LfsInfo {
-                        repo_path: repo_path.clone(),
+                        repo_path: repo_path.to_path_buf(),
                         path,
-                        classification,
+                        classification: LfsClassification::Untracked,
                         oid: hash,
                         size_bytes: Some(size),
                     });
                 }
             }
             Err(e) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not scan large blobs for {}: {e}",
                     repo_path.display()
                 ));
@@ -164,10 +150,9 @@ pub fn run_scan(
         }
 
         if items.is_empty() {
-            continue;
+            return (None, local_warnings);
         }
 
-        // Sort by classification priority, then by path
         items.sort_by(|a, b| {
             a.classification
                 .priority()
@@ -175,16 +160,26 @@ pub fn run_scan(
                 .then_with(|| a.path.cmp(&b.path))
         });
 
-        repos.push(LfsRepoGroup {
-            repo_path: repo_path.clone(),
+        let group = LfsRepoGroup {
+            repo_path: repo_path.to_path_buf(),
             name: repo_name,
             items,
             lfs_available: lfs_installed,
             track_patterns,
-        });
-        pb.inc(1);
+        };
+
+        (Some(group), local_warnings)
+    }, "Scanning LFS", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = LfsCounts::default();
+    let mut total_scanned = 0;
+    for g in &repos {
+        for item in &g.items {
+            counts.increment(item.classification);
+        }
+        total_scanned += g.items.len();
     }
-    pb.finish_and_clear();
 
     Ok(LfsScanResult {
         repos,

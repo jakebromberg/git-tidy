@@ -8,6 +8,7 @@ use git_tidy_core::git::GitOps;
 use git_tidy_core::landed::diff_similarity;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
@@ -77,26 +78,24 @@ pub fn run_scan(
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
 
-    let mut repos = Vec::new();
-    let mut counts = StashCounts::default();
     let mut warnings = Vec::new();
-    let mut total_scanned = 0;
 
-    let pb = progress.bar(repo_paths.len() as u64, "Scanning stashes");
-    for repo_path in &repo_paths {
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
+        let mut local_warnings = Vec::new();
+
         let stashes = match git.list_stashes(repo_path) {
             Ok(s) => s,
             Err(e) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not list stashes for {}: {e}",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
         if stashes.is_empty() {
-            continue;
+            return (None, local_warnings);
         }
 
         let repo_name = repo_display_name(repo_path);
@@ -128,11 +127,8 @@ pub fn run_scan(
                 );
             }
 
-            counts.increment(&classification);
-            total_scanned += 1;
-
             classified.push(StashInfo {
-                repo_path: repo_path.clone(),
+                repo_path: repo_path.to_path_buf(),
                 stash_ref: stash_ref.clone(),
                 classification,
                 branch,
@@ -141,17 +137,26 @@ pub fn run_scan(
             });
         }
 
-        // Sort by classification priority
         classified.sort_by_key(|s| s.classification.priority());
 
-        repos.push(StashRepoGroup {
-            repo_path: repo_path.clone(),
+        let group = StashRepoGroup {
+            repo_path: repo_path.to_path_buf(),
             name: repo_name,
             stashes: classified,
-        });
-        pb.inc(1);
+        };
+
+        (Some(group), local_warnings)
+    }, "Scanning stashes", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = StashCounts::default();
+    let mut total_scanned = 0;
+    for g in &repos {
+        for s in &g.stashes {
+            counts.increment(&s.classification);
+        }
+        total_scanned += g.stashes.len();
     }
-    pb.finish_and_clear();
 
     Ok(StashScanResult {
         repos,

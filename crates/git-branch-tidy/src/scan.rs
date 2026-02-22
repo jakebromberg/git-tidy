@@ -6,6 +6,7 @@ use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::{ClassificationLabel, ScanCounts};
 
 use crate::discovery;
@@ -26,52 +27,44 @@ pub fn run_scan(
     let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
-    let mut repos = Vec::new();
-    let mut counts = ScanCounts::default();
-    let mut total_scanned = 0;
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
+        let mut local_warnings = Vec::new();
 
-    let pb = progress.bar(repo_paths.len() as u64, "Scanning branches");
-    for repo_path in &repo_paths {
-        // Detect default branch
         let default_branch = match classification::detect_default_branch(git, repo_path) {
             Ok(b) => b,
             Err(_) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not determine default branch for {} -- skipping",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
-        // List local branches
         let branches = match git.list_local_branches(repo_path) {
             Ok(b) => b,
             Err(e) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not list branches for {}: {e}",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
-        // Detect current branch
         let current = git.current_branch(repo_path).unwrap_or(None);
-
         let repo_name = repo_display_name(repo_path);
 
         if verbose {
             eprintln!(
                 "{repo_name}: {} branches (default_branch={default_branch})",
-                branches.len() - 1, // subtract default branch
+                branches.len() - 1,
             );
         }
 
         let mut classified = Vec::with_capacity(branches.len());
 
         for branch_name in &branches {
-            // Skip the default branch
             if branch_name == &default_branch {
                 continue;
             }
@@ -96,10 +89,8 @@ pub fn run_scan(
                             bc.behind,
                         );
                     }
-                    counts.increment(&bc.classification);
-                    total_scanned += 1;
                     classified.push(BranchInfo {
-                        repo_path: repo_path.clone(),
+                        repo_path: repo_path.to_path_buf(),
                         name: branch_name.clone(),
                         default_branch: default_branch.clone(),
                         classification: bc.classification,
@@ -112,7 +103,7 @@ pub fn run_scan(
                     });
                 }
                 Err(e) => {
-                    warnings.push(format!(
+                    local_warnings.push(format!(
                         "error classifying branch {} in {}: {e}",
                         branch_name,
                         repo_path.display()
@@ -121,19 +112,30 @@ pub fn run_scan(
             }
         }
 
-        // Sort by classification priority
         classified.sort_by_key(|b| b.classification.priority());
 
-        if !classified.is_empty() {
-            repos.push(BranchRepoGroup {
-                repo_path: repo_path.clone(),
+        let group = if classified.is_empty() {
+            None
+        } else {
+            Some(BranchRepoGroup {
+                repo_path: repo_path.to_path_buf(),
                 name: repo_name,
                 branches: classified,
-            });
+            })
+        };
+
+        (group, local_warnings)
+    }, "Scanning branches", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = ScanCounts::default();
+    let mut total_scanned = 0;
+    for g in &repos {
+        for b in &g.branches {
+            counts.increment(&b.classification);
         }
-        pb.inc(1);
+        total_scanned += g.branches.len();
     }
-    pb.finish_and_clear();
 
     Ok(BranchScanResult {
         repos,

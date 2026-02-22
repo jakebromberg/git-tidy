@@ -7,6 +7,7 @@ use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
@@ -47,28 +48,24 @@ pub fn run_scan(
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
 
-    let mut repos = Vec::new();
-    let mut counts = TagCounts::default();
     let mut warnings = Vec::new();
-    let mut total_scanned = 0;
 
-    let pb = progress.bar(repo_paths.len() as u64, "Scanning tags");
-    for repo_path in &repo_paths {
-        // Get local tags
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
+        let mut local_warnings = Vec::new();
+
         let local_tags: HashSet<String> = match git.list_local_tags(repo_path) {
             Ok(tags) => tags.into_iter().collect(),
             Err(e) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not list tags for {}: {e}",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
-        // Get remotes and remote tags
         let remotes = git.list_remotes(repo_path).unwrap_or_default();
-        let mut remote_tag_map: HashMap<String, (String, Vec<String>)> = HashMap::new(); // tag -> (commit, [remotes])
+        let mut remote_tag_map: HashMap<String, (String, Vec<String>)> = HashMap::new();
 
         if !offline {
             for remote in &remotes {
@@ -82,7 +79,7 @@ pub fn run_scan(
                         }
                     }
                     Err(e) => {
-                        warnings.push(format!(
+                        local_warnings.push(format!(
                             "could not list remote tags for {remote} in {}: {e}",
                             repo_path.display()
                         ));
@@ -91,7 +88,6 @@ pub fn run_scan(
             }
         }
 
-        // Union all tag names (collect into Vec via deduplicating HashSet)
         let all_tag_names: Vec<String> = local_tags
             .iter()
             .cloned()
@@ -101,7 +97,7 @@ pub fn run_scan(
             .collect();
 
         if all_tag_names.is_empty() {
-            continue;
+            return (None, local_warnings);
         }
 
         let repo_name = repo_display_name(repo_path);
@@ -123,7 +119,7 @@ pub fn run_scan(
                 let commit = match git.tag_commit(repo_path, tag_name) {
                     Ok(c) => c,
                     Err(e) => {
-                        warnings.push(format!(
+                        local_warnings.push(format!(
                             "could not resolve tag {tag_name} in {}: {e}",
                             repo_path.display()
                         ));
@@ -160,11 +156,8 @@ pub fn run_scan(
                 );
             }
 
-            counts.increment(&classification);
-            total_scanned += 1;
-
             classified.push(TagInfo {
-                repo_path: repo_path.clone(),
+                repo_path: repo_path.to_path_buf(),
                 name: tag_name.clone(),
                 classification,
                 commit,
@@ -175,7 +168,6 @@ pub fn run_scan(
             });
         }
 
-        // Sort by classification priority, then by name
         classified.sort_by(|a, b| {
             a.classification
                 .priority()
@@ -183,14 +175,24 @@ pub fn run_scan(
                 .then_with(|| a.name.cmp(&b.name))
         });
 
-        repos.push(TagRepoGroup {
-            repo_path: repo_path.clone(),
+        let group = TagRepoGroup {
+            repo_path: repo_path.to_path_buf(),
             name: repo_name,
             tags: classified,
-        });
-        pb.inc(1);
+        };
+
+        (Some(group), local_warnings)
+    }, "Scanning tags", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = TagCounts::default();
+    let mut total_scanned = 0;
+    for g in &repos {
+        for t in &g.tags {
+            counts.increment(&t.classification);
+        }
+        total_scanned += g.tags.len();
     }
-    pb.finish_and_clear();
 
     Ok(TagScanResult {
         repos,

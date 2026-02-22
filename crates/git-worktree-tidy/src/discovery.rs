@@ -59,21 +59,23 @@ pub fn discover_worktrees(
 
     for entry in entries {
         let entry = entry.map_err(Error::Io)?;
-        let entry_path = entry.path().canonicalize().unwrap_or_else(|_| entry.path());
 
-        if !entry_path.is_dir() {
+        // file_type() uses d_type from readdir — no extra stat on macOS/Linux
+        if !entry.file_type().map_err(Error::Io)?.is_dir() {
             continue;
         }
 
+        let entry_path = entry.path();
         let git_path = entry_path.join(".git");
 
-        // Skip if no .git at all
-        if !git_path.exists() {
-            continue;
-        }
+        // Single symlink_metadata call replaces exists() + is_dir() checks
+        let git_meta = match git_path.symlink_metadata() {
+            Ok(m) => m,
+            Err(_) => continue, // no .git at all
+        };
 
         // Skip if .git is a directory (main worktree or standalone repo)
-        if git_path.is_dir() {
+        if git_meta.is_dir() || git_meta.is_symlink() {
             continue;
         }
 
@@ -88,6 +90,8 @@ pub fn discover_worktrees(
             None => continue, // skip if we can't derive the parent
         };
 
+        // Deferred canonicalize — only for confirmed worktrees
+        let entry_path = entry_path.canonicalize().unwrap_or(entry_path);
         let worktree = DiscoveredWorktree {
             path: entry_path,
             parent_repo: parent_repo.clone(),

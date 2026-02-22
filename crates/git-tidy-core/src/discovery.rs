@@ -28,29 +28,29 @@ pub fn discover_repos(directory: &Path) -> Result<Vec<PathBuf>, Error> {
 
     for entry in entries {
         let entry = entry.map_err(Error::Io)?;
-        let entry_path = entry.path().canonicalize().unwrap_or_else(|_| entry.path());
 
-        if !entry_path.is_dir() {
+        // file_type() uses d_type from readdir — no extra stat on macOS/Linux
+        if !entry.file_type().map_err(Error::Io)?.is_dir() {
             continue;
         }
 
+        let entry_path = entry.path();
         let git_path = entry_path.join(".git");
 
-        // Must have .git
-        if !git_path.exists() {
-            continue;
+        // Single symlink_metadata call replaces exists() + is_dir() + symlink_metadata()
+        let git_meta = match git_path.symlink_metadata() {
+            Ok(m) => m,
+            Err(_) => continue, // no .git
+        };
+        if git_meta.is_symlink() {
+            continue; // symlinked .git — avoid double-counting
+        }
+        if !git_meta.is_dir() {
+            continue; // .git is a file — linked worktree
         }
 
-        // .git must be a directory (not a file = linked worktree)
-        if !git_path.is_dir() {
-            continue;
-        }
-
-        // Skip if .git is a symlink (avoids double-counting)
-        if git_path.symlink_metadata().is_ok_and(|m| m.is_symlink()) {
-            continue;
-        }
-
+        // Deferred canonicalize — only for confirmed repos
+        let entry_path = entry_path.canonicalize().unwrap_or(entry_path);
         repos.push(entry_path);
     }
 

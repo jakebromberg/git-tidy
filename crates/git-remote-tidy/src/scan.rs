@@ -7,6 +7,7 @@ use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
@@ -51,35 +52,28 @@ pub fn run_scan(
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
 
-    let mut repos = Vec::new();
-    let mut counts = RemoteCounts::default();
     let mut warnings = Vec::new();
-    let mut total_scanned = 0;
 
-    let pb = progress.bar(repo_paths.len() as u64, "Scanning remotes");
-    for repo_path in &repo_paths {
-        // Get configured remotes
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
+        let mut local_warnings = Vec::new();
+
         let configured = match git.list_remotes(repo_path) {
             Ok(r) => r,
             Err(e) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not list remotes for {}: {e}",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
-        // Get all tracking refs to detect orphaned remotes and count per-remote
         let tracking_refs = git.list_remote_tracking_refs(repo_path).unwrap_or_default();
 
-        // Count tracking refs per remote name and detect orphaned
         let mut tracking_counts: HashMap<String, usize> = HashMap::new();
 
         for (short, _full) in &tracking_refs {
-            // short is like "origin/main" -- extract remote name
             if let Some(remote_name) = short.split('/').next() {
-                // Skip HEAD refs (e.g., "origin/HEAD")
                 let branch_part = short
                     .strip_prefix(remote_name)
                     .and_then(|rest| rest.strip_prefix('/'));
@@ -90,7 +84,6 @@ pub fn run_scan(
             }
         }
 
-        // Collect all remote names (configured + orphaned); move configured to avoid clone
         let configured_count = configured.len();
         let configured_set: HashSet<&str> = configured.iter().map(|s| s.as_str()).collect();
         let orphaned: Vec<String> = tracking_counts
@@ -99,11 +92,11 @@ pub fn run_scan(
             .cloned()
             .collect();
         drop(configured_set);
-        let mut all_remote_names = configured; // move, not clone
+        let mut all_remote_names = configured;
         all_remote_names.extend(orphaned);
 
         if all_remote_names.is_empty() {
-            continue;
+            return (None, local_warnings);
         }
 
         let repo_name = repo_display_name(repo_path);
@@ -136,11 +129,8 @@ pub fn run_scan(
                 );
             }
 
-            counts.increment(&classification);
-            total_scanned += 1;
-
             classified.push(RemoteInfo {
-                repo_path: repo_path.clone(),
+                repo_path: repo_path.to_path_buf(),
                 name: remote_name.clone(),
                 classification,
                 url,
@@ -149,17 +139,26 @@ pub fn run_scan(
             });
         }
 
-        // Sort by classification priority
         classified.sort_by_key(|r| r.classification.priority());
 
-        repos.push(RemoteRepoGroup {
-            repo_path: repo_path.clone(),
+        let group = RemoteRepoGroup {
+            repo_path: repo_path.to_path_buf(),
             name: repo_name,
             remotes: classified,
-        });
-        pb.inc(1);
+        };
+
+        (Some(group), local_warnings)
+    }, "Scanning remotes", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = RemoteCounts::default();
+    let mut total_scanned = 0;
+    for g in &repos {
+        for r in &g.remotes {
+            counts.increment(&r.classification);
+        }
+        total_scanned += g.remotes.len();
     }
-    pb.finish_and_clear();
 
     Ok(RemoteScanResult {
         repos,

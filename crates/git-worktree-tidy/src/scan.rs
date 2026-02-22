@@ -7,6 +7,7 @@ use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
 
 use crate::discovery::{self, DiscoveredWorktree};
@@ -70,24 +71,26 @@ pub fn run_scan(
             .collect()
     };
 
-    let repo_paths: Vec<&std::path::Path> = groups.keys().map(|p| p.as_path()).collect();
-    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &repo_paths, progress);
+    let repo_paths: Vec<PathBuf> = groups.keys().cloned().collect();
+    let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
+    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
-    let mut repos = Vec::new();
-    let mut counts = ScanCounts::default();
-    let mut total_scanned = 0;
+    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
+        let mut local_warnings = Vec::new();
 
-    let pb = progress.bar(groups.len() as u64, "Scanning worktrees");
-    for (repo_path, worktrees) in &groups {
-        // Detect default branch
+        let worktrees = match groups.get(repo_path) {
+            Some(wts) => wts,
+            None => return (None, vec![]),
+        };
+
         let default_branch = match classification::detect_default_branch(git, repo_path) {
             Ok(b) => b,
             Err(_) => {
-                warnings.push(format!(
+                local_warnings.push(format!(
                     "could not determine default branch for {} -- skipping",
                     repo_path.display()
                 ));
-                continue;
+                return (None, local_warnings);
             }
         };
 
@@ -122,29 +125,38 @@ pub fn run_scan(
                             info.behind,
                         );
                     }
-                    counts.increment(&info.classification);
-                    total_scanned += 1;
                     classified.push(info);
                 }
                 Err(e) => {
-                    warnings.push(format!("error classifying {}: {e}", wt.path.display()));
+                    local_warnings.push(format!("error classifying {}: {e}", wt.path.display()));
                 }
             }
         }
 
-        // Sort by classification priority
         classified.sort_by_key(|wt| wt.classification.priority());
 
-        if !classified.is_empty() {
-            repos.push(RepoGroup {
-                repo_path: repo_path.clone(),
+        let group = if classified.is_empty() {
+            None
+        } else {
+            Some(RepoGroup {
+                repo_path: repo_path.to_path_buf(),
                 name: repo_name,
                 worktrees: classified,
-            });
+            })
+        };
+
+        (group, local_warnings)
+    }, "Scanning worktrees", progress);
+    warnings.extend(scan_warnings);
+
+    let mut counts = ScanCounts::default();
+    let mut total_scanned = 0;
+    for g in &repos {
+        for wt in &g.worktrees {
+            counts.increment(&wt.classification);
         }
-        pb.inc(1);
+        total_scanned += g.worktrees.len();
     }
-    pb.finish_and_clear();
 
     Ok(ScanResult {
         repos,

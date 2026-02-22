@@ -4,7 +4,8 @@ use std::path::Path;
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
 use git_tidy_core::filter::NameFilter;
-use git_tidy_core::git::{GitOps, RealGit};
+use git_tidy_core::git::GitOps;
+use git_tidy_core::gix_ops::GixGitOps;
 use git_tidy_core::progress::Progress;
 
 use crate::runner::matches_filter;
@@ -31,7 +32,7 @@ pub fn run_audit_inprocess(
     verbose: bool,
     progress: &Progress,
 ) -> AuditResult {
-    let git = RealGit;
+    let git = GixGitOps;
     let caching = CachingGitOps::new(&git);
 
     // Resolve noise patterns from config file (no CLI overrides in audit mode).

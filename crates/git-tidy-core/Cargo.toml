@@ -10,7 +10,9 @@ testutil = ["dep:tempfile"]
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
+gix = { version = "0.79", features = ["blocking-network-client", "parallel"] }
 indicatif = "0.17"
+rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 strsim = "0.11"
@@ -18,7 +20,20 @@ thiserror = "2"
 toml = "0.8"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+git-tidy-core = { path = ".", features = ["testutil"] }
+jwalk = "0.8"
+ignore = "0.4"
+rayon = "1"
 tempfile = "3"
+
+[[bench]]
+name = "discovery"
+harness = false
+
+[[bench]]
+name = "pipeline"
+harness = false
 
 [dependencies.tempfile]
 version = "3"
