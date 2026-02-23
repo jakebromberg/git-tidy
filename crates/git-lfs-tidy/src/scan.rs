@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::Instant;
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -70,10 +71,18 @@ pub fn run_scan(
         let mut track_patterns = Vec::new();
 
         if lfs_installed {
+            let t = Instant::now();
             track_patterns = git.lfs_track_patterns(repo_path).unwrap_or_default();
 
             match git.lfs_ls_files(repo_path) {
                 Ok(files) => {
+                    if verbose {
+                        eprintln!(
+                            "{repo_name}: lfs ls-files: {} tracked files ({:.1}s)",
+                            files.len(),
+                            t.elapsed().as_secs_f64(),
+                        );
+                    }
                     for (oid, status, path) in files {
                         lfs_paths.insert(path.clone());
                         let classification = if status == '-' {
@@ -98,8 +107,15 @@ pub fn run_scan(
                 }
             }
 
+            let t = Instant::now();
             match git.lfs_prune_dry_run(repo_path) {
                 Ok((count, bytes)) if count > 0 => {
+                    if verbose {
+                        eprintln!(
+                            "{repo_name}: lfs prune --dry-run: {count} orphaned objects, {bytes} bytes ({:.1}s)",
+                            t.elapsed().as_secs_f64(),
+                        );
+                    }
                     items.push(LfsInfo {
                         repo_path: repo_path.to_path_buf(),
                         path: format!("<{count} orphaned LFS objects>"),
@@ -108,18 +124,35 @@ pub fn run_scan(
                         size_bytes: Some(bytes),
                     });
                 }
+                Ok(_) => {
+                    if verbose {
+                        eprintln!(
+                            "{repo_name}: lfs prune --dry-run: nothing to prune ({:.1}s)",
+                            t.elapsed().as_secs_f64(),
+                        );
+                    }
+                }
                 Err(e) => {
                     local_warnings.push(format!(
                         "could not check prunable LFS objects for {}: {e}",
                         repo_path.display()
                     ));
                 }
-                _ => {}
             }
         }
 
+        let t = Instant::now();
         match git.find_large_blobs(repo_path, size_threshold, depth) {
             Ok(blobs) => {
+                let untracked_count = blobs.iter().filter(|(_, _, p)| !lfs_paths.contains(p)).count();
+                if verbose {
+                    eprintln!(
+                        "{repo_name}: rev-list + cat-file: {} large blobs, {} untracked ({:.1}s)",
+                        blobs.len(),
+                        untracked_count,
+                        t.elapsed().as_secs_f64(),
+                    );
+                }
                 for (hash, size, path) in blobs {
                     if lfs_paths.contains(&path) {
                         continue;
@@ -142,7 +175,7 @@ pub fn run_scan(
         }
 
         if verbose && !items.is_empty() {
-            eprintln!("{repo_name}: {} LFS items", items.len());
+            eprintln!("{repo_name}: {} LFS items total", items.len());
             for item in &items {
                 eprintln!("  {}: {} ({})", item.path, item.classification.label(),
                     item.size_bytes.map_or("?".to_string(), |s| format!("{s} bytes")));
