@@ -88,10 +88,8 @@ fn count_commits_between(
     if let Some(base_id) = base {
         let walk = repo.rev_walk([base_id]);
         if let Ok(iter) = walk.all() {
-            for info in iter {
-                if let Ok(info) = info {
-                    base_ancestors.insert(info.id);
-                }
+            for info in iter.flatten() {
+                base_ancestors.insert(info.id);
             }
         }
         base_ancestors.insert(base_id);
@@ -99,11 +97,9 @@ fn count_commits_between(
 
     let walk = repo.rev_walk([tip]);
     if let Ok(iter) = walk.all() {
-        for info in iter {
-            if let Ok(info) = info {
-                if !base_ancestors.contains(&info.id) {
-                    count += 1;
-                }
+        for info in iter.flatten() {
+            if !base_ancestors.contains(&info.id) {
+                count += 1;
             }
         }
     }
@@ -524,10 +520,10 @@ impl GitOps for GixGitOps {
                 return Ok(true);
             }
             // Walk from tip towards root, checking if target is reachable
-            if let Ok(base) = r.merge_base(tip, target_id) {
-                if base == target_id {
-                    return Ok(true);
-                }
+            if let Ok(base) = r.merge_base(tip, target_id)
+                && base == target_id
+            {
+                return Ok(true);
             }
         }
         Ok(false)

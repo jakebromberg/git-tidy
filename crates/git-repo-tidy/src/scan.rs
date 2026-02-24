@@ -114,6 +114,7 @@ pub fn classify_repo(
 }
 
 /// Scan all repos in `directory` and classify them.
+#[allow(clippy::too_many_arguments)]
 pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
