@@ -80,73 +80,78 @@ pub fn run_scan(
 
     let mut warnings = Vec::new();
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let mut local_warnings = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let mut local_warnings = Vec::new();
 
-        let stashes = match git.list_stashes(repo_path) {
-            Ok(s) => s,
-            Err(e) => {
-                local_warnings.push(format!(
-                    "could not list stashes for {}: {e}",
-                    repo_path.display()
-                ));
+            let stashes = match git.list_stashes(repo_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not list stashes for {}: {e}",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
+
+            if stashes.is_empty() {
                 return (None, local_warnings);
             }
-        };
 
-        if stashes.is_empty() {
-            return (None, local_warnings);
-        }
-
-        let repo_name = repo_display_name(repo_path);
-        let local_branches = git.list_local_branches(repo_path).unwrap_or_default();
-
-        if verbose {
-            eprintln!("{repo_name}: {} stash entries", stashes.len());
-        }
-
-        let mut classified = Vec::with_capacity(stashes.len());
-
-        for (stash_ref, message, iso_date) in &stashes {
-            let (classification, age_days, branch) = classify_stash(
-                git,
-                repo_path,
-                stash_ref,
-                message,
-                iso_date,
-                age_threshold,
-                &local_branches,
-            );
+            let repo_name = repo_display_name(repo_path);
+            let local_branches = git.list_local_branches(repo_path).unwrap_or_default();
 
             if verbose {
-                eprintln!(
-                    "  {stash_ref}: {classification} (branch={branch}, age={age}d)",
-                    classification = classification.label(),
-                    branch = branch.as_deref().unwrap_or("?"),
-                    age = age_days.map_or("?".to_string(), |d| d.to_string()),
-                );
+                eprintln!("{repo_name}: {} stash entries", stashes.len());
             }
 
-            classified.push(StashInfo {
+            let mut classified = Vec::with_capacity(stashes.len());
+
+            for (stash_ref, message, iso_date) in &stashes {
+                let (classification, age_days, branch) = classify_stash(
+                    git,
+                    repo_path,
+                    stash_ref,
+                    message,
+                    iso_date,
+                    age_threshold,
+                    &local_branches,
+                );
+
+                if verbose {
+                    eprintln!(
+                        "  {stash_ref}: {classification} (branch={branch}, age={age}d)",
+                        classification = classification.label(),
+                        branch = branch.as_deref().unwrap_or("?"),
+                        age = age_days.map_or("?".to_string(), |d| d.to_string()),
+                    );
+                }
+
+                classified.push(StashInfo {
+                    repo_path: repo_path.to_path_buf(),
+                    stash_ref: stash_ref.clone(),
+                    classification,
+                    branch,
+                    age_days,
+                    message: message.clone(),
+                });
+            }
+
+            classified.sort_by_key(|s| s.classification.priority());
+
+            let group = StashRepoGroup {
                 repo_path: repo_path.to_path_buf(),
-                stash_ref: stash_ref.clone(),
-                classification,
-                branch,
-                age_days,
-                message: message.clone(),
-            });
-        }
+                name: repo_name,
+                stashes: classified,
+            };
 
-        classified.sort_by_key(|s| s.classification.priority());
-
-        let group = StashRepoGroup {
-            repo_path: repo_path.to_path_buf(),
-            name: repo_name,
-            stashes: classified,
-        };
-
-        (Some(group), local_warnings)
-    }, "Scanning stashes", progress);
+            (Some(group), local_warnings)
+        },
+        "Scanning stashes",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = StashCounts::default();

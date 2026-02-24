@@ -42,7 +42,14 @@ fn main() {
                 _ => OutputFormat::Human,
             };
 
-            match scan::run_scan(&git, &directory, cli.offline, cli.verbose, &repo_filter, &progress) {
+            match scan::run_scan(
+                &git,
+                &directory,
+                cli.offline,
+                cli.verbose,
+                &repo_filter,
+                &progress,
+            ) {
                 Ok(result) => {
                     let write_result = match format {
                         OutputFormat::Json => output::write_json(&mut stdout, &result),
@@ -63,7 +70,14 @@ fn main() {
             force,
             all,
             ..
-        }) => match scan::run_scan(&git, &directory, cli.offline, cli.verbose, &repo_filter, &progress) {
+        }) => match scan::run_scan(
+            &git,
+            &directory,
+            cli.offline,
+            cli.verbose,
+            &repo_filter,
+            &progress,
+        ) {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,

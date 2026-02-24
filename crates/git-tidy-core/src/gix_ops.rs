@@ -73,7 +73,6 @@ fn run_git_success(repo: &Path, args: &[&str]) -> GitResult<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-
 /// Count commits reachable from `tip` but not from `base`.
 /// If `base` is None, counts all commits reachable from `tip`.
 fn count_commits_between(
@@ -287,16 +286,20 @@ impl GitOps for GixGitOps {
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {
         let r = open_repo(repo)?;
         let refname = format!("refs/heads/{branch}");
-        let reference = r.find_reference(&refname).map_err(|_| Error::BranchDeletionFailed {
-            repo: repo.to_path_buf(),
-            branch: branch.to_string(),
-            reason: format!("branch '{branch}' not found"),
-        })?;
-        reference.delete().map_err(|e| Error::BranchDeletionFailed {
-            repo: repo.to_path_buf(),
-            branch: branch.to_string(),
-            reason: e.to_string(),
-        })?;
+        let reference = r
+            .find_reference(&refname)
+            .map_err(|_| Error::BranchDeletionFailed {
+                repo: repo.to_path_buf(),
+                branch: branch.to_string(),
+                reason: format!("branch '{branch}' not found"),
+            })?;
+        reference
+            .delete()
+            .map_err(|e| Error::BranchDeletionFailed {
+                repo: repo.to_path_buf(),
+                branch: branch.to_string(),
+                reason: e.to_string(),
+            })?;
         Ok(())
     }
 
@@ -350,9 +353,7 @@ impl GitOps for GixGitOps {
         match config.string(&merge_key) {
             Some(merge_ref) => {
                 let merge_str = merge_ref.to_string();
-                let short = merge_str
-                    .strip_prefix("refs/heads/")
-                    .unwrap_or(&merge_str);
+                let short = merge_str.strip_prefix("refs/heads/").unwrap_or(&merge_str);
                 Ok(Some(format!("{remote_name}/{short}")))
             }
             None => Ok(None),
@@ -405,10 +406,12 @@ impl GitOps for GixGitOps {
             message: e.to_string(),
         })?;
         let mut result = Vec::new();
-        let prefix_iter = refs.prefixed("refs/remotes/").map_err(|e| Error::GitCommand {
-            command: "gix prefixed refs/remotes/".to_string(),
-            message: e.to_string(),
-        })?;
+        let prefix_iter = refs
+            .prefixed("refs/remotes/")
+            .map_err(|e| Error::GitCommand {
+                command: "gix prefixed refs/remotes/".to_string(),
+                message: e.to_string(),
+            })?;
         for reference in prefix_iter {
             let reference = reference.map_err(|e| Error::GitCommand {
                 command: "gix reference iter".to_string(),
@@ -533,11 +536,13 @@ impl GitOps for GixGitOps {
     fn tag_delete(&self, repo: &Path, tag: &str) -> GitResult<()> {
         let r = open_repo(repo)?;
         let refname = format!("refs/tags/{tag}");
-        let reference = r.find_reference(&refname).map_err(|_| Error::TagDeletionFailed {
-            repo: repo.to_path_buf(),
-            tag: tag.to_string(),
-            reason: format!("tag '{tag}' not found"),
-        })?;
+        let reference = r
+            .find_reference(&refname)
+            .map_err(|_| Error::TagDeletionFailed {
+                repo: repo.to_path_buf(),
+                tag: tag.to_string(),
+                reason: format!("tag '{tag}' not found"),
+            })?;
         reference.delete().map_err(|e| Error::TagDeletionFailed {
             repo: repo.to_path_buf(),
             tag: tag.to_string(),

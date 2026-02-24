@@ -40,19 +40,32 @@ fn discover_repos(directory: &Path) -> Vec<PathBuf> {
 
 fn git_symbolic_ref(repo: &Path) -> Option<String> {
     let out = Command::new("git")
-        .args(["-C", &repo.to_string_lossy(), "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])
+        .args([
+            "-C",
+            &repo.to_string_lossy(),
+            "symbolic-ref",
+            "--quiet",
+            "refs/remotes/origin/HEAD",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
     let full = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    full.strip_prefix("refs/remotes/origin/").map(|s| s.to_string())
+    full.strip_prefix("refs/remotes/origin/")
+        .map(|s| s.to_string())
 }
 
 fn git_list_branches(repo: &Path) -> Vec<String> {
     let out = Command::new("git")
-        .args(["-C", &repo.to_string_lossy(), "branch", "--list", "--format=%(refname:short)"])
+        .args([
+            "-C",
+            &repo.to_string_lossy(),
+            "branch",
+            "--list",
+            "--format=%(refname:short)",
+        ])
         .output()
         .unwrap();
     String::from_utf8_lossy(&out.stdout)
@@ -94,7 +107,13 @@ fn git_last_commit_date(repo: &Path) -> Option<String> {
 
 fn git_list_stashes(repo: &Path) -> Vec<String> {
     let out = Command::new("git")
-        .args(["-C", &repo.to_string_lossy(), "stash", "list", "--format=%gd"])
+        .args([
+            "-C",
+            &repo.to_string_lossy(),
+            "stash",
+            "list",
+            "--format=%gd",
+        ])
         .output()
         .unwrap();
     String::from_utf8_lossy(&out.stdout)
@@ -111,7 +130,8 @@ fn git_batched_repo_info(repo: &Path) -> (Option<String>, Vec<String>, Option<St
     // Get branches, HEAD ref, and origin/HEAD in one for-each-ref call
     let out = Command::new("git")
         .args([
-            "-C", &repo.to_string_lossy(),
+            "-C",
+            &repo.to_string_lossy(),
             "for-each-ref",
             "--format=%(refname:short)\t%(upstream:short)\t%(HEAD)",
             "refs/heads/",
@@ -162,7 +182,10 @@ fn scan_sequential(repos: &[PathBuf]) -> Vec<(usize, usize, usize)> {
 
 fn scan_parallel(repos: &[PathBuf]) -> Vec<(usize, usize, usize)> {
     use rayon::prelude::*;
-    repos.par_iter().map(|r| classify_repo_lightweight(r)).collect()
+    repos
+        .par_iter()
+        .map(|r| classify_repo_lightweight(r))
+        .collect()
 }
 
 fn scan_sequential_batched(repos: &[PathBuf]) -> Vec<(usize, usize, usize)> {
@@ -257,13 +280,9 @@ fn bench_pipeline(c: &mut Criterion) {
         let mut group = c.benchmark_group("scan_light");
         group.sample_size(30);
 
-        group.bench_function("sequential", |b| {
-            b.iter(|| scan_sequential(&repos))
-        });
+        group.bench_function("sequential", |b| b.iter(|| scan_sequential(&repos)));
 
-        group.bench_function("parallel_rayon", |b| {
-            b.iter(|| scan_parallel(&repos))
-        });
+        group.bench_function("parallel_rayon", |b| b.iter(|| scan_parallel(&repos)));
 
         group.bench_function("sequential_batched", |b| {
             b.iter(|| scan_sequential_batched(&repos))
@@ -280,13 +299,9 @@ fn bench_pipeline(c: &mut Criterion) {
         let mut group = c.benchmark_group("scan_full");
         group.sample_size(20);
 
-        group.bench_function("sequential", |b| {
-            b.iter(|| scan_full_sequential(&repos))
-        });
+        group.bench_function("sequential", |b| b.iter(|| scan_full_sequential(&repos)));
 
-        group.bench_function("parallel_rayon", |b| {
-            b.iter(|| scan_full_parallel(&repos))
-        });
+        group.bench_function("parallel_rayon", |b| b.iter(|| scan_full_parallel(&repos)));
 
         group.finish();
     }

@@ -54,101 +54,106 @@ pub fn run_scan(
 
     let mut warnings = Vec::new();
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let mut local_warnings = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let mut local_warnings = Vec::new();
 
-        let configured = match git.list_remotes(repo_path) {
-            Ok(r) => r,
-            Err(e) => {
-                local_warnings.push(format!(
-                    "could not list remotes for {}: {e}",
-                    repo_path.display()
-                ));
+            let configured = match git.list_remotes(repo_path) {
+                Ok(r) => r,
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not list remotes for {}: {e}",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
+
+            let tracking_refs = git.list_remote_tracking_refs(repo_path).unwrap_or_default();
+
+            let mut tracking_counts: HashMap<String, usize> = HashMap::new();
+
+            for (short, _full) in &tracking_refs {
+                if let Some(remote_name) = short.split('/').next() {
+                    let branch_part = short
+                        .strip_prefix(remote_name)
+                        .and_then(|rest| rest.strip_prefix('/'));
+                    if branch_part == Some("HEAD") {
+                        continue;
+                    }
+                    *tracking_counts.entry(remote_name.to_string()).or_insert(0) += 1;
+                }
+            }
+
+            let configured_count = configured.len();
+            let configured_set: HashSet<&str> = configured.iter().map(|s| s.as_str()).collect();
+            let orphaned: Vec<String> = tracking_counts
+                .keys()
+                .filter(|name| !configured_set.contains(name.as_str()))
+                .cloned()
+                .collect();
+            drop(configured_set);
+            let mut all_remote_names = configured;
+            all_remote_names.extend(orphaned);
+
+            if all_remote_names.is_empty() {
                 return (None, local_warnings);
             }
-        };
 
-        let tracking_refs = git.list_remote_tracking_refs(repo_path).unwrap_or_default();
-
-        let mut tracking_counts: HashMap<String, usize> = HashMap::new();
-
-        for (short, _full) in &tracking_refs {
-            if let Some(remote_name) = short.split('/').next() {
-                let branch_part = short
-                    .strip_prefix(remote_name)
-                    .and_then(|rest| rest.strip_prefix('/'));
-                if branch_part == Some("HEAD") {
-                    continue;
-                }
-                *tracking_counts.entry(remote_name.to_string()).or_insert(0) += 1;
-            }
-        }
-
-        let configured_count = configured.len();
-        let configured_set: HashSet<&str> = configured.iter().map(|s| s.as_str()).collect();
-        let orphaned: Vec<String> = tracking_counts
-            .keys()
-            .filter(|name| !configured_set.contains(name.as_str()))
-            .cloned()
-            .collect();
-        drop(configured_set);
-        let mut all_remote_names = configured;
-        all_remote_names.extend(orphaned);
-
-        if all_remote_names.is_empty() {
-            return (None, local_warnings);
-        }
-
-        let repo_name = repo_display_name(repo_path);
-
-        if verbose {
-            eprintln!(
-                "{repo_name}: {configured_count} configured, {} orphaned",
-                all_remote_names.len() - configured_count
-            );
-        }
-
-        let mut classified = Vec::new();
-
-        for (idx, remote_name) in all_remote_names.iter().enumerate() {
-            let is_configured = idx < configured_count;
-            let classification =
-                classify_remote(git, repo_path, remote_name, is_configured, offline);
-            let tracking_count = tracking_counts.get(remote_name).copied().unwrap_or(0);
-
-            let url = if is_configured {
-                git.remote_url(repo_path, remote_name).ok()
-            } else {
-                None
-            };
+            let repo_name = repo_display_name(repo_path);
 
             if verbose {
                 eprintln!(
-                    "  {remote_name}: {} (tracking_refs={tracking_count})",
-                    classification.label(),
+                    "{repo_name}: {configured_count} configured, {} orphaned",
+                    all_remote_names.len() - configured_count
                 );
             }
 
-            classified.push(RemoteInfo {
+            let mut classified = Vec::new();
+
+            for (idx, remote_name) in all_remote_names.iter().enumerate() {
+                let is_configured = idx < configured_count;
+                let classification =
+                    classify_remote(git, repo_path, remote_name, is_configured, offline);
+                let tracking_count = tracking_counts.get(remote_name).copied().unwrap_or(0);
+
+                let url = if is_configured {
+                    git.remote_url(repo_path, remote_name).ok()
+                } else {
+                    None
+                };
+
+                if verbose {
+                    eprintln!(
+                        "  {remote_name}: {} (tracking_refs={tracking_count})",
+                        classification.label(),
+                    );
+                }
+
+                classified.push(RemoteInfo {
+                    repo_path: repo_path.to_path_buf(),
+                    name: remote_name.clone(),
+                    classification,
+                    url,
+                    tracking_count,
+                    is_origin: remote_name == "origin",
+                });
+            }
+
+            classified.sort_by_key(|r| r.classification.priority());
+
+            let group = RemoteRepoGroup {
                 repo_path: repo_path.to_path_buf(),
-                name: remote_name.clone(),
-                classification,
-                url,
-                tracking_count,
-                is_origin: remote_name == "origin",
-            });
-        }
+                name: repo_name,
+                remotes: classified,
+            };
 
-        classified.sort_by_key(|r| r.classification.priority());
-
-        let group = RemoteRepoGroup {
-            repo_path: repo_path.to_path_buf(),
-            name: repo_name,
-            remotes: classified,
-        };
-
-        (Some(group), local_warnings)
-    }, "Scanning remotes", progress);
+            (Some(group), local_warnings)
+        },
+        "Scanning remotes",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = RemoteCounts::default();

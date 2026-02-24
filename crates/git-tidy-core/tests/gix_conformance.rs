@@ -224,9 +224,7 @@ fn is_ancestor_false() {
     let real = RealGit;
     let gix = GixGitOps;
 
-    let expected = real
-        .is_ancestor(&t.main_repo, "feature", "main")
-        .unwrap();
+    let expected = real.is_ancestor(&t.main_repo, "feature", "main").unwrap();
     let actual = gix.is_ancestor(&t.main_repo, "feature", "main").unwrap();
     assert_eq!(expected, actual);
     assert!(!expected);
@@ -295,9 +293,7 @@ fn is_commit_reachable_orphan() {
     let expected = real
         .is_commit_reachable(&t.main_repo, &orphan_hash)
         .unwrap();
-    let actual = gix
-        .is_commit_reachable(&t.main_repo, &orphan_hash)
-        .unwrap();
+    let actual = gix.is_commit_reachable(&t.main_repo, &orphan_hash).unwrap();
     assert_eq!(expected, actual);
     assert!(!expected);
 }
@@ -311,12 +307,8 @@ fn log_exclusive_passthrough() {
     let real = RealGit;
     let gix = GixGitOps;
 
-    let expected = real
-        .log_exclusive(&t.main_repo, "main", "feature")
-        .unwrap();
-    let actual = gix
-        .log_exclusive(&t.main_repo, "main", "feature")
-        .unwrap();
+    let expected = real.log_exclusive(&t.main_repo, "main", "feature").unwrap();
+    let actual = gix.log_exclusive(&t.main_repo, "main", "feature").unwrap();
     assert_eq!(expected, actual);
     assert_eq!(expected.len(), 2);
 }
@@ -376,18 +368,10 @@ fn log_touching_files_passthrough() {
     let gix = GixGitOps;
 
     let expected = real
-        .log_touching_files(
-            &t.main_repo,
-            "main",
-            &["touched.txt".to_string()],
-        )
+        .log_touching_files(&t.main_repo, "main", &["touched.txt".to_string()])
         .unwrap();
     let actual = gix
-        .log_touching_files(
-            &t.main_repo,
-            "main",
-            &["touched.txt".to_string()],
-        )
+        .log_touching_files(&t.main_repo, "main", &["touched.txt".to_string()])
         .unwrap();
     assert_eq!(expected, actual);
     assert!(expected.len() >= 2);
@@ -437,7 +421,10 @@ fn last_commit_date_matches() {
     let actual = gix.last_commit_date(&t.main_repo).unwrap();
     assert!(expected.is_some());
     assert!(actual.is_some());
-    assert_eq!(expected, actual, "last_commit_date mismatch: expected={expected:?}, actual={actual:?}");
+    assert_eq!(
+        expected, actual,
+        "last_commit_date mismatch: expected={expected:?}, actual={actual:?}"
+    );
 }
 
 #[test]
@@ -488,7 +475,10 @@ fn status_porcelain_clean() {
 #[test]
 fn config_list_local_matches() {
     let t = TestRepo::new();
-    git(&t.main_repo, &["config", "--local", "user.email", "test@test.com"]);
+    git(
+        &t.main_repo,
+        &["config", "--local", "user.email", "test@test.com"],
+    );
     git(&t.main_repo, &["config", "--local", "user.name", "Test"]);
 
     let real = RealGit;
@@ -525,10 +515,14 @@ fn config_list_local_with_subsection() {
 #[test]
 fn config_remove_section_matches() {
     let t = TestRepo::new();
-    git(&t.main_repo, &["config", "--local", "test-section.key", "value"]);
+    git(
+        &t.main_repo,
+        &["config", "--local", "test-section.key", "value"],
+    );
 
     let gix = GixGitOps;
-    gix.config_remove_section(&t.main_repo, "test-section").unwrap();
+    gix.config_remove_section(&t.main_repo, "test-section")
+        .unwrap();
 
     let real = RealGit;
     let entries = real.config_list_local(&t.main_repo).unwrap();
@@ -730,7 +724,10 @@ fn tag_commit_annotated() {
 
     let expected = real.tag_commit(&t.main_repo, "v2.0").unwrap();
     let actual = gix.tag_commit(&t.main_repo, "v2.0").unwrap();
-    assert_eq!(expected, actual, "tag_commit should peel annotated tag to commit");
+    assert_eq!(
+        expected, actual,
+        "tag_commit should peel annotated tag to commit"
+    );
 
     let head = git(&t.main_repo, &["rev-parse", "HEAD"]);
     assert_eq!(expected, head);
@@ -945,12 +942,8 @@ fn is_branch_checked_out_passthrough() {
     let real = RealGit;
     let gix = GixGitOps;
 
-    let expected = real
-        .is_branch_checked_out(&t.main_repo, "main")
-        .unwrap();
-    let actual = gix
-        .is_branch_checked_out(&t.main_repo, "main")
-        .unwrap();
+    let expected = real.is_branch_checked_out(&t.main_repo, "main").unwrap();
+    let actual = gix.is_branch_checked_out(&t.main_repo, "main").unwrap();
     assert_eq!(expected, actual);
     assert!(expected);
 }

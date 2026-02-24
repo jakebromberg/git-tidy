@@ -62,114 +62,124 @@ pub fn run_scan(
         warnings.push("git-lfs is not installed; skipping LFS-specific checks".to_string());
     }
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let repo_name = repo_display_name(repo_path);
-        let mut local_warnings = Vec::new();
-        let mut items = Vec::new();
-        let mut lfs_paths: HashSet<String> = HashSet::new();
-        let mut track_patterns = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let repo_name = repo_display_name(repo_path);
+            let mut local_warnings = Vec::new();
+            let mut items = Vec::new();
+            let mut lfs_paths: HashSet<String> = HashSet::new();
+            let mut track_patterns = Vec::new();
 
-        if lfs_installed {
-            track_patterns = git.lfs_track_patterns(repo_path).unwrap_or_default();
+            if lfs_installed {
+                track_patterns = git.lfs_track_patterns(repo_path).unwrap_or_default();
 
-            match git.lfs_ls_files(repo_path) {
-                Ok(files) => {
-                    for (oid, status, path) in files {
-                        lfs_paths.insert(path.clone());
-                        let classification = if status == '-' {
-                            LfsClassification::Missing
-                        } else {
-                            LfsClassification::Healthy
-                        };
+                match git.lfs_ls_files(repo_path) {
+                    Ok(files) => {
+                        for (oid, status, path) in files {
+                            lfs_paths.insert(path.clone());
+                            let classification = if status == '-' {
+                                LfsClassification::Missing
+                            } else {
+                                LfsClassification::Healthy
+                            };
+                            items.push(LfsInfo {
+                                repo_path: repo_path.to_path_buf(),
+                                path,
+                                classification,
+                                oid,
+                                size_bytes: None,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        local_warnings.push(format!(
+                            "could not list LFS files for {}: {e}",
+                            repo_path.display()
+                        ));
+                    }
+                }
+
+                match git.lfs_prune_dry_run(repo_path) {
+                    Ok((count, bytes)) if count > 0 => {
+                        items.push(LfsInfo {
+                            repo_path: repo_path.to_path_buf(),
+                            path: format!("<{count} orphaned LFS objects>"),
+                            classification: LfsClassification::Orphaned,
+                            oid: String::new(),
+                            size_bytes: Some(bytes),
+                        });
+                    }
+                    Err(e) => {
+                        local_warnings.push(format!(
+                            "could not check prunable LFS objects for {}: {e}",
+                            repo_path.display()
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+
+            match git.find_large_blobs(repo_path, size_threshold, depth) {
+                Ok(blobs) => {
+                    for (hash, size, path) in blobs {
+                        if lfs_paths.contains(&path) {
+                            continue;
+                        }
                         items.push(LfsInfo {
                             repo_path: repo_path.to_path_buf(),
                             path,
-                            classification,
-                            oid,
-                            size_bytes: None,
+                            classification: LfsClassification::Untracked,
+                            oid: hash,
+                            size_bytes: Some(size),
                         });
                     }
                 }
                 Err(e) => {
                     local_warnings.push(format!(
-                        "could not list LFS files for {}: {e}",
+                        "could not scan large blobs for {}: {e}",
                         repo_path.display()
                     ));
                 }
             }
 
-            match git.lfs_prune_dry_run(repo_path) {
-                Ok((count, bytes)) if count > 0 => {
-                    items.push(LfsInfo {
-                        repo_path: repo_path.to_path_buf(),
-                        path: format!("<{count} orphaned LFS objects>"),
-                        classification: LfsClassification::Orphaned,
-                        oid: String::new(),
-                        size_bytes: Some(bytes),
-                    });
-                }
-                Err(e) => {
-                    local_warnings.push(format!(
-                        "could not check prunable LFS objects for {}: {e}",
-                        repo_path.display()
-                    ));
-                }
-                _ => {}
-            }
-        }
-
-        match git.find_large_blobs(repo_path, size_threshold, depth) {
-            Ok(blobs) => {
-                for (hash, size, path) in blobs {
-                    if lfs_paths.contains(&path) {
-                        continue;
-                    }
-                    items.push(LfsInfo {
-                        repo_path: repo_path.to_path_buf(),
-                        path,
-                        classification: LfsClassification::Untracked,
-                        oid: hash,
-                        size_bytes: Some(size),
-                    });
+            if verbose && !items.is_empty() {
+                eprintln!("{repo_name}: {} LFS items", items.len());
+                for item in &items {
+                    eprintln!(
+                        "  {}: {} ({})",
+                        item.path,
+                        item.classification.label(),
+                        item.size_bytes
+                            .map_or("?".to_string(), |s| format!("{s} bytes"))
+                    );
                 }
             }
-            Err(e) => {
-                local_warnings.push(format!(
-                    "could not scan large blobs for {}: {e}",
-                    repo_path.display()
-                ));
+
+            if items.is_empty() {
+                return (None, local_warnings);
             }
-        }
 
-        if verbose && !items.is_empty() {
-            eprintln!("{repo_name}: {} LFS items", items.len());
-            for item in &items {
-                eprintln!("  {}: {} ({})", item.path, item.classification.label(),
-                    item.size_bytes.map_or("?".to_string(), |s| format!("{s} bytes")));
-            }
-        }
+            items.sort_by(|a, b| {
+                a.classification
+                    .priority()
+                    .cmp(&b.classification.priority())
+                    .then_with(|| a.path.cmp(&b.path))
+            });
 
-        if items.is_empty() {
-            return (None, local_warnings);
-        }
+            let group = LfsRepoGroup {
+                repo_path: repo_path.to_path_buf(),
+                name: repo_name,
+                items,
+                lfs_available: lfs_installed,
+                track_patterns,
+            };
 
-        items.sort_by(|a, b| {
-            a.classification
-                .priority()
-                .cmp(&b.classification.priority())
-                .then_with(|| a.path.cmp(&b.path))
-        });
-
-        let group = LfsRepoGroup {
-            repo_path: repo_path.to_path_buf(),
-            name: repo_name,
-            items,
-            lfs_available: lfs_installed,
-            track_patterns,
-        };
-
-        (Some(group), local_warnings)
-    }, "Scanning LFS", progress);
+            (Some(group), local_warnings)
+        },
+        "Scanning LFS",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = LfsCounts::default();

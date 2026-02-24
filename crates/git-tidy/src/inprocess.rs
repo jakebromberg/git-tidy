@@ -147,100 +147,137 @@ fn run_tool_scan(
     match spec.binary {
         "git-worktree-tidy" => scan_to_result(
             git_worktree_tidy::scan::run_scan(
-                git, directory, DEFAULT_BEHIND_THRESHOLD, verbose,
-                noise_patterns, &filter, &filter, progress,
+                git,
+                directory,
+                DEFAULT_BEHIND_THRESHOLD,
+                verbose,
+                noise_patterns,
+                &filter,
+                &filter,
+                progress,
             ),
             spec,
-            |r| vec![
-                ("landed", r.counts.landed),
-                ("landed-content", r.counts.landed_content),
-                ("partial", r.counts.partial),
-                ("active", r.counts.active),
-                ("local", r.counts.local),
-            ],
+            |r| {
+                vec![
+                    ("landed", r.counts.landed),
+                    ("landed-content", r.counts.landed_content),
+                    ("partial", r.counts.partial),
+                    ("active", r.counts.active),
+                    ("local", r.counts.local),
+                ]
+            },
         ),
         "git-branch-tidy" => scan_to_result(
             git_branch_tidy::scan::run_scan(
-                git, directory, DEFAULT_BEHIND_THRESHOLD, verbose, &filter, progress,
+                git,
+                directory,
+                DEFAULT_BEHIND_THRESHOLD,
+                verbose,
+                &filter,
+                progress,
             ),
             spec,
-            |r| vec![
-                ("landed", r.counts.landed),
-                ("landed-content", r.counts.landed_content),
-                ("partial", r.counts.partial),
-                ("active", r.counts.active),
-                ("local", r.counts.local),
-            ],
+            |r| {
+                vec![
+                    ("landed", r.counts.landed),
+                    ("landed-content", r.counts.landed_content),
+                    ("partial", r.counts.partial),
+                    ("active", r.counts.active),
+                    ("local", r.counts.local),
+                ]
+            },
         ),
         "git-stash-tidy" => scan_to_result(
             git_stash_tidy::scan::run_scan(
-                git, directory, DEFAULT_AGE_THRESHOLD, verbose, &filter, progress,
+                git,
+                directory,
+                DEFAULT_AGE_THRESHOLD,
+                verbose,
+                &filter,
+                progress,
             ),
             spec,
-            |r| vec![
-                ("committed", r.counts.committed),
-                ("orphaned", r.counts.orphaned),
-                ("aged", r.counts.aged),
-                ("active", r.counts.active),
-            ],
+            |r| {
+                vec![
+                    ("committed", r.counts.committed),
+                    ("orphaned", r.counts.orphaned),
+                    ("aged", r.counts.aged),
+                    ("active", r.counts.active),
+                ]
+            },
         ),
         "git-remote-tidy" => scan_to_result(
-            git_remote_tidy::scan::run_scan(
-                git, directory, false, verbose, &filter, progress,
-            ),
+            git_remote_tidy::scan::run_scan(git, directory, false, verbose, &filter, progress),
             spec,
-            |r| vec![
-                ("unreachable", r.counts.unreachable),
-                ("orphaned", r.counts.orphaned),
-                ("active", r.counts.active),
-            ],
+            |r| {
+                vec![
+                    ("unreachable", r.counts.unreachable),
+                    ("orphaned", r.counts.orphaned),
+                    ("active", r.counts.active),
+                ]
+            },
         ),
         "git-tag-tidy" => scan_to_result(
-            git_tag_tidy::scan::run_scan(
-                git, directory, false, verbose, &filter, progress,
-            ),
+            git_tag_tidy::scan::run_scan(git, directory, false, verbose, &filter, progress),
             spec,
-            |r| vec![
-                ("stale", r.counts.stale),
-                ("local_only", r.counts.local_only),
-                ("remote_only", r.counts.remote_only),
-                ("synced", r.counts.synced),
-            ],
+            |r| {
+                vec![
+                    ("stale", r.counts.stale),
+                    ("local_only", r.counts.local_only),
+                    ("remote_only", r.counts.remote_only),
+                    ("synced", r.counts.synced),
+                ]
+            },
         ),
         "git-repo-tidy" => scan_to_result(
             git_repo_tidy::scan::run_scan(
-                git, directory, DEFAULT_STALE_DAYS, noise_patterns,
-                false, verbose, &filter, progress,
+                git,
+                directory,
+                DEFAULT_STALE_DAYS,
+                noise_patterns,
+                false,
+                verbose,
+                &filter,
+                progress,
             ),
             spec,
-            |r| vec![
-                ("stale", r.counts.stale),
-                ("orphaned", r.counts.orphaned),
-                ("active", r.counts.active),
-            ],
+            |r| {
+                vec![
+                    ("stale", r.counts.stale),
+                    ("orphaned", r.counts.orphaned),
+                    ("active", r.counts.active),
+                ]
+            },
         ),
         "git-config-tidy" => scan_to_result(
-            git_config_tidy::lint::run_lint(
-                git, directory, verbose, &filter, progress,
-            ),
+            git_config_tidy::lint::run_lint(git, directory, verbose, &filter, progress),
             spec,
-            |r| vec![
-                ("orphaned_branch_config", r.counts.orphaned_branch_config),
-                ("alias_shadows_builtin", r.counts.alias_shadows_builtin),
-            ],
+            |r| {
+                vec![
+                    ("orphaned_branch_config", r.counts.orphaned_branch_config),
+                    ("alias_shadows_builtin", r.counts.alias_shadows_builtin),
+                ]
+            },
         ),
         "git-lfs-tidy" => scan_to_result(
             git_lfs_tidy::scan::run_scan(
-                git, directory, DEFAULT_LFS_SIZE_THRESHOLD, DEFAULT_LFS_DEPTH,
-                verbose, &filter, progress,
+                git,
+                directory,
+                DEFAULT_LFS_SIZE_THRESHOLD,
+                DEFAULT_LFS_DEPTH,
+                verbose,
+                &filter,
+                progress,
             ),
             spec,
-            |r| vec![
-                ("untracked", r.counts.untracked),
-                ("missing", r.counts.missing),
-                ("orphaned", r.counts.orphaned),
-                ("healthy", r.counts.healthy),
-            ],
+            |r| {
+                vec![
+                    ("untracked", r.counts.untracked),
+                    ("missing", r.counts.missing),
+                    ("orphaned", r.counts.orphaned),
+                    ("healthy", r.counts.healthy),
+                ]
+            },
         ),
         _ => ToolResult {
             name: spec.binary.to_string(),
@@ -287,7 +324,13 @@ mod tests {
         let result = scan_to_result(err, spec, |_| vec![]);
         assert_eq!(result.name, "git-branch-tidy");
         assert_eq!(result.total, 0);
-        assert!(result.error.as_ref().unwrap().contains("directory not found"));
+        assert!(
+            result
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("directory not found")
+        );
     }
 
     #[test]
@@ -295,7 +338,12 @@ mod tests {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
         let result = run_tool_scan(
-            spec_for("git-worktree-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+            spec_for("git-worktree-tidy"),
+            &mock,
+            Path::new("/nonexistent"),
+            &[],
+            false,
+            &p,
         );
         assert!(result.error.is_some() || result.total == 0);
     }
@@ -305,7 +353,12 @@ mod tests {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
         let result = run_tool_scan(
-            spec_for("git-branch-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+            spec_for("git-branch-tidy"),
+            &mock,
+            Path::new("/nonexistent"),
+            &[],
+            false,
+            &p,
         );
         assert!(result.error.is_some() || result.total == 0);
     }
@@ -315,7 +368,12 @@ mod tests {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
         let result = run_tool_scan(
-            spec_for("git-stash-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+            spec_for("git-stash-tidy"),
+            &mock,
+            Path::new("/nonexistent"),
+            &[],
+            false,
+            &p,
         );
         assert!(result.error.is_some() || result.total == 0);
     }
@@ -325,7 +383,12 @@ mod tests {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
         let result = run_tool_scan(
-            spec_for("git-config-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+            spec_for("git-config-tidy"),
+            &mock,
+            Path::new("/nonexistent"),
+            &[],
+            false,
+            &p,
         );
         assert!(result.error.is_some() || result.total == 0);
     }
@@ -335,7 +398,12 @@ mod tests {
         let mock = MockGitBuilder::new().build();
         let p = Progress::disabled();
         let result = run_tool_scan(
-            spec_for("git-lfs-tidy"), &mock, Path::new("/nonexistent"), &[], false, &p,
+            spec_for("git-lfs-tidy"),
+            &mock,
+            Path::new("/nonexistent"),
+            &[],
+            false,
+            &p,
         );
         assert!(result.error.is_some() || result.total == 0);
     }

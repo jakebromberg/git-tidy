@@ -94,41 +94,51 @@ pub fn run_lint(
         }
     };
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let mut local_warnings = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let mut local_warnings = Vec::new();
 
-        let issues = match lint_repo(git, repo_path, &builtin_commands) {
-            Ok(issues) => issues,
-            Err(e) => {
-                local_warnings.push(format!(
-                    "could not lint config for {}: {e}",
-                    repo_path.display()
-                ));
+            let issues = match lint_repo(git, repo_path, &builtin_commands) {
+                Ok(issues) => issues,
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not lint config for {}: {e}",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
+
+            if issues.is_empty() {
                 return (None, local_warnings);
             }
-        };
 
-        if issues.is_empty() {
-            return (None, local_warnings);
-        }
+            let repo_name = repo_display_name(repo_path);
 
-        let repo_name = repo_display_name(repo_path);
-
-        if verbose {
-            eprintln!("{repo_name}: {} issues", issues.len());
-            for issue in &issues {
-                eprintln!("  {}: {} ({})", issue.kind.label(), issue.message, issue.severity.label());
+            if verbose {
+                eprintln!("{repo_name}: {} issues", issues.len());
+                for issue in &issues {
+                    eprintln!(
+                        "  {}: {} ({})",
+                        issue.kind.label(),
+                        issue.message,
+                        issue.severity.label()
+                    );
+                }
             }
-        }
 
-        let group = ConfigRepoGroup {
-            repo_path: repo_path.to_path_buf(),
-            name: repo_name,
-            issues,
-        };
+            let group = ConfigRepoGroup {
+                repo_path: repo_path.to_path_buf(),
+                name: repo_name,
+                issues,
+            };
 
-        (Some(group), local_warnings)
-    }, "Linting config", progress);
+            (Some(group), local_warnings)
+        },
+        "Linting config",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = IssueCounts::default();

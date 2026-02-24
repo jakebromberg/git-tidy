@@ -75,78 +75,85 @@ pub fn run_scan(
     let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let mut local_warnings = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let mut local_warnings = Vec::new();
 
-        let worktrees = match groups.get(repo_path) {
-            Some(wts) => wts,
-            None => return (None, vec![]),
-        };
+            let worktrees = match groups.get(repo_path) {
+                Some(wts) => wts,
+                None => return (None, vec![]),
+            };
 
-        let default_branch = match classification::detect_default_branch(git, repo_path) {
-            Ok(b) => b,
-            Err(_) => {
-                local_warnings.push(format!(
-                    "could not determine default branch for {} -- skipping",
-                    repo_path.display()
-                ));
-                return (None, local_warnings);
+            let default_branch = match classification::detect_default_branch(git, repo_path) {
+                Ok(b) => b,
+                Err(_) => {
+                    local_warnings.push(format!(
+                        "could not determine default branch for {} -- skipping",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
+
+            let repo_name = repo_display_name(repo_path);
+
+            if verbose {
+                eprintln!(
+                    "{repo_name}: {} worktrees (default_branch={default_branch})",
+                    worktrees.len(),
+                );
             }
-        };
 
-        let repo_name = repo_display_name(repo_path);
-
-        if verbose {
-            eprintln!(
-                "{repo_name}: {} worktrees (default_branch={default_branch})",
-                worktrees.len(),
-            );
-        }
-
-        let mut classified = Vec::new();
-        for wt in worktrees {
-            match classification::classify_worktree(
-                git,
-                &wt.path,
-                repo_path,
-                &default_branch,
-                behind_threshold,
-                verbose,
-                noise_patterns,
-            ) {
-                Ok(info) => {
-                    if verbose {
-                        let wt_name = wt.path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-                        eprintln!(
-                            "  {wt_name}: {} (branch={}, ahead={}, behind={})",
-                            info.classification.label(),
-                            info.branch.as_deref().unwrap_or("(detached)"),
-                            info.ahead,
-                            info.behind,
-                        );
+            let mut classified = Vec::new();
+            for wt in worktrees {
+                match classification::classify_worktree(
+                    git,
+                    &wt.path,
+                    repo_path,
+                    &default_branch,
+                    behind_threshold,
+                    verbose,
+                    noise_patterns,
+                ) {
+                    Ok(info) => {
+                        if verbose {
+                            let wt_name =
+                                wt.path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                            eprintln!(
+                                "  {wt_name}: {} (branch={}, ahead={}, behind={})",
+                                info.classification.label(),
+                                info.branch.as_deref().unwrap_or("(detached)"),
+                                info.ahead,
+                                info.behind,
+                            );
+                        }
+                        classified.push(info);
                     }
-                    classified.push(info);
-                }
-                Err(e) => {
-                    local_warnings.push(format!("error classifying {}: {e}", wt.path.display()));
+                    Err(e) => {
+                        local_warnings
+                            .push(format!("error classifying {}: {e}", wt.path.display()));
+                    }
                 }
             }
-        }
 
-        classified.sort_by_key(|wt| wt.classification.priority());
+            classified.sort_by_key(|wt| wt.classification.priority());
 
-        let group = if classified.is_empty() {
-            None
-        } else {
-            Some(RepoGroup {
-                repo_path: repo_path.to_path_buf(),
-                name: repo_name,
-                worktrees: classified,
-            })
-        };
+            let group = if classified.is_empty() {
+                None
+            } else {
+                Some(RepoGroup {
+                    repo_path: repo_path.to_path_buf(),
+                    name: repo_name,
+                    worktrees: classified,
+                })
+            };
 
-        (group, local_warnings)
-    }, "Scanning worktrees", progress);
+            (group, local_warnings)
+        },
+        "Scanning worktrees",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = ScanCounts::default();
