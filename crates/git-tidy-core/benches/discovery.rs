@@ -246,8 +246,16 @@ fn bench_discovery(c: &mut Criterion) {
 
     // Verify all implementations agree on the result count
     let expected = discover_current(&dir).len();
-    assert_eq!(discover_reduced_syscalls(&dir).len(), expected, "reduced_syscalls mismatch");
-    assert_eq!(discover_no_canonicalize(&dir).len(), expected, "no_canonicalize mismatch");
+    assert_eq!(
+        discover_reduced_syscalls(&dir).len(),
+        expected,
+        "reduced_syscalls mismatch"
+    );
+    assert_eq!(
+        discover_no_canonicalize(&dir).len(),
+        expected,
+        "no_canonicalize mismatch"
+    );
     assert_eq!(discover_rayon(&dir).len(), expected, "rayon mismatch");
     assert_eq!(discover_jwalk(&dir).len(), expected, "jwalk mismatch");
     assert_eq!(discover_ignore(&dir).len(), expected, "ignore mismatch");
@@ -256,9 +264,7 @@ fn bench_discovery(c: &mut Criterion) {
     let mut group = c.benchmark_group("discover_repos");
     group.sample_size(200);
 
-    group.bench_function("1_current", |b| {
-        b.iter(|| discover_current(&dir))
-    });
+    group.bench_function("1_current", |b| b.iter(|| discover_current(&dir)));
 
     group.bench_function("2_reduced_syscalls", |b| {
         b.iter(|| discover_reduced_syscalls(&dir))
@@ -268,17 +274,11 @@ fn bench_discovery(c: &mut Criterion) {
         b.iter(|| discover_no_canonicalize(&dir))
     });
 
-    group.bench_function("4_rayon_parallel", |b| {
-        b.iter(|| discover_rayon(&dir))
-    });
+    group.bench_function("4_rayon_parallel", |b| b.iter(|| discover_rayon(&dir)));
 
-    group.bench_function("5_jwalk", |b| {
-        b.iter(|| discover_jwalk(&dir))
-    });
+    group.bench_function("5_jwalk", |b| b.iter(|| discover_jwalk(&dir)));
 
-    group.bench_function("6_ignore_crate", |b| {
-        b.iter(|| discover_ignore(&dir))
-    });
+    group.bench_function("6_ignore_crate", |b| b.iter(|| discover_ignore(&dir)));
 
     group.finish();
 }

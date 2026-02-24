@@ -339,7 +339,13 @@ mod tests {
             ("git-lfs-tidy", Ok("[]")),
         ]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
+        let result = run_audit(
+            &runner,
+            Path::new("/dev"),
+            None,
+            false,
+            &Progress::disabled(),
+        );
         assert_eq!(result.tools_found.len(), 8);
         assert!(result.tools_missing.is_empty());
         assert_eq!(result.results.len(), 8);
@@ -364,7 +370,13 @@ mod tests {
             Ok(r#"[{"classification":"active"}]"#),
         )]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
+        let result = run_audit(
+            &runner,
+            Path::new("/dev"),
+            None,
+            false,
+            &Progress::disabled(),
+        );
         assert_eq!(result.tools_found, vec!["git-branch-tidy"]);
         assert!(
             result
@@ -379,7 +391,13 @@ mod tests {
     fn audit_tool_returns_error() {
         let runner = MockToolRunner::new(vec![("git-branch-tidy", Err("process failed"))]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
+        let result = run_audit(
+            &runner,
+            Path::new("/dev"),
+            None,
+            false,
+            &Progress::disabled(),
+        );
         assert_eq!(result.results.len(), 1);
         assert_eq!(result.results[0].error.as_deref(), Some("process failed"));
         assert_eq!(result.results[0].total, 0);
@@ -389,7 +407,13 @@ mod tests {
     fn audit_tool_returns_invalid_json() {
         let runner = MockToolRunner::new(vec![("git-branch-tidy", Ok("not json"))]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
+        let result = run_audit(
+            &runner,
+            Path::new("/dev"),
+            None,
+            false,
+            &Progress::disabled(),
+        );
         assert_eq!(result.results.len(), 1);
         assert!(result.results[0].error.is_some());
         assert!(
@@ -428,7 +452,13 @@ mod tests {
     fn audit_no_tools_found() {
         let runner = MockToolRunner::new(vec![]);
 
-        let result = run_audit(&runner, Path::new("/dev"), None, false, &Progress::disabled());
+        let result = run_audit(
+            &runner,
+            Path::new("/dev"),
+            None,
+            false,
+            &Progress::disabled(),
+        );
         assert!(result.tools_found.is_empty());
         assert_eq!(result.tools_missing.len(), 8);
         assert!(result.results.is_empty());

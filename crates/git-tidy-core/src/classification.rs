@@ -55,9 +55,7 @@ pub fn classify_branch(
     let (behind, ahead) = git.rev_list_left_right_count(repo, &origin_default, branch_name)?;
 
     if verbose {
-        eprintln!(
-            "  {branch_name}: remote={has_remote}, ahead={ahead}, behind={behind}",
-        );
+        eprintln!("  {branch_name}: remote={has_remote}, ahead={ahead}, behind={behind}",);
     }
 
     // Check if structurally landed — skip the subprocess call when ahead == 0
@@ -97,7 +95,9 @@ pub fn classify_branch(
         if verbose {
             eprintln!(
                 "  {branch_name}: content detection ({}/{}) → {}",
-                landed_result.matched, landed_result.total, cls.label(),
+                landed_result.matched,
+                landed_result.total,
+                cls.label(),
             );
         }
         cls

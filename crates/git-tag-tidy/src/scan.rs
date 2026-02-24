@@ -50,139 +50,145 @@ pub fn run_scan(
 
     let mut warnings = Vec::new();
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let mut local_warnings = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let mut local_warnings = Vec::new();
 
-        let local_tags: HashSet<String> = match git.list_local_tags(repo_path) {
-            Ok(tags) => tags.into_iter().collect(),
-            Err(e) => {
-                local_warnings.push(format!(
-                    "could not list tags for {}: {e}",
-                    repo_path.display()
-                ));
-                return (None, local_warnings);
-            }
-        };
+            let local_tags: HashSet<String> = match git.list_local_tags(repo_path) {
+                Ok(tags) => tags.into_iter().collect(),
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not list tags for {}: {e}",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
 
-        let remotes = git.list_remotes(repo_path).unwrap_or_default();
-        let mut remote_tag_map: HashMap<String, (String, Vec<String>)> = HashMap::new();
+            let remotes = git.list_remotes(repo_path).unwrap_or_default();
+            let mut remote_tag_map: HashMap<String, (String, Vec<String>)> = HashMap::new();
 
-        if !offline {
-            for remote in &remotes {
-                match git.list_remote_tags(repo_path, remote) {
-                    Ok(tags) => {
-                        for (tag_name, commit) in tags {
-                            remote_tag_map
-                                .entry(tag_name)
-                                .and_modify(|(_c, names)| names.push(remote.clone()))
-                                .or_insert_with(|| (commit, vec![remote.clone()]));
+            if !offline {
+                for remote in &remotes {
+                    match git.list_remote_tags(repo_path, remote) {
+                        Ok(tags) => {
+                            for (tag_name, commit) in tags {
+                                remote_tag_map
+                                    .entry(tag_name)
+                                    .and_modify(|(_c, names)| names.push(remote.clone()))
+                                    .or_insert_with(|| (commit, vec![remote.clone()]));
+                            }
                         }
-                    }
-                    Err(e) => {
-                        local_warnings.push(format!(
-                            "could not list remote tags for {remote} in {}: {e}",
-                            repo_path.display()
-                        ));
+                        Err(e) => {
+                            local_warnings.push(format!(
+                                "could not list remote tags for {remote} in {}: {e}",
+                                repo_path.display()
+                            ));
+                        }
                     }
                 }
             }
-        }
 
-        let all_tag_names: Vec<String> = local_tags
-            .iter()
-            .cloned()
-            .chain(remote_tag_map.keys().cloned())
-            .collect::<HashSet<String>>()
-            .into_iter()
-            .collect();
+            let all_tag_names: Vec<String> = local_tags
+                .iter()
+                .cloned()
+                .chain(remote_tag_map.keys().cloned())
+                .collect::<HashSet<String>>()
+                .into_iter()
+                .collect();
 
-        if all_tag_names.is_empty() {
-            return (None, local_warnings);
-        }
+            if all_tag_names.is_empty() {
+                return (None, local_warnings);
+            }
 
-        let repo_name = repo_display_name(repo_path);
-
-        if verbose {
-            eprintln!(
-                "{repo_name}: {} local, {} remote tags",
-                local_tags.len(),
-                remote_tag_map.len()
-            );
-        }
-
-        let mut classified = Vec::with_capacity(all_tag_names.len());
-
-        for tag_name in &all_tag_names {
-            let is_local = local_tags.contains(tag_name);
-
-            let (local_commit, is_reachable, is_annotated, tagger_date) = if is_local {
-                let commit = match git.tag_commit(repo_path, tag_name) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        local_warnings.push(format!(
-                            "could not resolve tag {tag_name} in {}: {e}",
-                            repo_path.display()
-                        ));
-                        continue;
-                    }
-                };
-                let reachable = git.is_commit_reachable(repo_path, &commit).unwrap_or(false);
-                let annotated = git.is_tag_annotated(repo_path, tag_name).unwrap_or(false);
-                let date = git.tag_date(repo_path, tag_name).unwrap_or(None);
-                (Some(commit), reachable, annotated, date)
-            } else {
-                (None, false, false, None)
-            };
-
-            let (remote_commit, remote_names) = match remote_tag_map.remove(tag_name.as_str()) {
-                Some((commit, names)) => (Some(commit), names),
-                None => (None, vec![]),
-            };
-
-            let classification = classify_tag(
-                local_commit.as_deref(),
-                remote_commit.as_deref(),
-                is_reachable,
-                offline,
-            );
-
-            let commit = local_commit.unwrap_or_else(|| remote_commit.unwrap_or_else(String::new));
+            let repo_name = repo_display_name(repo_path);
 
             if verbose {
                 eprintln!(
-                    "  {tag_name}: {} (reachable={is_reachable}, local={is_local}, remote={})",
-                    classification.label(),
-                    remote_names.len(),
+                    "{repo_name}: {} local, {} remote tags",
+                    local_tags.len(),
+                    remote_tag_map.len()
                 );
             }
 
-            classified.push(TagInfo {
-                repo_path: repo_path.to_path_buf(),
-                name: tag_name.clone(),
-                classification,
-                commit,
-                is_annotated,
-                tagger_date,
-                is_release_tag: is_release_tag_name(tag_name),
-                remote_names,
+            let mut classified = Vec::with_capacity(all_tag_names.len());
+
+            for tag_name in &all_tag_names {
+                let is_local = local_tags.contains(tag_name);
+
+                let (local_commit, is_reachable, is_annotated, tagger_date) = if is_local {
+                    let commit = match git.tag_commit(repo_path, tag_name) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            local_warnings.push(format!(
+                                "could not resolve tag {tag_name} in {}: {e}",
+                                repo_path.display()
+                            ));
+                            continue;
+                        }
+                    };
+                    let reachable = git.is_commit_reachable(repo_path, &commit).unwrap_or(false);
+                    let annotated = git.is_tag_annotated(repo_path, tag_name).unwrap_or(false);
+                    let date = git.tag_date(repo_path, tag_name).unwrap_or(None);
+                    (Some(commit), reachable, annotated, date)
+                } else {
+                    (None, false, false, None)
+                };
+
+                let (remote_commit, remote_names) = match remote_tag_map.remove(tag_name.as_str()) {
+                    Some((commit, names)) => (Some(commit), names),
+                    None => (None, vec![]),
+                };
+
+                let classification = classify_tag(
+                    local_commit.as_deref(),
+                    remote_commit.as_deref(),
+                    is_reachable,
+                    offline,
+                );
+
+                let commit =
+                    local_commit.unwrap_or_else(|| remote_commit.unwrap_or_else(String::new));
+
+                if verbose {
+                    eprintln!(
+                        "  {tag_name}: {} (reachable={is_reachable}, local={is_local}, remote={})",
+                        classification.label(),
+                        remote_names.len(),
+                    );
+                }
+
+                classified.push(TagInfo {
+                    repo_path: repo_path.to_path_buf(),
+                    name: tag_name.clone(),
+                    classification,
+                    commit,
+                    is_annotated,
+                    tagger_date,
+                    is_release_tag: is_release_tag_name(tag_name),
+                    remote_names,
+                });
+            }
+
+            classified.sort_by(|a, b| {
+                a.classification
+                    .priority()
+                    .cmp(&b.classification.priority())
+                    .then_with(|| a.name.cmp(&b.name))
             });
-        }
 
-        classified.sort_by(|a, b| {
-            a.classification
-                .priority()
-                .cmp(&b.classification.priority())
-                .then_with(|| a.name.cmp(&b.name))
-        });
+            let group = TagRepoGroup {
+                repo_path: repo_path.to_path_buf(),
+                name: repo_name,
+                tags: classified,
+            };
 
-        let group = TagRepoGroup {
-            repo_path: repo_path.to_path_buf(),
-            name: repo_name,
-            tags: classified,
-        };
-
-        (Some(group), local_warnings)
-    }, "Scanning tags", progress);
+            (Some(group), local_warnings)
+        },
+        "Scanning tags",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = TagCounts::default();

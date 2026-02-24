@@ -27,105 +27,110 @@ pub fn run_scan(
     let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
-    let (repos, scan_warnings) = parallel_classify(&repo_paths, |repo_path| {
-        let mut local_warnings = Vec::new();
+    let (repos, scan_warnings) = parallel_classify(
+        &repo_paths,
+        |repo_path| {
+            let mut local_warnings = Vec::new();
 
-        let default_branch = match classification::detect_default_branch(git, repo_path) {
-            Ok(b) => b,
-            Err(_) => {
-                local_warnings.push(format!(
-                    "could not determine default branch for {} -- skipping",
-                    repo_path.display()
-                ));
-                return (None, local_warnings);
-            }
-        };
-
-        let branches = match git.list_local_branches(repo_path) {
-            Ok(b) => b,
-            Err(e) => {
-                local_warnings.push(format!(
-                    "could not list branches for {}: {e}",
-                    repo_path.display()
-                ));
-                return (None, local_warnings);
-            }
-        };
-
-        let current = git.current_branch(repo_path).unwrap_or(None);
-        let repo_name = repo_display_name(repo_path);
-
-        if verbose {
-            eprintln!(
-                "{repo_name}: {} branches (default_branch={default_branch})",
-                branches.len() - 1,
-            );
-        }
-
-        let mut classified = Vec::with_capacity(branches.len());
-
-        for branch_name in &branches {
-            if branch_name == &default_branch {
-                continue;
-            }
-
-            let is_current = current.as_deref() == Some(branch_name.as_str());
-
-            match classification::classify_branch(
-                git,
-                repo_path,
-                branch_name,
-                &default_branch,
-                behind_threshold,
-                verbose,
-            ) {
-                Ok(bc) => {
-                    if verbose {
-                        eprintln!(
-                            "  {branch_name}: {} (remote={}, ahead={}, behind={})",
-                            bc.classification.label(),
-                            bc.remote_tracking,
-                            bc.ahead,
-                            bc.behind,
-                        );
-                    }
-                    classified.push(BranchInfo {
-                        repo_path: repo_path.to_path_buf(),
-                        name: branch_name.clone(),
-                        default_branch: default_branch.clone(),
-                        classification: bc.classification,
-                        remote_tracking: bc.remote_tracking,
-                        remote_deleted: bc.remote_deleted,
-                        ahead: bc.ahead,
-                        behind: bc.behind,
-                        diverged: bc.diverged,
-                        is_current,
-                    });
-                }
-                Err(e) => {
+            let default_branch = match classification::detect_default_branch(git, repo_path) {
+                Ok(b) => b,
+                Err(_) => {
                     local_warnings.push(format!(
-                        "error classifying branch {} in {}: {e}",
-                        branch_name,
+                        "could not determine default branch for {} -- skipping",
                         repo_path.display()
                     ));
+                    return (None, local_warnings);
+                }
+            };
+
+            let branches = match git.list_local_branches(repo_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not list branches for {}: {e}",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
+
+            let current = git.current_branch(repo_path).unwrap_or(None);
+            let repo_name = repo_display_name(repo_path);
+
+            if verbose {
+                eprintln!(
+                    "{repo_name}: {} branches (default_branch={default_branch})",
+                    branches.len() - 1,
+                );
+            }
+
+            let mut classified = Vec::with_capacity(branches.len());
+
+            for branch_name in &branches {
+                if branch_name == &default_branch {
+                    continue;
+                }
+
+                let is_current = current.as_deref() == Some(branch_name.as_str());
+
+                match classification::classify_branch(
+                    git,
+                    repo_path,
+                    branch_name,
+                    &default_branch,
+                    behind_threshold,
+                    verbose,
+                ) {
+                    Ok(bc) => {
+                        if verbose {
+                            eprintln!(
+                                "  {branch_name}: {} (remote={}, ahead={}, behind={})",
+                                bc.classification.label(),
+                                bc.remote_tracking,
+                                bc.ahead,
+                                bc.behind,
+                            );
+                        }
+                        classified.push(BranchInfo {
+                            repo_path: repo_path.to_path_buf(),
+                            name: branch_name.clone(),
+                            default_branch: default_branch.clone(),
+                            classification: bc.classification,
+                            remote_tracking: bc.remote_tracking,
+                            remote_deleted: bc.remote_deleted,
+                            ahead: bc.ahead,
+                            behind: bc.behind,
+                            diverged: bc.diverged,
+                            is_current,
+                        });
+                    }
+                    Err(e) => {
+                        local_warnings.push(format!(
+                            "error classifying branch {} in {}: {e}",
+                            branch_name,
+                            repo_path.display()
+                        ));
+                    }
                 }
             }
-        }
 
-        classified.sort_by_key(|b| b.classification.priority());
+            classified.sort_by_key(|b| b.classification.priority());
 
-        let group = if classified.is_empty() {
-            None
-        } else {
-            Some(BranchRepoGroup {
-                repo_path: repo_path.to_path_buf(),
-                name: repo_name,
-                branches: classified,
-            })
-        };
+            let group = if classified.is_empty() {
+                None
+            } else {
+                Some(BranchRepoGroup {
+                    repo_path: repo_path.to_path_buf(),
+                    name: repo_name,
+                    branches: classified,
+                })
+            };
 
-        (group, local_warnings)
-    }, "Scanning branches", progress);
+            (group, local_warnings)
+        },
+        "Scanning branches",
+        progress,
+    );
     warnings.extend(scan_warnings);
 
     let mut counts = ScanCounts::default();
