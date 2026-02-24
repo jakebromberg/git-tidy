@@ -40,11 +40,15 @@ fn format_gix_time(time: &gix::date::Time) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
 
-    let sign = if offset_secs < 0 { '-' } else { '+' };
-    format!(
-        "{y:04}-{m:02}-{d:02}T{hours:02}:{minutes:02}:{seconds:02}{sign}{:02}:{offset_m:02}",
-        offset_h.abs()
-    )
+    if offset_secs == 0 {
+        format!("{y:04}-{m:02}-{d:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
+    } else {
+        let sign = if offset_secs < 0 { '-' } else { '+' };
+        format!(
+            "{y:04}-{m:02}-{d:02}T{hours:02}:{minutes:02}:{seconds:02}{sign}{:02}:{offset_m:02}",
+            offset_h.abs()
+        )
+    }
 }
 
 /// Helper to run a git subprocess (for operations gix cannot handle natively).
