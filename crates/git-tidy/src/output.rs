@@ -69,7 +69,10 @@ pub fn write_human(
         }
     }
 
-    writeln!(out, "\nRun individual tools for details.")?;
+    writeln!(
+        out,
+        "\nRun individual tools for details. See 'git tidy explain' for terminology."
+    )?;
 
     Ok(())
 }
@@ -150,7 +153,11 @@ mod tests {
         );
         assert!(output.contains("branches:        3 scanned (2 active, 1 landed)"));
         assert!(output.contains("not installed: git-repo-tidy"));
-        assert!(output.contains("Run individual tools for details."));
+        assert!(
+            output.contains(
+                "Run individual tools for details. See 'git tidy explain' for terminology."
+            )
+        );
     }
 
     #[test]

@@ -17,12 +17,16 @@ Tool commands (dispatch to individual tools):
   config       git-config-tidy
   lfs          git-lfs-tidy
 
+Other commands:
+  explain      Show terminology glossary
+
 Singular forms also accepted (worktree, branch, stash, etc.).
 
 Examples:
   git tidy worktrees scan --json ~/Developer
   git tidy branches clean --yes
-  git tidy config lint"
+  git tidy config lint
+  git tidy explain partial"
 )]
 pub struct Cli {
     /// Directory to scan (default: current directory)
@@ -37,6 +41,12 @@ pub struct Cli {
 pub enum Command {
     #[command(flatten)]
     Shared(git_tidy_core::cli::SharedCommands),
+
+    /// Explain git-tidy terminology and classifications
+    Explain {
+        /// Look up a specific term (shows full glossary if omitted)
+        term: Option<String>,
+    },
 
     /// Run audit across all installed git-tidy tools (default)
     Audit {
@@ -145,6 +155,21 @@ mod tests {
                 assert_eq!(tools, vec!["branch", "tag"]);
             }
             _ => panic!("expected Audit command"),
+        }
+    }
+
+    #[test]
+    fn explain_subcommand_no_term() {
+        let cli = Cli::parse_from(["git-tidy", "explain"]);
+        assert!(matches!(cli.command, Some(Command::Explain { term: None })));
+    }
+
+    #[test]
+    fn explain_subcommand_with_term() {
+        let cli = Cli::parse_from(["git-tidy", "explain", "partial"]);
+        match cli.command {
+            Some(Command::Explain { term: Some(t) }) => assert_eq!(t, "partial"),
+            _ => panic!("expected Explain command with term"),
         }
     }
 

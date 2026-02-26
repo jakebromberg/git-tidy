@@ -35,7 +35,7 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 
 - **`GitOps` trait** (`git-tidy-core/src/git.rs`): All git operations go through this trait (`Send + Sync` for thread safety). `RealGit` shells out to `git`; `MockGit` (in `testutil.rs`) returns canned data. `MockGit` uses `Mutex` for call-tracking fields.
 - **Output to `&mut dyn Write`**: Enables unit testing output formatters without process capture.
-- **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`. All tools call these to avoid duplicating formatting logic.
+- **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `write_explain_hint`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`. All tools call these to avoid duplicating formatting logic.
 - **Shared CLI utilities** (`git-tidy-core/src/cli.rs`): `resolve_directory` for resolving optional directory arguments, `SharedCommands` enum (hidden `completions` subcommand flattened into all tools via `#[command(flatten)]`), used by all tools.
 - **Shared error handling** (`git-tidy-core/src/error.rs`): `exit_with_error` for consistent error-exit behavior across all tools.
 - **Shared type helpers** (`git-tidy-core/src/types.rs`): `extract_landed_fields` for extracting landed ratio/total/unmatched from `Classification` for JSON serialization.
@@ -57,7 +57,7 @@ All tools follow a similar CLI shape:
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Repo-tidy global args: `--stale-months` (default 6), `--offline`
 - Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`, lfs-tidy has `--prune` (enable orphaned LFS object removal)
-- git-tidy (audit runner + dispatch): Pre-clap alias dispatch in `main.rs` checks `args[1]` against `ToolSpec::aliases` and execs the binary. Falls through to `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`/`--subprocess`. Default mode calls tool scan/lint functions in-process with `CachingGitOps`; `--subprocess` shells out via `ToolRunner` trait.
+- git-tidy (audit runner + dispatch): Pre-clap alias dispatch in `main.rs` checks `args[1]` against `ToolSpec::aliases` and execs the binary. Falls through to `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`/`--subprocess`. `Explain` subcommand prints a terminology glossary. Default mode calls tool scan/lint functions in-process with `CachingGitOps`; `--subprocess` shells out via `ToolRunner` trait.
 - Config-tidy uses **lint/fix** subcommands instead of scan/clean (config issues are "lint findings")
 - LFS-tidy scan args: `--size-threshold` (default "1MB"), `--depth` (default 1000)
 
@@ -82,9 +82,10 @@ crates/
     src/
       main.rs                                 # Pre-clap dispatch, then CLI audit
       lib.rs                                  # Public module exports
-      cli.rs                                  # clap definitions (Audit subcommand, after_help aliases)
+      cli.rs                                  # clap definitions (Audit, Explain subcommands, after_help aliases)
       completions.rs                          # Custom zsh dispatcher completion generator
       dispatch.rs                             # Alias resolution + Unix exec dispatch
+      explain.rs                              # Terminology glossary (GlossaryEntry, write_full, write_term)
       types.rs                                # ToolSpec (with aliases), TOOL_SPECS, ToolResult, AuditResult
       runner.rs                               # ToolRunner trait, RealToolRunner, run_audit (subprocess mode)
       inprocess.rs                            # In-process audit: calls tool scan/lint with CachingGitOps

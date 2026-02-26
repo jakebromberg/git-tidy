@@ -27,6 +27,7 @@ pub fn generate_zsh(out: &mut dyn Write) -> io::Result<()> {
         }
     }
     aliases.push("audit");
+    aliases.push("explain");
 
     // Introspect audit flags from clap
     let audit_flags = introspect_audit_flags();
@@ -68,6 +69,10 @@ pub fn generate_zsh(out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "          _{bin}")?;
         writeln!(out, "          ;;")?;
     }
+
+    // explain subcommand (no flags, just pass-through)
+    writeln!(out, "        explain)")?;
+    writeln!(out, "          ;;")?;
 
     // audit subcommand
     writeln!(out, "        audit)")?;
@@ -147,6 +152,12 @@ mod tests {
     fn output_contains_audit() {
         let output = generated_output();
         assert!(output.contains("'audit'"));
+    }
+
+    #[test]
+    fn output_contains_explain() {
+        let output = generated_output();
+        assert!(output.contains("'explain'"));
     }
 
     #[test]

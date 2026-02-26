@@ -30,6 +30,7 @@ pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Re
     }
 
     write_stash_summary(out, result)?;
+    shared::write_explain_hint(out)?;
 
     Ok(())
 }

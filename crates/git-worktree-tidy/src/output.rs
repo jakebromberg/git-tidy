@@ -88,6 +88,7 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
     }
 
     shared::write_summary_line(out, result.total_scanned, &result.counts, "worktrees")?;
+    shared::write_explain_hint(out)?;
 
     Ok(())
 }

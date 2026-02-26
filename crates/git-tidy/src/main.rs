@@ -9,6 +9,7 @@ use git_tidy_core::progress::Progress;
 mod cli;
 mod completions;
 mod dispatch;
+mod explain;
 mod inprocess;
 mod output;
 mod runner;
@@ -30,6 +31,16 @@ fn main() {
         return;
     }
 
+    if let Some(cli::Command::Explain { term }) = &cli.command {
+        let mut stdout = io::stdout().lock();
+        if let Some(t) = term {
+            explain::write_term(&mut stdout, t).unwrap();
+        } else {
+            explain::write_full(&mut stdout).unwrap();
+        }
+        return;
+    }
+
     let directory = cli.target_directory();
 
     if !directory.is_dir() {
@@ -46,7 +57,9 @@ fn main() {
             subprocess,
         }) => (*json, *porcelain, *verbose, tools.clone(), *subprocess),
         None => (false, false, false, vec![], false),
-        Some(cli::Command::Shared(_)) => unreachable!("handled above"),
+        Some(cli::Command::Shared(_)) | Some(cli::Command::Explain { .. }) => {
+            unreachable!("handled above")
+        }
     };
 
     let tool_filter = if tools.is_empty() {

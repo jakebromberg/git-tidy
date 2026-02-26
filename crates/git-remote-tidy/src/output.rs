@@ -36,6 +36,7 @@ pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::R
     }
 
     write_remote_summary(out, result)?;
+    shared::write_explain_hint(out)?;
 
     Ok(())
 }
