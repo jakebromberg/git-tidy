@@ -47,6 +47,7 @@ fn clean_removes_remote_in_real_repo() {
         false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -85,6 +86,7 @@ fn clean_dry_run_does_not_remove() {
         &scan_dir,
         false,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -143,6 +145,7 @@ fn clean_prunes_orphaned_refs() {
         &scan_dir,
         false,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

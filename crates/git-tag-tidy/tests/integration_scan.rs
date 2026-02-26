@@ -49,6 +49,7 @@ fn scan_synced_tag() {
         false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -89,6 +90,7 @@ fn scan_local_only_tag() {
         false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -126,6 +128,7 @@ fn scan_stale_tag() {
         true,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -156,6 +159,7 @@ fn scan_annotated_tag() {
         true,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -174,6 +178,80 @@ fn scan_annotated_tag() {
 }
 
 #[test]
+fn scan_entity_filter_includes_matching_tags() {
+    let (dir, repo) = set_up_repo();
+    let scan_dir = dir.path().canonicalize().unwrap().join("projects");
+    let git_ops = RealGit;
+
+    // Create multiple tags
+    git(&repo, &["tag", "v1.0.0"]);
+    git(&repo, &["tag", "v2.0.0"]);
+    git(&repo, &["tag", "experiment-alpha"]);
+
+    // Filter to only v1 tags
+    let entity_filter = git_tidy_core::filter::NameFilter::new(&["v1".to_string()], &[]);
+
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        false,
+        &git_tidy_core::filter::NameFilter::default(),
+        &entity_filter,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
+
+    assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
+    let names: Vec<&str> = result.repos[0]
+        .tags
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect();
+    assert!(names.contains(&"v1.0.0"));
+    assert!(!names.contains(&"v2.0.0"));
+    assert!(!names.contains(&"experiment-alpha"));
+    assert_eq!(result.total_scanned, 1);
+}
+
+#[test]
+fn scan_entity_filter_exclude_takes_precedence() {
+    let (dir, repo) = set_up_repo();
+    let scan_dir = dir.path().canonicalize().unwrap().join("projects");
+    let git_ops = RealGit;
+
+    git(&repo, &["tag", "v1.0.0"]);
+    git(&repo, &["tag", "v1.0.0-rc1"]);
+    git(&repo, &["tag", "experiment"]);
+
+    // Include "v1" but exclude "rc"
+    let entity_filter =
+        git_tidy_core::filter::NameFilter::new(&["v1".to_string()], &["rc".to_string()]);
+
+    let result = git_tag_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        false,
+        &git_tidy_core::filter::NameFilter::default(),
+        &entity_filter,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
+
+    assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
+    let names: Vec<&str> = result.repos[0]
+        .tags
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect();
+    assert!(names.contains(&"v1.0.0"));
+    assert!(!names.contains(&"v1.0.0-rc1"));
+    assert!(!names.contains(&"experiment"));
+    assert_eq!(result.total_scanned, 1);
+}
+
+#[test]
 fn scan_empty_repo_no_tags() {
     let (dir, _repo) = set_up_repo();
     let scan_dir = dir.path().canonicalize().unwrap().join("projects");
@@ -184,6 +262,7 @@ fn scan_empty_repo_no_tags() {
         &scan_dir,
         true,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

@@ -30,6 +30,14 @@ pub struct Cli {
     /// Exclude repos by name substring (takes precedence over --match-repo)
     #[arg(long = "exclude-repo", global = true)]
     pub exclude_repo_patterns: Vec<String>,
+
+    /// Filter branches by name substring (can be repeated, OR semantics)
+    #[arg(long = "match", global = true)]
+    pub match_patterns: Vec<String>,
+
+    /// Exclude branches by name substring (takes precedence over --match)
+    #[arg(long = "exclude", global = true)]
+    pub exclude_patterns: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -196,6 +204,20 @@ mod tests {
                 git_tidy_core::cli::SharedCommands::Completions { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn match_and_exclude_flags() {
+        let cli = Cli::parse_from([
+            "git-branch-tidy",
+            "--match",
+            "feature",
+            "--exclude",
+            "wip",
+            "scan",
+        ]);
+        assert_eq!(cli.match_patterns, vec!["feature".to_string()]);
+        assert_eq!(cli.exclude_patterns, vec!["wip".to_string()]);
     }
 
     #[test]

@@ -47,6 +47,7 @@ pub fn run_scan(
     offline: bool,
     verbose: bool,
     repo_filter: &NameFilter,
+    entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RemoteScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
@@ -113,6 +114,10 @@ pub fn run_scan(
             let mut classified = Vec::new();
 
             for (idx, remote_name) in all_remote_names.iter().enumerate() {
+                if !entity_filter.matches(remote_name) {
+                    continue;
+                }
+
                 let is_configured = idx < configured_count;
                 let classification =
                     classify_remote(git, repo_path, remote_name, is_configured, offline);

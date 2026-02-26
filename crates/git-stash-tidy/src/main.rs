@@ -31,6 +31,7 @@ fn main() {
     let git = gix_ops::GixGitOps;
     let progress = Progress::new();
     let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
+    let entity_filter = NameFilter::new(&cli.match_patterns, &cli.exclude_patterns);
     let mut stdout = io::stdout().lock();
 
     match &cli.command {
@@ -48,6 +49,7 @@ fn main() {
                 cli.age_threshold,
                 cli.verbose,
                 &repo_filter,
+                &entity_filter,
                 &progress,
             ) {
                 Ok(result) => {
@@ -77,6 +79,7 @@ fn main() {
             cli.age_threshold,
             cli.verbose,
             &repo_filter,
+            &entity_filter,
             &progress,
         ) {
             Ok(scan_result) => {

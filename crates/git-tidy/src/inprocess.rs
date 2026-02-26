@@ -174,6 +174,7 @@ fn run_tool_scan(
                 DEFAULT_BEHIND_THRESHOLD,
                 verbose,
                 &filter,
+                &filter,
                 progress,
             ),
             spec,
@@ -194,6 +195,7 @@ fn run_tool_scan(
                 DEFAULT_AGE_THRESHOLD,
                 verbose,
                 &filter,
+                &filter,
                 progress,
             ),
             spec,
@@ -207,7 +209,9 @@ fn run_tool_scan(
             },
         ),
         "git-remote-tidy" => scan_to_result(
-            git_remote_tidy::scan::run_scan(git, directory, false, verbose, &filter, progress),
+            git_remote_tidy::scan::run_scan(
+                git, directory, false, verbose, &filter, &filter, progress,
+            ),
             spec,
             |r| {
                 vec![
@@ -218,7 +222,9 @@ fn run_tool_scan(
             },
         ),
         "git-tag-tidy" => scan_to_result(
-            git_tag_tidy::scan::run_scan(git, directory, false, verbose, &filter, progress),
+            git_tag_tidy::scan::run_scan(
+                git, directory, false, verbose, &filter, &filter, progress,
+            ),
             spec,
             |r| {
                 vec![
