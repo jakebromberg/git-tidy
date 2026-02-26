@@ -73,6 +73,7 @@ pub fn run_scan(
     age_threshold: u64,
     verbose: bool,
     repo_filter: &NameFilter,
+    entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<StashScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
@@ -110,6 +111,11 @@ pub fn run_scan(
             let mut classified = Vec::with_capacity(stashes.len());
 
             for (stash_ref, message, iso_date) in &stashes {
+                let filter_name = parse_stash_branch(message);
+                if !entity_filter.matches(filter_name.as_deref().unwrap_or(message)) {
+                    continue;
+                }
+
                 let (classification, age_days, branch) = classify_stash(
                     git,
                     repo_path,

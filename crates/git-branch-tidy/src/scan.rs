@@ -19,6 +19,7 @@ pub fn run_scan(
     behind_threshold: usize,
     verbose: bool,
     repo_filter: &NameFilter,
+    entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
@@ -68,6 +69,10 @@ pub fn run_scan(
 
             for branch_name in &branches {
                 if branch_name == &default_branch {
+                    continue;
+                }
+
+                if !entity_filter.matches(branch_name) {
                     continue;
                 }
 

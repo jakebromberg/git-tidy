@@ -45,6 +45,7 @@ fn scan_real_repo_with_reachable_remote() {
         false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -77,6 +78,7 @@ fn scan_repo_with_unreachable_remote() {
         false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -108,6 +110,7 @@ fn scan_repo_with_orphaned_refs() {
         false,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -127,6 +130,92 @@ fn scan_repo_with_orphaned_refs() {
 }
 
 #[test]
+fn scan_entity_filter_includes_matching_remotes() {
+    let (dir, repo) = set_up_repo();
+    let scan_dir = dir.path().canonicalize().unwrap().join("projects");
+    let git_ops = RealGit;
+
+    // Add multiple remotes (all offline/unreachable for simplicity)
+    git(
+        &repo,
+        &["remote", "add", "origin", "/nonexistent/origin.git"],
+    );
+    git(
+        &repo,
+        &["remote", "add", "upstream", "/nonexistent/upstream.git"],
+    );
+    git(&repo, &["remote", "add", "fork", "/nonexistent/fork.git"]);
+
+    // Filter to only "origin"
+    let entity_filter = git_tidy_core::filter::NameFilter::new(&["origin".to_string()], &[]);
+
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true, // offline to avoid network
+        false,
+        &git_tidy_core::filter::NameFilter::default(),
+        &entity_filter,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
+
+    assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
+    let names: Vec<&str> = result.repos[0]
+        .remotes
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect();
+    assert!(names.contains(&"origin"));
+    assert!(!names.contains(&"upstream"));
+    assert!(!names.contains(&"fork"));
+    assert_eq!(result.total_scanned, 1);
+}
+
+#[test]
+fn scan_entity_filter_exclude_takes_precedence() {
+    let (dir, repo) = set_up_repo();
+    let scan_dir = dir.path().canonicalize().unwrap().join("projects");
+    let git_ops = RealGit;
+
+    git(
+        &repo,
+        &["remote", "add", "origin", "/nonexistent/origin.git"],
+    );
+    git(
+        &repo,
+        &["remote", "add", "origin-backup", "/nonexistent/backup.git"],
+    );
+    git(&repo, &["remote", "add", "fork", "/nonexistent/fork.git"]);
+
+    // Include "origin" but exclude "backup"
+    let entity_filter =
+        git_tidy_core::filter::NameFilter::new(&["origin".to_string()], &["backup".to_string()]);
+
+    let result = git_remote_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        true,
+        false,
+        &git_tidy_core::filter::NameFilter::default(),
+        &entity_filter,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
+
+    assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
+    let names: Vec<&str> = result.repos[0]
+        .remotes
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect();
+    assert!(names.contains(&"origin"));
+    assert!(!names.contains(&"origin-backup"));
+    assert!(!names.contains(&"fork"));
+    assert_eq!(result.total_scanned, 1);
+}
+
+#[test]
 fn scan_empty_repo_no_remotes() {
     let (dir, _repo) = set_up_repo();
     let scan_dir = dir.path().canonicalize().unwrap().join("projects");
@@ -137,6 +226,7 @@ fn scan_empty_repo_no_remotes() {
         &scan_dir,
         false,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
@@ -164,6 +254,7 @@ fn scan_offline_mode() {
         &scan_dir,
         true,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )

@@ -43,6 +43,7 @@ pub fn run_scan(
     offline: bool,
     verbose: bool,
     repo_filter: &NameFilter,
+    entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<TagScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
@@ -115,6 +116,10 @@ pub fn run_scan(
             let mut classified = Vec::with_capacity(all_tag_names.len());
 
             for tag_name in &all_tag_names {
+                if !entity_filter.matches(tag_name) {
+                    continue;
+                }
+
                 let is_local = local_tags.contains(tag_name);
 
                 let (local_commit, is_reachable, is_annotated, tagger_date) = if is_local {

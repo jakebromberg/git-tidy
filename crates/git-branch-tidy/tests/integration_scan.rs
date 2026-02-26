@@ -62,6 +62,7 @@ fn scan_real_repo_with_mixed_branches() {
         100,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -118,6 +119,7 @@ fn scan_marks_current_branch_in_real_repo() {
         100,
         false,
         &git_tidy_core::filter::NameFilter::default(),
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
     .unwrap();
@@ -126,6 +128,80 @@ fn scan_marks_current_branch_in_real_repo() {
     let branch = &result.repos[0].branches[0];
     assert_eq!(branch.name, "my-feature");
     assert!(branch.is_current);
+}
+
+#[test]
+fn scan_entity_filter_includes_matching_branches() {
+    let (dir, repo) = set_up_repo_with_remote();
+    let scan_dir = dir.path().canonicalize().unwrap().join("projects");
+    let git_ops = RealGit;
+
+    // Create several branches
+    git(&repo, &["branch", "feature/login"]);
+    git(&repo, &["branch", "feature/signup"]);
+    git(&repo, &["branch", "bugfix/crash"]);
+
+    // Filter to only feature branches
+    let entity_filter = git_tidy_core::filter::NameFilter::new(&["feature".to_string()], &[]);
+
+    let result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::filter::NameFilter::default(),
+        &entity_filter,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
+
+    assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
+    let names: Vec<&str> = result.repos[0]
+        .branches
+        .iter()
+        .map(|b| b.name.as_str())
+        .collect();
+    assert!(names.contains(&"feature/login"));
+    assert!(names.contains(&"feature/signup"));
+    assert!(!names.contains(&"bugfix/crash"));
+    assert_eq!(result.total_scanned, 2);
+}
+
+#[test]
+fn scan_entity_filter_exclude_takes_precedence() {
+    let (dir, repo) = set_up_repo_with_remote();
+    let scan_dir = dir.path().canonicalize().unwrap().join("projects");
+    let git_ops = RealGit;
+
+    git(&repo, &["branch", "feature/login"]);
+    git(&repo, &["branch", "feature/login-wip"]);
+    git(&repo, &["branch", "bugfix/crash"]);
+
+    // Include "feature" but exclude "wip"
+    let entity_filter =
+        git_tidy_core::filter::NameFilter::new(&["feature".to_string()], &["wip".to_string()]);
+
+    let result = git_branch_tidy::scan::run_scan(
+        &git_ops,
+        &scan_dir,
+        100,
+        false,
+        &git_tidy_core::filter::NameFilter::default(),
+        &entity_filter,
+        &git_tidy_core::progress::Progress::disabled(),
+    )
+    .unwrap();
+
+    assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
+    let names: Vec<&str> = result.repos[0]
+        .branches
+        .iter()
+        .map(|b| b.name.as_str())
+        .collect();
+    assert!(names.contains(&"feature/login"));
+    assert!(!names.contains(&"feature/login-wip"));
+    assert!(!names.contains(&"bugfix/crash"));
+    assert_eq!(result.total_scanned, 1);
 }
 
 #[test]
@@ -149,6 +225,7 @@ fn scan_skips_repo_without_default_branch() {
         &base,
         100,
         false,
+        &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::filter::NameFilter::default(),
         &git_tidy_core::progress::Progress::disabled(),
     )
