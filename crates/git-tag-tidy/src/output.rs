@@ -36,6 +36,7 @@ pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Resu
     }
 
     write_tag_summary(out, result)?;
+    shared::write_explain_hint(out)?;
 
     Ok(())
 }

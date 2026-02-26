@@ -70,6 +70,7 @@ pub fn write_human(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Resu
     }
 
     write_lfs_summary(out, result)?;
+    shared::write_explain_hint(out)?;
 
     Ok(())
 }

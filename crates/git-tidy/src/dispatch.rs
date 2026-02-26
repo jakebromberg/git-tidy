@@ -37,8 +37,8 @@ pub fn try_dispatch(args: &[OsString], find_binary: impl Fn(&str) -> Option<Path
         return;
     };
 
-    // Don't intercept flags or the explicit "audit" subcommand
-    if alias_str.starts_with('-') || alias_str == "audit" {
+    // Don't intercept flags or built-in subcommands
+    if alias_str.starts_with('-') || alias_str == "audit" || alias_str == "explain" {
         return;
     }
 
@@ -112,6 +112,11 @@ mod tests {
         assert_eq!(resolve_alias("audit"), None);
     }
 
+    #[test]
+    fn resolve_alias_explain_not_intercepted() {
+        assert_eq!(resolve_alias("explain"), None);
+    }
+
     // -- try_dispatch fall-through tests --
 
     fn os(s: &str) -> OsString {
@@ -145,6 +150,12 @@ mod tests {
     #[test]
     fn try_dispatch_audit_not_intercepted() {
         let args = [os("git-tidy"), os("audit")];
+        try_dispatch(&args, never_find);
+    }
+
+    #[test]
+    fn try_dispatch_explain_not_intercepted() {
+        let args = [os("git-tidy"), os("explain")];
         try_dispatch(&args, never_find);
     }
 

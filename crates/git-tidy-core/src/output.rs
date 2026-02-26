@@ -72,6 +72,11 @@ pub fn write_json_pretty(out: &mut dyn Write, value: &impl Serialize) -> std::io
     writeln!(out, "{json}")
 }
 
+/// Write a hint pointing users to `git tidy explain` for terminology.
+pub fn write_explain_hint(out: &mut dyn Write) -> std::io::Result<()> {
+    writeln!(out, "hint: run 'git tidy explain' for a glossary of terms")
+}
+
 /// Format the landed ratio for display. Returns empty string for non-landed classifications.
 pub fn format_landed_ratio(classification: &Classification) -> String {
     match classification {
@@ -207,5 +212,16 @@ mod tests {
         let path = PathBuf::from("/");
         // Root path has no file_name, should fall back to display
         assert_eq!(repo_display_name(&path), "/");
+    }
+
+    #[test]
+    fn explain_hint_output() {
+        let mut buf = Vec::new();
+        write_explain_hint(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            output,
+            "hint: run 'git tidy explain' for a glossary of terms\n"
+        );
     }
 }
