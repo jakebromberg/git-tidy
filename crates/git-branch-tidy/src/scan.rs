@@ -184,6 +184,8 @@ mod tests {
                 ],
             )
             .with_current_branch(&repo(), Some("main"))
+            // origin has main
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             // feature/done: merged
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/done", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/done", (0, 0))
@@ -265,6 +267,8 @@ mod tests {
             .with_symbolic_ref(&repo(), Some("main"))
             .with_local_branches(&repo(), vec!["main".to_string(), "my-feature".to_string()])
             .with_current_branch(&repo(), Some("my-feature"))
+            // origin has main
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             // my-feature: active
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/my-feature", true)
             .with_rev_list_counts(&repo(), "origin/main", "my-feature", (0, 1))
