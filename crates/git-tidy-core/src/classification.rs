@@ -28,6 +28,16 @@ pub fn detect_default_branch(git: &dyn GitOps, repo: &Path) -> Result<String, Er
         return Ok("master".to_string());
     }
 
+    // Method 4: probe for local main (no origin remote)
+    if git.rev_parse_verify(repo, "refs/heads/main")? {
+        return Ok("main".to_string());
+    }
+
+    // Method 5: probe for local master (no origin remote)
+    if git.rev_parse_verify(repo, "refs/heads/master")? {
+        return Ok("master".to_string());
+    }
+
     Err(Error::NoDefaultBranch {
         repo: repo.to_path_buf(),
     })
@@ -44,22 +54,29 @@ pub fn classify_branch(
     behind_threshold: usize,
     verbose: bool,
 ) -> Result<BranchClassification, Error> {
-    let origin_default = format!("origin/{default_branch}");
+    // Determine whether origin has the default branch
+    let origin_ref = format!("refs/remotes/origin/{default_branch}");
+    let has_origin = git.rev_parse_verify(repo, &origin_ref)?;
+    let comparison_target = if has_origin {
+        format!("origin/{default_branch}")
+    } else {
+        default_branch.to_string()
+    };
 
     // Check remote tracking branch
     let remote_ref = format!("refs/remotes/origin/{branch_name}");
     let has_remote = git.rev_parse_verify(repo, &remote_ref)?;
-    let remote_deleted = !has_remote;
+    let remote_deleted = has_origin && !has_remote;
 
     // Ahead/behind counts
-    let (behind, ahead) = git.rev_list_left_right_count(repo, &origin_default, branch_name)?;
+    let (behind, ahead) = git.rev_list_left_right_count(repo, &comparison_target, branch_name)?;
 
     if verbose {
         eprintln!("  {branch_name}: remote={has_remote}, ahead={ahead}, behind={behind}",);
     }
 
     // Check if structurally landed — skip the subprocess call when ahead == 0
-    let is_merged = ahead == 0 || git.is_ancestor(repo, branch_name, &origin_default)?;
+    let is_merged = ahead == 0 || git.is_ancestor(repo, branch_name, &comparison_target)?;
 
     let classification = if is_merged {
         if verbose {
@@ -69,7 +86,7 @@ pub fn classify_branch(
     } else {
         // Try content-based landed detection
         let landed_result =
-            landed::detect_landed(git, repo, &origin_default, branch_name, verbose)?;
+            landed::detect_landed(git, repo, &comparison_target, branch_name, verbose)?;
 
         enum Action {
             UseContentResult,
@@ -274,6 +291,7 @@ mod tests {
     fn classify_active_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/wip"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/wip", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/wip", (5, 3))
             .with_is_ancestor(&repo(), "feature/wip", "origin/main", false)
@@ -297,6 +315,7 @@ mod tests {
     fn classify_local_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/local"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/local", false)
             .with_rev_list_counts(&repo(), "origin/main", "feature/local", (10, 2))
             .with_is_ancestor(&repo(), "feature/local", "origin/main", false)
@@ -344,6 +363,7 @@ mod tests {
     fn classify_diverged_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/old"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/old", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/old", (150, 5))
             .with_is_ancestor(&repo(), "feature/old", "origin/main", false)
@@ -366,6 +386,7 @@ mod tests {
     fn classify_remote_deleted() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/gone"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/gone", false)
             .with_rev_list_counts(&repo(), "origin/main", "feature/gone", (0, 0))
             .with_is_ancestor(&repo(), "feature/gone", "origin/main", true)
@@ -414,6 +435,7 @@ mod tests {
     #[test]
     fn classify_branch_active() {
         let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/wip", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/wip", (5, 3))
             .with_is_ancestor(&repo(), "feature/wip", "origin/main", false)
@@ -435,6 +457,7 @@ mod tests {
     #[test]
     fn classify_branch_local() {
         let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/local", false)
             .with_rev_list_counts(&repo(), "origin/main", "feature/local", (10, 2))
             .with_is_ancestor(&repo(), "feature/local", "origin/main", false)
@@ -454,6 +477,7 @@ mod tests {
     #[test]
     fn classify_branch_remote_deleted() {
         let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/gone", false)
             .with_rev_list_counts(&repo(), "origin/main", "feature/gone", (0, 0))
             .with_is_ancestor(&repo(), "feature/gone", "origin/main", true)
@@ -467,6 +491,7 @@ mod tests {
     #[test]
     fn classify_branch_diverged() {
         let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/old", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/old", (150, 5))
             .with_is_ancestor(&repo(), "feature/old", "origin/main", false)
@@ -488,6 +513,7 @@ mod tests {
         // When ahead == 0 the branch is fully merged regardless of behind count,
         // so is_ancestor is skipped (not configured in the mock).
         let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/behind", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/behind", (50, 0))
             // No is_ancestor configured — proves the short-circuit works
@@ -499,11 +525,91 @@ mod tests {
         assert_eq!(result.ahead, 0);
     }
 
+    // --- detect_default_branch local fallback tests ---
+
+    #[test]
+    fn detect_default_branch_local_main() {
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), None)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", false)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/master", false)
+            .with_rev_parse_verify(&repo(), "refs/heads/main", true)
+            .build();
+        let result = detect_default_branch(&git, &repo()).unwrap();
+        assert_eq!(result, "main");
+    }
+
+    #[test]
+    fn detect_default_branch_local_master() {
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), None)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", false)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/master", false)
+            .with_rev_parse_verify(&repo(), "refs/heads/main", false)
+            .with_rev_parse_verify(&repo(), "refs/heads/master", true)
+            .build();
+        let result = detect_default_branch(&git, &repo()).unwrap();
+        assert_eq!(result, "master");
+    }
+
+    #[test]
+    fn detect_default_branch_prefers_origin_over_local() {
+        // Both origin/main and local main exist — origin check wins (step 2 before step 4)
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), None)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            // local main also exists, but we never reach step 4
+            .build();
+        let result = detect_default_branch(&git, &repo()).unwrap();
+        assert_eq!(result, "main");
+    }
+
+    // --- classify_branch local-only repo tests ---
+
+    #[test]
+    fn classify_branch_local_only_landed() {
+        // No origin remote at all — branch merged into local main
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/done", false)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", false)
+            .with_rev_list_counts(&repo(), "main", "feature/done", (0, 0))
+            .with_is_ancestor(&repo(), "feature/done", "main", true)
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/done", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Landed);
+        assert!(!result.remote_tracking);
+        assert!(!result.remote_deleted); // no origin → remote_deleted should be false
+    }
+
+    #[test]
+    fn classify_branch_local_only_active() {
+        // No origin remote — branch ahead of local main
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/wip", false)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", false)
+            .with_rev_list_counts(&repo(), "main", "feature/wip", (0, 3))
+            .with_is_ancestor(&repo(), "feature/wip", "main", false)
+            .with_log_exclusive(
+                &repo(),
+                "main",
+                "feature/wip",
+                vec![("abc".into(), "local work".into())],
+            )
+            .build();
+
+        let result = classify_branch(&git, &repo(), "feature/wip", "main", 100, false).unwrap();
+        assert_eq!(result.classification, Classification::Local);
+        assert!(!result.remote_tracking);
+        assert!(!result.remote_deleted); // no origin → remote_deleted should be false
+    }
+
     #[test]
     fn classify_detached_head_local() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), None)
             .with_rev_parse(&wt(), "HEAD", "def456abc")
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_list_counts(&repo(), "origin/main", "def456abc", (10, 3))
             .with_is_ancestor(&repo(), "def456abc", "origin/main", false)
             .with_log_exclusive(
