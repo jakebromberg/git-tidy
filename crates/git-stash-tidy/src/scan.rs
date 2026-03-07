@@ -78,7 +78,14 @@ pub fn run_scan(
 ) -> Result<StashScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
-    run_scan_repos(git, &repo_paths, age_threshold, verbose, entity_filter, progress)
+    run_scan_repos(
+        git,
+        &repo_paths,
+        age_threshold,
+        verbose,
+        entity_filter,
+        progress,
+    )
 }
 
 /// Scan pre-discovered repos for stash entries.
