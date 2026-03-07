@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -52,11 +52,25 @@ pub fn run_scan(
 ) -> Result<RemoteScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_scan_repos(git, &repo_paths, offline, verbose, entity_filter, progress)
+}
 
+/// Scan pre-discovered repos for remotes.
+///
+/// Accepts repo paths directly (skipping discovery), so the audit runner can
+/// call `discover_repos` once and share the result across tools.
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    offline: bool,
+    verbose: bool,
+    entity_filter: &NameFilter,
+    progress: &Progress,
+) -> Result<RemoteScanResult, Error> {
     let mut warnings = Vec::new();
 
     let (repos, scan_warnings) = parallel_classify(
-        &repo_paths,
+        repo_paths,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -182,6 +196,8 @@ pub fn run_scan(
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::filter::NameFilter;
+    use git_tidy_core::progress::Progress;
     use git_tidy_core::testutil::MockGitBuilder;
 
     use super::*;
@@ -232,6 +248,24 @@ mod tests {
         // Test the origin detection logic inline
         assert!("origin" == "origin");
         assert!("upstream" != "origin");
+    }
+
+    #[test]
+    fn run_scan_repos_with_mock() {
+        let git = MockGitBuilder::new()
+            .with_list_remotes(&repo(), vec!["origin".to_string()])
+            .with_ls_remote_check(&repo(), "origin", true)
+            .with_remote_url(&repo(), "origin", "https://example.com/repo.git")
+            .with_remote_tracking_refs(&repo(), vec![
+                ("origin/main".to_string(), "refs/remotes/origin/main".to_string()),
+            ])
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], false, false, &filter, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.active, 1);
     }
 
     #[test]

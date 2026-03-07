@@ -2,15 +2,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use git_tidy_core::classification;
+use git_tidy_core::discovery;
 use git_tidy_core::error::Error;
-use git_tidy_core::filter::NameFilter;
+use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
 
-use crate::discovery::{self, DiscoveredWorktree};
+use crate::discovery::{self as wt_discovery, DiscoveredWorktree};
 
 /// Filter discovered worktrees by basename using a `NameFilter`.
 ///
@@ -46,6 +47,10 @@ fn filter_worktrees(
 }
 
 /// Scan all worktrees under `directory` and classify them.
+///
+/// Discovers repos, then queries each for linked worktrees via
+/// `git worktree list`. Applies entity and repo filters, then delegates
+/// to [`run_scan_repos`] for fetching and classification.
 #[allow(clippy::too_many_arguments)]
 pub fn run_scan(
     git: &dyn GitOps,
@@ -57,20 +62,27 @@ pub fn run_scan(
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<ScanResult, Error> {
-    let groups = discovery::discover_worktrees(directory)?;
+    let repo_paths = discovery::discover_repos(directory)?;
+    let repo_paths = filter_paths(repo_paths, repo_filter);
+    let groups = wt_discovery::discover_worktrees(git, &repo_paths);
     let groups = filter_worktrees(groups, entity_filter);
-    let groups = if repo_filter.is_empty() {
-        groups
-    } else {
-        groups
-            .into_iter()
-            .filter(|(repo_path, _)| {
-                let basename = repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                repo_filter.matches(basename)
-            })
-            .collect()
-    };
 
+    run_scan_repos(git, groups, behind_threshold, verbose, noise_patterns, progress)
+}
+
+/// Classify pre-discovered worktree groups.
+///
+/// Accepts a `BTreeMap` of parent-repo to worktrees (as returned by
+/// [`discovery::discover_worktrees`] and optional filtering), fetches each
+/// repo, classifies every worktree, and returns a [`ScanResult`].
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    groups: BTreeMap<PathBuf, Vec<DiscoveredWorktree>>,
+    behind_threshold: usize,
+    verbose: bool,
+    noise_patterns: &[String],
+    progress: &Progress,
+) -> Result<ScanResult, Error> {
     let repo_paths: Vec<PathBuf> = groups.keys().cloned().collect();
     let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
@@ -177,6 +189,9 @@ pub fn run_scan(
 mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+
+    use git_tidy_core::progress::Progress;
+    use git_tidy_core::testutil::MockGitBuilder;
 
     use super::*;
     use crate::discovery::DiscoveredWorktree;
@@ -299,5 +314,16 @@ mod tests {
             wts[0].path.file_name().unwrap().to_str().unwrap(),
             "feat-login"
         );
+    }
+
+    #[test]
+    fn run_scan_repos_empty_groups() {
+        let groups: BTreeMap<PathBuf, Vec<DiscoveredWorktree>> = BTreeMap::new();
+        let git = MockGitBuilder::new().build();
+        let progress = Progress::disabled();
+        let result = run_scan_repos(&git, groups, 100, false, &[], &progress).unwrap();
+        assert_eq!(result.total_scanned, 0);
+        assert!(result.repos.is_empty());
+        assert!(result.warnings.is_empty());
     }
 }

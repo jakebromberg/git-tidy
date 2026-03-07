@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::classification;
 use git_tidy_core::error::Error;
@@ -24,12 +24,27 @@ pub fn run_scan(
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_scan_repos(git, &repo_paths, behind_threshold, verbose, entity_filter, progress)
+}
 
-    let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
+/// Scan pre-discovered repos for stale local branches.
+///
+/// Accepts repo paths directly (skipping discovery), so the audit runner can
+/// call `discover_repos` once and share the result across tools.
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    behind_threshold: usize,
+    verbose: bool,
+    entity_filter: &NameFilter,
+    progress: &Progress,
+) -> Result<BranchScanResult, Error> {
+    let repo_paths_owned: Vec<PathBuf> = repo_paths.to_vec();
+    let fetch_paths: Vec<&Path> = repo_paths_owned.iter().map(|p: &PathBuf| p.as_path()).collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
     let (repos, scan_warnings) = parallel_classify(
-        &repo_paths,
+        &repo_paths_owned,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -159,6 +174,8 @@ pub fn run_scan(
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::filter::NameFilter;
+    use git_tidy_core::progress::Progress;
     use git_tidy_core::testutil::MockGitBuilder;
     use git_tidy_core::types::Classification;
 
@@ -259,6 +276,28 @@ mod tests {
         // Verify the mock is set up correctly
         let listed = git.list_local_branches(&repo()).unwrap();
         assert_eq!(listed, vec!["main".to_string()]);
+    }
+
+    #[test]
+    fn run_scan_repos_with_mock() {
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(
+                &repo(),
+                vec!["main".to_string(), "feature/done".to_string()],
+            )
+            .with_current_branch(&repo(), Some("main"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/done", true)
+            .with_rev_list_counts(&repo(), "origin/main", "feature/done", (0, 0))
+            .with_is_ancestor(&repo(), "feature/done", "origin/main", true)
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.landed, 1);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gix::object::Kind;
 
@@ -281,6 +281,10 @@ impl GitOps for GixGitOps {
 
     fn worktree_prune(&self, repo: &Path) -> GitResult<()> {
         RealGit.worktree_prune(repo)
+    }
+
+    fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>> {
+        RealGit.worktree_list(repo)
     }
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {

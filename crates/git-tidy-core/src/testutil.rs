@@ -31,6 +31,7 @@ pub struct MockGitBuilder {
     branch_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
+    worktree_list: HashMap<PathBuf, Vec<(PathBuf, Option<String>)>>,
     local_branches: HashMap<PathBuf, Vec<String>>,
     current_branch: HashMap<PathBuf, Option<String>>,
     upstream_branch: HashMap<(PathBuf, String), Option<String>>,
@@ -280,6 +281,15 @@ impl MockGitBuilder {
         self
     }
 
+    pub fn with_worktree_list(
+        mut self,
+        repo: &Path,
+        entries: Vec<(PathBuf, Option<String>)>,
+    ) -> Self {
+        self.worktree_list.insert(repo.to_path_buf(), entries);
+        self
+    }
+
     // --- Stash builder methods ---
 
     pub fn with_stash_list(mut self, repo: &Path, stashes: Vec<(String, String, String)>) -> Self {
@@ -496,6 +506,7 @@ impl MockGitBuilder {
             branch_delete_calls: self.branch_delete_calls,
             worktree_remove_errors: self.worktree_remove_errors,
             worktree_remove_force_errors: self.worktree_remove_force_errors,
+            worktree_list: self.worktree_list,
             local_branches: self.local_branches,
             current_branch: self.current_branch,
             upstream_branch: self.upstream_branch,
@@ -565,6 +576,7 @@ pub struct MockGit {
     branch_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
+    worktree_list: HashMap<PathBuf, Vec<(PathBuf, Option<String>)>>,
     local_branches: HashMap<PathBuf, Vec<String>>,
     current_branch: HashMap<PathBuf, Option<String>>,
     upstream_branch: HashMap<(PathBuf, String), Option<String>>,
@@ -841,6 +853,14 @@ impl GitOps for MockGit {
     fn worktree_prune(&self, repo: &Path) -> GitResult<()> {
         self.prune_calls.lock().unwrap().push(repo.to_path_buf());
         Ok(())
+    }
+
+    fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>> {
+        Ok(self
+            .worktree_list
+            .get(&repo.to_path_buf())
+            .cloned()
+            .unwrap_or_default())
     }
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {

@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -81,7 +81,16 @@ pub fn run_lint(
 ) -> Result<ConfigLintResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_lint_repos(git, &repo_paths, verbose, progress)
+}
 
+/// Run a config lint across the given repo paths.
+pub fn run_lint_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    verbose: bool,
+    progress: &Progress,
+) -> Result<ConfigLintResult, Error> {
     let mut warnings = Vec::new();
     let total_scanned = repo_paths.len();
 
@@ -95,7 +104,7 @@ pub fn run_lint(
     };
 
     let (repos, scan_warnings) = parallel_classify(
-        &repo_paths,
+        repo_paths,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -293,6 +302,27 @@ mod tests {
         let issues = lint_repo(&git, &repo(), &builtins).unwrap();
 
         assert_eq!(issues.len(), 1);
+    }
+
+    #[test]
+    fn run_lint_repos_with_mock() {
+        use git_tidy_core::progress::Progress;
+
+        let git = MockGitBuilder::new()
+            .with_config_list_local(
+                &repo(),
+                vec![
+                    ("branch.old-feature.remote".to_string(), "origin".to_string()),
+                ],
+            )
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .with_builtin_commands(vec![])
+            .build();
+
+        let p = Progress::disabled();
+        let result = run_lint_repos(&git, &[repo()], false, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.orphaned_branch_config, 1);
     }
 
     #[test]
