@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::date::days_since_iso_date;
 use git_tidy_core::discovery::discover_repos;
@@ -78,11 +78,25 @@ pub fn run_scan(
 ) -> Result<StashScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_scan_repos(git, &repo_paths, age_threshold, verbose, entity_filter, progress)
+}
 
+/// Scan pre-discovered repos for stash entries.
+///
+/// Accepts repo paths directly (skipping discovery), so the audit runner can
+/// call `discover_repos` once and share the result across tools.
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    age_threshold: u64,
+    verbose: bool,
+    entity_filter: &NameFilter,
+    progress: &Progress,
+) -> Result<StashScanResult, Error> {
     let mut warnings = Vec::new();
 
     let (repos, scan_warnings) = parallel_classify(
-        &repo_paths,
+        repo_paths,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -334,6 +348,27 @@ mod tests {
             &[],
         );
         assert_eq!(cls, StashClassification::Aged);
+    }
+
+    #[test]
+    fn run_scan_repos_with_mock() {
+        let git = MockGitBuilder::new()
+            .with_stash_list(
+                &repo(),
+                vec![(
+                    "stash@{0}".to_string(),
+                    "WIP on deleted-branch: abc Fix".to_string(),
+                    "2020-01-01T12:00:00+00:00".to_string(),
+                )],
+            )
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 90, false, &filter, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.orphaned, 1);
     }
 
     #[test]

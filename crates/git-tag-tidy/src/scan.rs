@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -48,7 +48,18 @@ pub fn run_scan(
 ) -> Result<TagScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_scan_repos(git, &repo_paths, offline, verbose, entity_filter, progress)
+}
 
+/// Scan the given `repo_paths` for tags.
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    offline: bool,
+    verbose: bool,
+    entity_filter: &NameFilter,
+    progress: &Progress,
+) -> Result<TagScanResult, Error> {
     let mut warnings = Vec::new();
 
     let (repos, scan_warnings) = parallel_classify(
@@ -353,5 +364,23 @@ mod tests {
         // so reachable local tags become synced (same as offline behavior).
         let result = classify_tag(Some("abc123"), None, true, true);
         assert_eq!(result, TagClassification::Synced);
+    }
+
+    #[test]
+    fn run_scan_repos_with_mock() {
+        let git = MockGitBuilder::new()
+            .with_local_tags(&repo(), vec!["v1.0".to_string()])
+            .with_list_remotes(&repo(), vec![])
+            .with_tag_commit(&repo(), "v1.0", "abc123")
+            .with_is_commit_reachable(&repo(), "abc123", true)
+            .with_is_tag_annotated(&repo(), "v1.0", true)
+            .with_tag_date(&repo(), "v1.0", Some("2024-06-15T10:00:00+00:00"))
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], true, false, &filter, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.synced, 1);
     }
 }

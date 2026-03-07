@@ -3,6 +3,8 @@ mod common;
 use std::fs;
 
 use common::TestRepo;
+use git_tidy_core::discovery::discover_repos;
+use git_tidy_core::git::RealGit;
 use git_worktree_tidy::discovery;
 
 #[test]
@@ -14,7 +16,8 @@ fn discover_linked_worktrees_in_real_repo() {
     let _wt1 = test.add_worktree("main-repo-feat1", "feature/feat1");
     let _wt2 = test.add_worktree("main-repo-feat2", "feature/feat2");
 
-    let groups = discovery::discover_worktrees(base).unwrap();
+    let repo_paths = discover_repos(base).unwrap();
+    let groups = discovery::discover_worktrees(&RealGit, &repo_paths);
 
     assert_eq!(groups.len(), 1, "should find exactly one parent repo");
 
@@ -30,6 +33,42 @@ fn discover_linked_worktrees_in_real_repo() {
 }
 
 #[test]
+fn discover_worktrees_in_hidden_directories() {
+    let test = TestRepo::new();
+    let base = test.dir.path();
+
+    // Add a worktree inside a hidden directory (e.g., .claude/worktrees/)
+    let hidden_dir = base.join("main-repo/.claude/worktrees");
+    fs::create_dir_all(&hidden_dir).unwrap();
+    let wt_path = hidden_dir.join("feature-branch");
+    git_cmd(
+        &base.join("main-repo"),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "feature-branch",
+            &wt_path.to_string_lossy(),
+        ],
+    );
+
+    let repo_paths = discover_repos(base).unwrap();
+    let groups = discovery::discover_worktrees(&RealGit, &repo_paths);
+
+    assert_eq!(groups.len(), 1);
+    let worktrees = groups.values().next().unwrap();
+    assert_eq!(worktrees.len(), 1);
+    assert_eq!(
+        worktrees[0]
+            .path
+            .file_name()
+            .unwrap()
+            .to_string_lossy(),
+        "feature-branch"
+    );
+}
+
+#[test]
 fn skip_main_worktree_and_non_repo_dirs() {
     let test = TestRepo::new();
     let base = test.dir.path();
@@ -38,7 +77,8 @@ fn skip_main_worktree_and_non_repo_dirs() {
     // Create an unrelated non-repo directory
     fs::create_dir_all(base.join("not-a-repo")).unwrap();
 
-    let groups = discovery::discover_worktrees(base).unwrap();
+    let repo_paths = discover_repos(base).unwrap();
+    let groups = discovery::discover_worktrees(&RealGit, &repo_paths);
     assert!(groups.is_empty(), "no linked worktrees should be found");
 }
 
@@ -69,7 +109,8 @@ fn worktrees_grouped_by_parent_repo() {
         &["worktree", "add", "-b", "br-b", &wt_b.to_string_lossy()],
     );
 
-    let groups = discovery::discover_worktrees(base).unwrap();
+    let repo_paths = discover_repos(base).unwrap();
+    let groups = discovery::discover_worktrees(&RealGit, &repo_paths);
     assert_eq!(groups.len(), 2);
     let repo_a_canon = repo_a.canonicalize().unwrap();
     let repo_b_canon = repo_b.canonicalize().unwrap();

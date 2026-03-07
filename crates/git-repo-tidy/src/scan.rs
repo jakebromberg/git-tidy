@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use git_tidy_core::date::days_since_iso_date;
@@ -153,7 +153,53 @@ pub fn run_scan_with_du(
 ) -> Result<RepoScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_scan_repos_with_du(
+        git,
+        &repo_paths,
+        stale_days,
+        noise_patterns,
+        offline,
+        verbose,
+        du_fn,
+        progress,
+    )
+}
 
+/// Scan a pre-discovered list of repo paths and classify them.
+#[allow(clippy::too_many_arguments)]
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    stale_days: u64,
+    noise_patterns: &[String],
+    offline: bool,
+    verbose: bool,
+    progress: &Progress,
+) -> Result<RepoScanResult, Error> {
+    run_scan_repos_with_du(
+        git,
+        repo_paths,
+        stale_days,
+        noise_patterns,
+        offline,
+        verbose,
+        &disk_usage,
+        progress,
+    )
+}
+
+/// Scan a pre-discovered list of repo paths with an injectable disk-usage function.
+#[allow(clippy::too_many_arguments)]
+pub fn run_scan_repos_with_du(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    stale_days: u64,
+    noise_patterns: &[String],
+    offline: bool,
+    verbose: bool,
+    du_fn: &dyn Fn(&Path) -> u64,
+    progress: &Progress,
+) -> Result<RepoScanResult, Error> {
     let mut repos = Vec::new();
     let mut counts = RepoCounts::default();
     let warnings = Vec::new();
@@ -161,7 +207,7 @@ pub fn run_scan_with_du(
     let mut reclaimable_bytes = 0u64;
 
     let pb = progress.bar(repo_paths.len() as u64, "Scanning repos");
-    for repo_path in &repo_paths {
+    for repo_path in repo_paths {
         let info = classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
 
         if verbose {
@@ -213,8 +259,6 @@ pub fn run_scan_with_du(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use git_tidy_core::testutil::MockGitBuilder;
 
     use super::*;
@@ -438,6 +482,27 @@ mod tests {
         let info = classify_repo(&git, &r, 180, &[], false, &du);
 
         assert_eq!(info.disk_usage_bytes, 142 * 1024 * 1024);
+    }
+
+    #[test]
+    fn run_scan_repos_with_du_mock() {
+        use git_tidy_core::progress::Progress;
+
+        let r = repo();
+        let git = MockGitBuilder::new()
+            .with_last_commit_date(&r, Some(&today_iso()))
+            .with_status_porcelain(&r, vec![])
+            .with_local_branches(&r, vec!["main".to_string()])
+            .with_list_remotes(&r, vec!["origin".to_string()])
+            .with_remote_url(&r, "origin", "https://github.com/user/repo.git")
+            .with_ls_remote_check(&r, "origin", true)
+            .build();
+
+        let p = Progress::disabled();
+        let result =
+            run_scan_repos_with_du(&git, &[r], 180, &[], false, false, &no_du, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.active, 1);
     }
 
     #[test]

@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
+use git_tidy_core::discovery;
 use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::gix_ops::GixGitOps;
@@ -38,6 +39,9 @@ pub fn run_audit_inprocess(
     // Resolve noise patterns from config file (no CLI overrides in audit mode).
     let noise_patterns = resolve_noise_patterns();
 
+    // Discover repos once and share across all tools.
+    let repo_paths = discovery::discover_repos(directory).unwrap_or_default();
+
     // Collect tools to run (for progress bar length).
     let specs: Vec<_> = TOOL_SPECS
         .iter()
@@ -69,6 +73,7 @@ pub fn run_audit_inprocess(
             spec,
             &caching,
             directory,
+            &repo_paths,
             &noise_patterns,
             verbose,
             &sub_progress,
@@ -134,10 +139,15 @@ fn scan_to_result<T>(
 }
 
 /// Call the appropriate scan/lint function for a tool and convert to `ToolResult`.
+///
+/// Most tools use `run_scan_repos` / `run_lint_repos` with the shared `repo_paths`
+/// (discovered once). Worktree-tidy uses its own discovery, so it still receives
+/// `directory` and calls `run_scan` directly.
 fn run_tool_scan(
     spec: &ToolSpec,
     git: &dyn GitOps,
     directory: &Path,
+    repo_paths: &[PathBuf],
     noise_patterns: &[String],
     verbose: bool,
     progress: &Progress,
@@ -168,12 +178,11 @@ fn run_tool_scan(
             },
         ),
         "git-branch-tidy" => scan_to_result(
-            git_branch_tidy::scan::run_scan(
+            git_branch_tidy::scan::run_scan_repos(
                 git,
-                directory,
+                repo_paths,
                 DEFAULT_BEHIND_THRESHOLD,
                 verbose,
-                &filter,
                 &filter,
                 progress,
             ),
@@ -189,12 +198,11 @@ fn run_tool_scan(
             },
         ),
         "git-stash-tidy" => scan_to_result(
-            git_stash_tidy::scan::run_scan(
+            git_stash_tidy::scan::run_scan_repos(
                 git,
-                directory,
+                repo_paths,
                 DEFAULT_AGE_THRESHOLD,
                 verbose,
-                &filter,
                 &filter,
                 progress,
             ),
@@ -209,8 +217,8 @@ fn run_tool_scan(
             },
         ),
         "git-remote-tidy" => scan_to_result(
-            git_remote_tidy::scan::run_scan(
-                git, directory, false, verbose, &filter, &filter, progress,
+            git_remote_tidy::scan::run_scan_repos(
+                git, repo_paths, false, verbose, &filter, progress,
             ),
             spec,
             |r| {
@@ -222,8 +230,8 @@ fn run_tool_scan(
             },
         ),
         "git-tag-tidy" => scan_to_result(
-            git_tag_tidy::scan::run_scan(
-                git, directory, false, verbose, &filter, &filter, progress,
+            git_tag_tidy::scan::run_scan_repos(
+                git, repo_paths, false, verbose, &filter, progress,
             ),
             spec,
             |r| {
@@ -236,14 +244,13 @@ fn run_tool_scan(
             },
         ),
         "git-repo-tidy" => scan_to_result(
-            git_repo_tidy::scan::run_scan(
+            git_repo_tidy::scan::run_scan_repos(
                 git,
-                directory,
+                repo_paths,
                 DEFAULT_STALE_DAYS,
                 noise_patterns,
                 false,
                 verbose,
-                &filter,
                 progress,
             ),
             spec,
@@ -256,7 +263,7 @@ fn run_tool_scan(
             },
         ),
         "git-config-tidy" => scan_to_result(
-            git_config_tidy::lint::run_lint(git, directory, verbose, &filter, progress),
+            git_config_tidy::lint::run_lint_repos(git, repo_paths, verbose, progress),
             spec,
             |r| {
                 vec![
@@ -266,13 +273,12 @@ fn run_tool_scan(
             },
         ),
         "git-lfs-tidy" => scan_to_result(
-            git_lfs_tidy::scan::run_scan(
+            git_lfs_tidy::scan::run_scan_repos(
                 git,
-                directory,
+                repo_paths,
                 DEFAULT_LFS_SIZE_THRESHOLD,
                 DEFAULT_LFS_DEPTH,
                 verbose,
-                &filter,
                 progress,
             ),
             spec,
@@ -348,6 +354,7 @@ mod tests {
             &mock,
             Path::new("/nonexistent"),
             &[],
+            &[],
             false,
             &p,
         );
@@ -362,6 +369,7 @@ mod tests {
             spec_for("git-branch-tidy"),
             &mock,
             Path::new("/nonexistent"),
+            &[],
             &[],
             false,
             &p,
@@ -378,6 +386,7 @@ mod tests {
             &mock,
             Path::new("/nonexistent"),
             &[],
+            &[],
             false,
             &p,
         );
@@ -393,6 +402,7 @@ mod tests {
             &mock,
             Path::new("/nonexistent"),
             &[],
+            &[],
             false,
             &p,
         );
@@ -407,6 +417,7 @@ mod tests {
             spec_for("git-lfs-tidy"),
             &mock,
             Path::new("/nonexistent"),
+            &[],
             &[],
             false,
             &p,
@@ -425,7 +436,7 @@ mod tests {
             count_field: "classification",
             aliases: &[],
         };
-        let result = run_tool_scan(&unknown, &mock, Path::new("/tmp"), &[], false, &p);
+        let result = run_tool_scan(&unknown, &mock, Path::new("/tmp"), &[], &[], false, &p);
         assert!(result.error.is_some());
         assert!(result.error.as_ref().unwrap().contains("unknown tool"));
     }

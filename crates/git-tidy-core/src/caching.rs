@@ -166,6 +166,7 @@ impl GitOps for CachingGitOps<'_> {
         fn worktree_remove(&self, repo: &Path, worktree_path: &Path) -> GitResult<()>;
         fn worktree_remove_force(&self, repo: &Path, worktree_path: &Path) -> GitResult<()>;
         fn worktree_prune(&self, repo: &Path) -> GitResult<()>;
+        fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>>;
         fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()>;
         fn is_branch_checked_out(&self, repo: &Path, branch: &str) -> GitResult<bool>;
         fn branch_delete_safe(&self, repo: &Path, branch: &str) -> GitResult<()>;
@@ -294,6 +295,7 @@ mod tests {
             fn worktree_remove(&self, repo: &Path, worktree_path: &Path) -> GitResult<()>;
             fn worktree_remove_force(&self, repo: &Path, worktree_path: &Path) -> GitResult<()>;
             fn worktree_prune(&self, repo: &Path) -> GitResult<()>;
+            fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>>;
             fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()>;
             fn is_branch_checked_out(&self, repo: &Path, branch: &str) -> GitResult<bool>;
             fn branch_delete_safe(&self, repo: &Path, branch: &str) -> GitResult<()>;

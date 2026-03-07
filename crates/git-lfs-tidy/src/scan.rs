@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -53,7 +53,18 @@ pub fn run_scan(
 ) -> Result<LfsScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
+    run_scan_repos(git, &repo_paths, size_threshold, depth, verbose, progress)
+}
 
+/// Scan the given repo paths for LFS health issues.
+pub fn run_scan_repos(
+    git: &dyn GitOps,
+    repo_paths: &[PathBuf],
+    size_threshold: u64,
+    depth: usize,
+    verbose: bool,
+    progress: &Progress,
+) -> Result<LfsScanResult, Error> {
     let lfs_installed = git.lfs_installed().unwrap_or(false);
 
     let mut warnings = Vec::new();
@@ -63,7 +74,7 @@ pub fn run_scan(
     }
 
     let (repos, scan_warnings) = parallel_classify(
-        &repo_paths,
+        repo_paths,
         |repo_path| {
             let repo_name = repo_display_name(repo_path);
             let mut local_warnings = Vec::new();
@@ -414,5 +425,26 @@ mod tests {
 
         let result = git.lfs_prune(&repo());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_scan_repos_with_mock() {
+        use git_tidy_core::progress::Progress;
+
+        let git = MockGitBuilder::new()
+            .with_lfs_installed(true)
+            .with_lfs_ls_files(
+                &repo(),
+                vec![("oid1".to_string(), '*', "large.bin".to_string())],
+            )
+            .with_lfs_track_patterns(&repo(), vec!["*.bin".to_string()])
+            .with_lfs_prune_dry_run(&repo(), 0, 0)
+            .with_find_large_blobs(&repo(), vec![])
+            .build();
+
+        let p = Progress::disabled();
+        let result = run_scan_repos(&git, &[repo()], 1_000_000, 1000, false, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.healthy, 1);
     }
 }

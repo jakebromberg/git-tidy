@@ -8,6 +8,10 @@ use crate::error::Error;
 /// Finds directories containing a `.git` **directory** (not a `.git` file, which
 /// indicates a linked worktree). Returns sorted, canonicalized paths.
 ///
+/// If no child repos are found, falls back to checking whether `directory`
+/// itself is a repo (has a `.git` directory). This lets tools work when run
+/// from inside a single repo.
+///
 /// Skips:
 /// - Non-directory entries
 /// - Entries without `.git`
@@ -52,6 +56,16 @@ pub fn discover_repos(directory: &Path) -> Result<Vec<PathBuf>, Error> {
         // Deferred canonicalize — only for confirmed repos
         let entry_path = entry_path.canonicalize().unwrap_or(entry_path);
         repos.push(entry_path);
+    }
+
+    // Fallback: if no child repos found, check if directory itself is a repo
+    if repos.is_empty() {
+        let git_path = directory.join(".git");
+        if let Ok(meta) = git_path.symlink_metadata() {
+            if meta.is_dir() {
+                repos.push(directory.to_path_buf());
+            }
+        }
     }
 
     repos.sort();
@@ -136,5 +150,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let result = discover_repos(dir.path()).unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn discover_repos_falls_back_to_current_dir_if_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+
+        // The directory itself is a git repo (has .git directory)
+        fs::create_dir_all(base.join(".git")).unwrap();
+
+        let result = discover_repos(&base).unwrap();
+        assert_eq!(result, vec![base]);
+    }
+
+    #[test]
+    fn discover_repos_prefers_child_repos_over_self() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+
+        // The directory itself is a git repo
+        fs::create_dir_all(base.join(".git")).unwrap();
+
+        // And it contains a child repo
+        let child = base.join("child-repo");
+        fs::create_dir_all(child.join(".git")).unwrap();
+
+        let result = discover_repos(&base).unwrap();
+        // Should find the child, not the parent
+        assert_eq!(result, vec![child]);
     }
 }

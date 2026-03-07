@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -83,6 +83,10 @@ pub trait GitOps: Send + Sync {
 
     /// Prune worktree metadata: `git worktree prune`.
     fn worktree_prune(&self, repo: &Path) -> GitResult<()>;
+
+    /// List all linked worktrees for a repo via `git worktree list --porcelain`.
+    /// Returns `(path, branch)` pairs. Excludes the main worktree.
+    fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>>;
 
     /// Delete a local branch: `git branch -D <branch>`.
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()>;
@@ -489,6 +493,38 @@ impl GitOps for RealGit {
     fn worktree_prune(&self, repo: &Path) -> GitResult<()> {
         Self::run_success(repo, &["worktree", "prune"])?;
         Ok(())
+    }
+
+    fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>> {
+        let text = Self::run_success(repo, &["worktree", "list", "--porcelain"])?;
+        let mut result = Vec::new();
+        let mut current_path: Option<PathBuf> = None;
+        let mut current_branch: Option<String> = None;
+        let mut is_first = true;
+
+        for line in text.lines().chain(std::iter::once("")) {
+            if line.is_empty() {
+                // Block boundary: emit previous entry (skip the first/main worktree)
+                if let Some(path) = current_path.take() {
+                    if !is_first {
+                        result.push((path, current_branch.take()));
+                    } else {
+                        is_first = false;
+                    }
+                }
+                current_branch = None;
+                continue;
+            }
+            if let Some(path_str) = line.strip_prefix("worktree ") {
+                current_path = Some(PathBuf::from(path_str));
+            } else if let Some(branch_ref) = line.strip_prefix("branch ") {
+                current_branch = branch_ref
+                    .strip_prefix("refs/heads/")
+                    .map(|s| s.to_string());
+            }
+        }
+
+        Ok(result)
     }
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {
