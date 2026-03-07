@@ -56,7 +56,7 @@ mod tests {
             .with_worktree_list(&repo, vec![(wt_path.clone(), Some("feature".to_string()))])
             .build();
 
-        let result = discover_worktrees(&git, &[repo.clone()]);
+        let result = discover_worktrees(&git, std::slice::from_ref(&repo));
 
         assert_eq!(result.len(), 1);
         let worktrees = &result[&repo];
@@ -136,7 +136,7 @@ mod tests {
             .with_worktree_list(&repo, vec![(wt_path.clone(), None)])
             .build();
 
-        let result = discover_worktrees(&git, &[repo.clone()]);
+        let result = discover_worktrees(&git, std::slice::from_ref(&repo));
 
         assert_eq!(result.len(), 1);
         let worktrees = &result[&repo];
