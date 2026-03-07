@@ -67,7 +67,14 @@ pub fn run_scan(
     let groups = wt_discovery::discover_worktrees(git, &repo_paths);
     let groups = filter_worktrees(groups, entity_filter);
 
-    run_scan_repos(git, groups, behind_threshold, verbose, noise_patterns, progress)
+    run_scan_repos(
+        git,
+        groups,
+        behind_threshold,
+        verbose,
+        noise_patterns,
+        progress,
+    )
 }
 
 /// Classify pre-discovered worktree groups.

@@ -311,9 +311,10 @@ mod tests {
         let git = MockGitBuilder::new()
             .with_config_list_local(
                 &repo(),
-                vec![
-                    ("branch.old-feature.remote".to_string(), "origin".to_string()),
-                ],
+                vec![(
+                    "branch.old-feature.remote".to_string(),
+                    "origin".to_string(),
+                )],
             )
             .with_local_branches(&repo(), vec!["main".to_string()])
             .with_builtin_commands(vec![])

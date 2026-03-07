@@ -256,9 +256,13 @@ mod tests {
             .with_list_remotes(&repo(), vec!["origin".to_string()])
             .with_ls_remote_check(&repo(), "origin", true)
             .with_remote_url(&repo(), "origin", "https://example.com/repo.git")
-            .with_remote_tracking_refs(&repo(), vec![
-                ("origin/main".to_string(), "refs/remotes/origin/main".to_string()),
-            ])
+            .with_remote_tracking_refs(
+                &repo(),
+                vec![(
+                    "origin/main".to_string(),
+                    "refs/remotes/origin/main".to_string(),
+                )],
+            )
             .build();
 
         let p = Progress::disabled();

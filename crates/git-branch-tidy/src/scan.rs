@@ -24,7 +24,14 @@ pub fn run_scan(
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
-    run_scan_repos(git, &repo_paths, behind_threshold, verbose, entity_filter, progress)
+    run_scan_repos(
+        git,
+        &repo_paths,
+        behind_threshold,
+        verbose,
+        entity_filter,
+        progress,
+    )
 }
 
 /// Scan pre-discovered repos for stale local branches.
@@ -40,7 +47,10 @@ pub fn run_scan_repos(
     progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
     let repo_paths_owned: Vec<PathBuf> = repo_paths.to_vec();
-    let fetch_paths: Vec<&Path> = repo_paths_owned.iter().map(|p: &PathBuf| p.as_path()).collect();
+    let fetch_paths: Vec<&Path> = repo_paths_owned
+        .iter()
+        .map(|p: &PathBuf| p.as_path())
+        .collect();
     let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
     let (repos, scan_warnings) = parallel_classify(

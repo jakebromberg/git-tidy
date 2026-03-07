@@ -59,11 +59,7 @@ fn discover_worktrees_in_hidden_directories() {
     let worktrees = groups.values().next().unwrap();
     assert_eq!(worktrees.len(), 1);
     assert_eq!(
-        worktrees[0]
-            .path
-            .file_name()
-            .unwrap()
-            .to_string_lossy(),
+        worktrees[0].path.file_name().unwrap().to_string_lossy(),
         "feature-branch"
     );
 }

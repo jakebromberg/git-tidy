@@ -230,9 +230,7 @@ fn run_tool_scan(
             },
         ),
         "git-tag-tidy" => scan_to_result(
-            git_tag_tidy::scan::run_scan_repos(
-                git, repo_paths, false, verbose, &filter, progress,
-            ),
+            git_tag_tidy::scan::run_scan_repos(git, repo_paths, false, verbose, &filter, progress),
             spec,
             |r| {
                 vec![

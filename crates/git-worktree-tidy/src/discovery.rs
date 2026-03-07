@@ -53,10 +53,7 @@ mod tests {
         let wt_path = PathBuf::from("/worktrees/MyRepo-feature");
 
         let git = MockGitBuilder::new()
-            .with_worktree_list(
-                &repo,
-                vec![(wt_path.clone(), Some("feature".to_string()))],
-            )
+            .with_worktree_list(&repo, vec![(wt_path.clone(), Some("feature".to_string()))])
             .build();
 
         let result = discover_worktrees(&git, &[repo.clone()]);
@@ -84,10 +81,7 @@ mod tests {
                     (wt_a2.clone(), Some("feat2".to_string())),
                 ],
             )
-            .with_worktree_list(
-                &repo_b,
-                vec![(wt_b1.clone(), Some("fix".to_string()))],
-            )
+            .with_worktree_list(&repo_b, vec![(wt_b1.clone(), Some("fix".to_string()))])
             .build();
 
         let result = discover_worktrees(&git, &[repo_a.clone(), repo_b.clone()]);
