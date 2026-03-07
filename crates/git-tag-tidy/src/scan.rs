@@ -63,7 +63,7 @@ pub fn run_scan_repos(
     let mut warnings = Vec::new();
 
     let (repos, scan_warnings) = parallel_classify(
-        &repo_paths,
+        repo_paths,
         |repo_path| {
             let mut local_warnings = Vec::new();
 

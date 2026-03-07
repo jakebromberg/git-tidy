@@ -61,10 +61,10 @@ pub fn discover_repos(directory: &Path) -> Result<Vec<PathBuf>, Error> {
     // Fallback: if no child repos found, check if directory itself is a repo
     if repos.is_empty() {
         let git_path = directory.join(".git");
-        if let Ok(meta) = git_path.symlink_metadata() {
-            if meta.is_dir() {
-                repos.push(directory.to_path_buf());
-            }
+        if let Ok(meta) = git_path.symlink_metadata()
+            && meta.is_dir()
+        {
+            repos.push(directory.to_path_buf());
         }
     }
 
