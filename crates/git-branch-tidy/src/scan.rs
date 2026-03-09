@@ -6,7 +6,7 @@ use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
-use git_tidy_core::landed::LandedCache;
+use git_tidy_core::landed::{LandedCache, LandedOptions};
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
@@ -94,6 +94,7 @@ pub fn run_scan_repos(
             }
 
             let landed_cache = LandedCache::new();
+            let landed_options = LandedOptions::default();
 
             let branch_results: Vec<_> = branches
                 .par_iter()
@@ -109,6 +110,7 @@ pub fn run_scan_repos(
                         behind_threshold,
                         verbose,
                         &landed_cache,
+                        &landed_options,
                     ) {
                         Ok(bc) => {
                             if verbose {
@@ -255,16 +257,16 @@ mod tests {
 
         // Test classify_branch for each
         let bc1 =
-            classification::classify_branch(&git, &repo(), "feature/done", "main", 100, false)
+            classification::classify_branch(&git, &repo(), "feature/done", "main", 100, false, &LandedOptions::default())
                 .unwrap();
         assert_eq!(bc1.classification, Classification::Landed);
 
-        let bc2 = classification::classify_branch(&git, &repo(), "feature/wip", "main", 100, false)
+        let bc2 = classification::classify_branch(&git, &repo(), "feature/wip", "main", 100, false, &LandedOptions::default())
             .unwrap();
         assert_eq!(bc2.classification, Classification::Active);
 
         let bc3 =
-            classification::classify_branch(&git, &repo(), "feature/local", "main", 100, false)
+            classification::classify_branch(&git, &repo(), "feature/local", "main", 100, false, &LandedOptions::default())
                 .unwrap();
         assert_eq!(bc3.classification, Classification::Local);
     }
@@ -336,7 +338,7 @@ mod tests {
             )
             .build();
 
-        let bc = classification::classify_branch(&git, &repo(), "my-feature", "main", 100, false)
+        let bc = classification::classify_branch(&git, &repo(), "my-feature", "main", 100, false, &LandedOptions::default())
             .unwrap();
         let is_current = git.current_branch(&repo()).unwrap() == Some("my-feature".to_string());
         assert!(is_current);
