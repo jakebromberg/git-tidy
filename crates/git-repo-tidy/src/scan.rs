@@ -9,6 +9,7 @@ use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
+use git_tidy_core::scan::parallel_classify;
 
 use crate::types::{RepoClassification, RepoCounts, RepoInfo, RepoScanResult};
 
@@ -148,7 +149,7 @@ pub fn run_scan_with_du(
     offline: bool,
     verbose: bool,
     repo_filter: &NameFilter,
-    du_fn: &dyn Fn(&Path) -> u64,
+    du_fn: &(dyn Fn(&Path) -> u64 + Sync),
     progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
@@ -197,45 +198,44 @@ pub fn run_scan_repos_with_du(
     noise_patterns: &[String],
     offline: bool,
     verbose: bool,
-    du_fn: &dyn Fn(&Path) -> u64,
+    du_fn: &(dyn Fn(&Path) -> u64 + Sync),
     progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
-    let mut repos = Vec::new();
+    let (mut repos, warnings) = parallel_classify(
+        repo_paths,
+        |repo_path| {
+            let info = classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
+            if verbose {
+                eprintln!(
+                    "{}: {} (age={}d, remote={}, dirty={})",
+                    info.name,
+                    info.classification.label(),
+                    info.last_commit_age_days
+                        .map_or("?".to_string(), |d| d.to_string()),
+                    info.has_remote,
+                    info.is_dirty,
+                );
+            }
+            (Some(info), vec![])
+        },
+        "Scanning repos",
+        progress,
+    );
+
+    // Post-processing: compute counts and disk usage totals.
     let mut counts = RepoCounts::default();
-    let warnings = Vec::new();
     let mut total_disk_usage_bytes = 0u64;
     let mut reclaimable_bytes = 0u64;
-
-    let pb = progress.bar(repo_paths.len() as u64, "Scanning repos");
-    for repo_path in repo_paths {
-        let info = classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
-
-        if verbose {
-            eprintln!(
-                "{}: {} (age={}d, remote={}, dirty={})",
-                info.name,
-                info.classification.label(),
-                info.last_commit_age_days
-                    .map_or("?".to_string(), |d| d.to_string()),
-                info.has_remote,
-                info.is_dirty,
-            );
-        }
-
+    for info in &repos {
         counts.increment(info.classification, info.is_dirty);
         total_disk_usage_bytes += info.disk_usage_bytes;
-
         if matches!(
             info.classification,
             RepoClassification::Stale | RepoClassification::Orphaned
         ) {
             reclaimable_bytes += info.disk_usage_bytes;
         }
-
-        repos.push(info);
-        pb.inc(1);
     }
-    pb.finish_and_clear();
 
     // Sort by classification priority (stale first, then orphaned, then active)
     repos.sort_by(|a, b| {
@@ -503,6 +503,58 @@ mod tests {
             run_scan_repos_with_du(&git, &[r], 180, &[], false, false, &no_du, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.active, 1);
+    }
+
+    #[test]
+    fn run_scan_repos_parallel_multiple_repos() {
+        use git_tidy_core::progress::Progress;
+
+        let active = PathBuf::from("/repos/active-project");
+        let stale = PathBuf::from("/repos/stale-project");
+        let orphaned = PathBuf::from("/repos/orphaned-project");
+
+        let git = MockGitBuilder::new()
+            // Active repo
+            .with_last_commit_date(&active, Some(&today_iso()))
+            .with_status_porcelain(&active, vec![])
+            .with_local_branches(&active, vec!["main".to_string()])
+            .with_list_remotes(&active, vec!["origin".to_string()])
+            .with_remote_url(&active, "origin", "https://github.com/user/active.git")
+            .with_ls_remote_check(&active, "origin", true)
+            // Stale repo
+            .with_last_commit_date(&stale, Some(&old_iso()))
+            .with_status_porcelain(&stale, vec![])
+            .with_local_branches(&stale, vec!["main".to_string()])
+            .with_list_remotes(&stale, vec!["origin".to_string()])
+            .with_remote_url(&stale, "origin", "https://github.com/user/stale.git")
+            .with_ls_remote_check(&stale, "origin", true)
+            // Orphaned repo (no remotes)
+            .with_last_commit_date(&orphaned, Some(&today_iso()))
+            .with_status_porcelain(&orphaned, vec![])
+            .with_local_branches(&orphaned, vec!["main".to_string()])
+            .with_list_remotes(&orphaned, vec![])
+            .build();
+
+        let p = Progress::disabled();
+        let du = fixed_du(1024);
+        let result = run_scan_repos_with_du(
+            &git,
+            &[active, stale, orphaned],
+            180,
+            &[],
+            false,
+            false,
+            &du,
+            &p,
+        )
+        .unwrap();
+
+        assert_eq!(result.total_scanned, 3);
+        assert_eq!(result.counts.active, 1);
+        assert_eq!(result.counts.stale, 1);
+        assert_eq!(result.counts.orphaned, 1);
+        assert_eq!(result.total_disk_usage_bytes, 3 * 1024);
+        assert_eq!(result.reclaimable_bytes, 2 * 1024); // stale + orphaned
     }
 
     #[test]
