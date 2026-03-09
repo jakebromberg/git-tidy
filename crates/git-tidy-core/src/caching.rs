@@ -17,6 +17,9 @@ macro_rules! delegate_git_ops {
     };
 }
 
+/// Key for `log_grep` cache: `(repo_path, branch_or_ref, needle)`.
+type LogGrepKey = (PathBuf, String, String);
+
 /// A caching wrapper around a `GitOps` implementation.
 ///
 /// Memoizes read-only, idempotent queries that are commonly shared across
@@ -35,7 +38,7 @@ pub struct CachingGitOps<'a> {
     ls_remote_check_cache: Mutex<HashMap<(PathBuf, String), bool>>,
     builtin_commands_cache: Mutex<Option<Vec<String>>>,
     lfs_installed_cache: Mutex<Option<bool>>,
-    log_grep_cache: Mutex<HashMap<(PathBuf, String, String), Vec<(String, String)>>>,
+    log_grep_cache: Mutex<HashMap<LogGrepKey, Vec<(String, String)>>>,
     diff_commit_cache: Mutex<HashMap<(PathBuf, String), String>>,
     diff_commit_files_cache: Mutex<HashMap<(PathBuf, String), Vec<String>>>,
     diff_commit_on_ref_cache: Mutex<HashMap<(PathBuf, String), String>>,
