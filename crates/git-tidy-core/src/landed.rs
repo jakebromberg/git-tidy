@@ -566,7 +566,15 @@ mod tests {
             )
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/done", false, &LandedOptions::default()).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/done",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 2);
         assert_eq!(result.total, 2);
         assert!(matches!(
@@ -599,7 +607,15 @@ mod tests {
             // "Add unique feature X" — no exact match, no fuzzy match, no patch match
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/partial", false, &LandedOptions::default()).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/partial",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 2);
         match &result.classification {
@@ -626,7 +642,15 @@ mod tests {
             )
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/none", false, &LandedOptions::default()).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/none",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 1);
     }
@@ -637,7 +661,15 @@ mod tests {
             .with_log_exclusive(&repo(), "origin/main", "feature/empty", vec![])
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/empty", false, &LandedOptions::default()).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/empty",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 0);
         assert!(matches!(
@@ -811,7 +843,15 @@ mod tests {
             .with_diff_commit_on_ref(&repo(), "bbb2222", diff_content) // identical patch
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/patch", false, &LandedOptions::default()).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/patch",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 1);
     }
@@ -842,7 +882,15 @@ mod tests {
             skip_patch_similarity: true,
             ..Default::default()
         };
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/patch", false, &options).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/patch",
+            false,
+            &options,
+        )
+        .unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 1);
     }
@@ -869,7 +917,15 @@ mod tests {
             max_unmatched: Some(2),
             ..Default::default()
         };
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/many", false, &options).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/many",
+            false,
+            &options,
+        )
+        .unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 3);
     }
@@ -902,7 +958,15 @@ mod tests {
             max_unmatched: Some(2),
             ..Default::default()
         };
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/mixed", false, &options).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/mixed",
+            false,
+            &options,
+        )
+        .unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 4);
     }

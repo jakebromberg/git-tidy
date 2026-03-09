@@ -256,18 +256,40 @@ mod tests {
         // verify the counts would be correct.
 
         // Test classify_branch for each
-        let bc1 =
-            classification::classify_branch(&git, &repo(), "feature/done", "main", 100, false, &LandedOptions::default())
-                .unwrap();
+        let bc1 = classification::classify_branch(
+            &git,
+            &repo(),
+            "feature/done",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(bc1.classification, Classification::Landed);
 
-        let bc2 = classification::classify_branch(&git, &repo(), "feature/wip", "main", 100, false, &LandedOptions::default())
-            .unwrap();
+        let bc2 = classification::classify_branch(
+            &git,
+            &repo(),
+            "feature/wip",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(bc2.classification, Classification::Active);
 
-        let bc3 =
-            classification::classify_branch(&git, &repo(), "feature/local", "main", 100, false, &LandedOptions::default())
-                .unwrap();
+        let bc3 = classification::classify_branch(
+            &git,
+            &repo(),
+            "feature/local",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(bc3.classification, Classification::Local);
     }
 
@@ -338,8 +360,16 @@ mod tests {
             )
             .build();
 
-        let bc = classification::classify_branch(&git, &repo(), "my-feature", "main", 100, false, &LandedOptions::default())
-            .unwrap();
+        let bc = classification::classify_branch(
+            &git,
+            &repo(),
+            "my-feature",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         let is_current = git.current_branch(&repo()).unwrap() == Some("my-feature".to_string());
         assert!(is_current);
         assert_eq!(bc.classification, Classification::Active);
