@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
+
 use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
@@ -91,59 +93,60 @@ pub fn run_scan_repos(
                 );
             }
 
-            let mut classified = Vec::with_capacity(branches.len());
-            let mut landed_cache = LandedCache::new();
+            let landed_cache = LandedCache::new();
 
-            for branch_name in &branches {
-                if branch_name == &default_branch {
-                    continue;
-                }
+            let branch_results: Vec<_> = branches
+                .par_iter()
+                .filter(|b| *b != &default_branch && entity_filter.matches(b))
+                .map(|branch_name| {
+                    let is_current = current.as_deref() == Some(branch_name.as_str());
 
-                if !entity_filter.matches(branch_name) {
-                    continue;
-                }
-
-                let is_current = current.as_deref() == Some(branch_name.as_str());
-
-                match classification::classify_branch_cached(
-                    git,
-                    repo_path,
-                    branch_name,
-                    &default_branch,
-                    behind_threshold,
-                    verbose,
-                    &mut landed_cache,
-                ) {
-                    Ok(bc) => {
-                        if verbose {
-                            eprintln!(
-                                "  {branch_name}: {} (remote={}, ahead={}, behind={})",
-                                bc.classification.label(),
-                                bc.remote_tracking,
-                                bc.ahead,
-                                bc.behind,
-                            );
+                    match classification::classify_branch_cached(
+                        git,
+                        repo_path,
+                        branch_name,
+                        &default_branch,
+                        behind_threshold,
+                        verbose,
+                        &landed_cache,
+                    ) {
+                        Ok(bc) => {
+                            if verbose {
+                                eprintln!(
+                                    "  {branch_name}: {} (remote={}, ahead={}, behind={})",
+                                    bc.classification.label(),
+                                    bc.remote_tracking,
+                                    bc.ahead,
+                                    bc.behind,
+                                );
+                            }
+                            Ok(BranchInfo {
+                                repo_path: repo_path.to_path_buf(),
+                                name: branch_name.clone(),
+                                default_branch: default_branch.clone(),
+                                classification: bc.classification,
+                                remote_tracking: bc.remote_tracking,
+                                remote_deleted: bc.remote_deleted,
+                                ahead: bc.ahead,
+                                behind: bc.behind,
+                                diverged: bc.diverged,
+                                is_current,
+                            })
                         }
-                        classified.push(BranchInfo {
-                            repo_path: repo_path.to_path_buf(),
-                            name: branch_name.clone(),
-                            default_branch: default_branch.clone(),
-                            classification: bc.classification,
-                            remote_tracking: bc.remote_tracking,
-                            remote_deleted: bc.remote_deleted,
-                            ahead: bc.ahead,
-                            behind: bc.behind,
-                            diverged: bc.diverged,
-                            is_current,
-                        });
-                    }
-                    Err(e) => {
-                        local_warnings.push(format!(
+                        Err(e) => Err(format!(
                             "error classifying branch {} in {}: {e}",
                             branch_name,
                             repo_path.display()
-                        ));
+                        )),
                     }
+                })
+                .collect();
+
+            let mut classified = Vec::with_capacity(branch_results.len());
+            for result in branch_results {
+                match result {
+                    Ok(info) => classified.push(info),
+                    Err(warning) => local_warnings.push(warning),
                 }
             }
 

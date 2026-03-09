@@ -140,7 +140,7 @@ pub fn classify_branch_cached(
     default_branch: &str,
     behind_threshold: usize,
     verbose: bool,
-    landed_cache: &mut LandedCache,
+    landed_cache: &LandedCache,
 ) -> Result<BranchClassification, Error> {
     // Determine whether origin has the default branch
     let origin_ref = format!("refs/remotes/origin/{default_branch}");
