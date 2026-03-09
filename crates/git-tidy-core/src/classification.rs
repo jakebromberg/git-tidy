@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::dirty;
 use crate::error::Error;
 use crate::git::GitOps;
-use crate::landed::{self, LandedCache};
+use crate::landed::{self, LandedCache, LandedOptions};
 use crate::types::{
     Annotations, BranchClassification, Classification, ClassificationLabel, WorktreeInfo,
 };
@@ -53,6 +53,7 @@ pub fn classify_branch(
     default_branch: &str,
     behind_threshold: usize,
     verbose: bool,
+    landed_options: &LandedOptions,
 ) -> Result<BranchClassification, Error> {
     // Determine whether origin has the default branch
     let origin_ref = format!("refs/remotes/origin/{default_branch}");
@@ -85,8 +86,14 @@ pub fn classify_branch(
         Classification::Landed
     } else {
         // Try content-based landed detection
-        let landed_result =
-            landed::detect_landed(git, repo, &comparison_target, branch_name, verbose)?;
+        let landed_result = landed::detect_landed(
+            git,
+            repo,
+            &comparison_target,
+            branch_name,
+            verbose,
+            landed_options,
+        )?;
 
         enum Action {
             UseContentResult,
@@ -133,6 +140,7 @@ pub fn classify_branch(
 /// Classify a branch, reusing cached landed detection results from previous
 /// branches in the same repo. Use this when classifying multiple branches
 /// within a single repo to avoid redundant git subprocess calls for shared commits.
+#[allow(clippy::too_many_arguments)]
 pub fn classify_branch_cached(
     git: &dyn GitOps,
     repo: &Path,
@@ -141,6 +149,7 @@ pub fn classify_branch_cached(
     behind_threshold: usize,
     verbose: bool,
     landed_cache: &LandedCache,
+    landed_options: &LandedOptions,
 ) -> Result<BranchClassification, Error> {
     // Determine whether origin has the default branch
     let origin_ref = format!("refs/remotes/origin/{default_branch}");
@@ -180,6 +189,7 @@ pub fn classify_branch_cached(
             branch_name,
             verbose,
             landed_cache,
+            landed_options,
         )?;
 
         enum Action {
@@ -261,6 +271,7 @@ pub fn classify_worktree(
         default_branch,
         behind_threshold,
         verbose,
+        &LandedOptions::default(),
     )?;
 
     // Dirty detection (worktree-specific)
@@ -306,6 +317,7 @@ mod tests {
 
     use super::*;
     use crate::dirty::DEFAULT_NOISE_PATTERNS;
+    use crate::landed::LandedOptions;
     use crate::testutil::MockGitBuilder;
 
     fn repo() -> PathBuf {
@@ -519,7 +531,16 @@ mod tests {
             .with_is_ancestor(&repo(), "feature/done", "origin/main", true)
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/done", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/done",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Landed);
         assert!(result.remote_tracking);
         assert!(!result.remote_deleted);
@@ -541,7 +562,16 @@ mod tests {
             )
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/wip", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/wip",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Active);
         assert!(result.remote_tracking);
         assert_eq!(result.ahead, 3);
@@ -563,7 +593,16 @@ mod tests {
             )
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/local", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/local",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Local);
         assert!(!result.remote_tracking);
     }
@@ -577,7 +616,16 @@ mod tests {
             .with_is_ancestor(&repo(), "feature/gone", "origin/main", true)
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/gone", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/gone",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Landed);
         assert!(result.remote_deleted);
     }
@@ -597,7 +645,16 @@ mod tests {
             )
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/old", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/old",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert!(result.diverged);
         assert_eq!(result.behind, 150);
     }
@@ -613,7 +670,16 @@ mod tests {
             // No is_ancestor configured — proves the short-circuit works
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/behind", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/behind",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Landed);
         assert_eq!(result.behind, 50);
         assert_eq!(result.ahead, 0);
@@ -670,7 +736,16 @@ mod tests {
             .with_is_ancestor(&repo(), "feature/done", "main", true)
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/done", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/done",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Landed);
         assert!(!result.remote_tracking);
         assert!(!result.remote_deleted); // no origin → remote_deleted should be false
@@ -692,7 +767,16 @@ mod tests {
             )
             .build();
 
-        let result = classify_branch(&git, &repo(), "feature/wip", "main", 100, false).unwrap();
+        let result = classify_branch(
+            &git,
+            &repo(),
+            "feature/wip",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.classification, Classification::Local);
         assert!(!result.remote_tracking);
         assert!(!result.remote_deleted); // no origin → remote_deleted should be false

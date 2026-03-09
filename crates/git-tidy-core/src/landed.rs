@@ -35,6 +35,21 @@ impl LandedCache {
     }
 }
 
+/// Options controlling how landed detection runs.
+///
+/// Use [`LandedOptions::default()`] for the standard full-pipeline behavior.
+/// Tweak individual fields to trade accuracy for speed.
+#[derive(Debug, Clone, Default)]
+pub struct LandedOptions {
+    /// Skip the patch similarity stage (the most expensive stage).
+    /// When true, only exact and fuzzy subject matching are attempted.
+    pub skip_patch_similarity: bool,
+
+    /// Stop evaluating commits after this many consecutive unmatched commits.
+    /// `None` means no limit (evaluate all commits).
+    pub max_unmatched: Option<usize>,
+}
+
 /// Threshold for fuzzy subject matching (combined Jaccard + Levenshtein).
 const FUZZY_THRESHOLD: f64 = 0.6;
 
@@ -57,6 +72,7 @@ pub fn detect_landed(
     default_branch_ref: &str,
     branch_ref: &str,
     verbose: bool,
+    options: &LandedOptions,
 ) -> Result<LandedResult, Error> {
     detect_landed_cached(
         git,
@@ -65,6 +81,7 @@ pub fn detect_landed(
         branch_ref,
         verbose,
         &LandedCache::new(),
+        options,
     )
 }
 
@@ -81,6 +98,7 @@ pub fn detect_landed_cached(
     branch_ref: &str,
     verbose: bool,
     cache: &LandedCache,
+    options: &LandedOptions,
 ) -> Result<LandedResult, Error> {
     let unique_commits = git.log_exclusive(repo, default_branch_ref, branch_ref)?;
     let total = unique_commits.len();
@@ -102,19 +120,36 @@ pub fn detect_landed_cached(
 
     let mut matched = 0;
     let mut unmatched = Vec::new();
+    let mut consecutive_unmatched: usize = 0;
 
     for (hash, subject) in &unique_commits {
         let short_hash = &hash[..hash.len().min(7)];
+
+        // Early exit: stop evaluating after too many consecutive unmatched commits.
+        if let Some(max) = options.max_unmatched
+            && consecutive_unmatched >= max
+        {
+            if verbose {
+                eprintln!("    {short_hash}: skipped (max_unmatched={max} reached)");
+            }
+            unmatched.push(UnmatchedCommit {
+                short_hash: short_hash.to_string(),
+                subject: subject.clone(),
+            });
+            continue;
+        }
 
         // Check the cache for a previous result on this commit.
         // Lock briefly for lookup, then release before doing any git work.
         if let Some(&was_matched) = cache.results.lock().unwrap().get(hash) {
             if was_matched {
                 matched += 1;
+                consecutive_unmatched = 0;
                 if verbose {
                     eprintln!("    {short_hash}: cached match \"{subject}\"");
                 }
             } else {
+                consecutive_unmatched += 1;
                 if verbose {
                     eprintln!("    {short_hash}: cached no-match \"{subject}\"");
                 }
@@ -128,6 +163,7 @@ pub fn detect_landed_cached(
 
         if try_exact_subject_match(git, repo, default_branch_ref, subject)? {
             matched += 1;
+            consecutive_unmatched = 0;
             cache.results.lock().unwrap().insert(hash.clone(), true);
             if verbose {
                 eprintln!("    {short_hash}: exact subject match \"{subject}\"");
@@ -137,6 +173,7 @@ pub fn detect_landed_cached(
 
         if try_fuzzy_subject_match(git, repo, default_branch_ref, subject)? {
             matched += 1;
+            consecutive_unmatched = 0;
             cache.results.lock().unwrap().insert(hash.clone(), true);
             if verbose {
                 eprintln!("    {short_hash}: fuzzy subject match \"{subject}\"");
@@ -144,8 +181,11 @@ pub fn detect_landed_cached(
             continue;
         }
 
-        if try_patch_similarity(git, repo, default_branch_ref, hash)? {
+        if !options.skip_patch_similarity
+            && try_patch_similarity(git, repo, default_branch_ref, hash)?
+        {
             matched += 1;
+            consecutive_unmatched = 0;
             cache.results.lock().unwrap().insert(hash.clone(), true);
             if verbose {
                 eprintln!("    {short_hash}: patch similarity match \"{subject}\"");
@@ -153,6 +193,7 @@ pub fn detect_landed_cached(
             continue;
         }
 
+        consecutive_unmatched += 1;
         cache.results.lock().unwrap().insert(hash.clone(), false);
         if verbose {
             eprintln!("    {short_hash}: no match \"{subject}\"");
@@ -525,7 +566,15 @@ mod tests {
             )
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/done", false).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/done",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 2);
         assert_eq!(result.total, 2);
         assert!(matches!(
@@ -558,7 +607,15 @@ mod tests {
             // "Add unique feature X" — no exact match, no fuzzy match, no patch match
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/partial", false).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/partial",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 2);
         match &result.classification {
@@ -585,7 +642,15 @@ mod tests {
             )
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/none", false).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/none",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 1);
     }
@@ -596,7 +661,15 @@ mod tests {
             .with_log_exclusive(&repo(), "origin/main", "feature/empty", vec![])
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/empty", false).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/empty",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 0);
         assert_eq!(result.total, 0);
         assert!(matches!(
@@ -657,6 +730,7 @@ mod tests {
             "feature/branch1",
             false,
             &cache,
+            &LandedOptions::default(),
         )
         .unwrap();
         assert_eq!(r1.matched, 1); // bbb2222 matched
@@ -672,6 +746,7 @@ mod tests {
             "feature/branch2",
             false,
             &cache,
+            &LandedOptions::default(),
         )
         .unwrap();
         assert_eq!(r2.matched, 1); // ddd4444 matched
@@ -713,6 +788,7 @@ mod tests {
             "feature/branch1",
             false,
             &cache,
+            &LandedOptions::default(),
         )
         .unwrap();
         assert_eq!(r1.matched, 1);
@@ -732,6 +808,7 @@ mod tests {
             "feature/branch2",
             false,
             &cache,
+            &LandedOptions::default(),
         )
         .unwrap();
         assert_eq!(r2.matched, 1);
@@ -766,8 +843,131 @@ mod tests {
             .with_diff_commit_on_ref(&repo(), "bbb2222", diff_content) // identical patch
             .build();
 
-        let result = detect_landed(&git, &repo(), "origin/main", "feature/patch", false).unwrap();
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/patch",
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.matched, 1);
         assert_eq!(result.total, 1);
+    }
+
+    #[test]
+    fn skip_patch_similarity_skips_patch_stage() {
+        // Same setup as detect_landed_patch_similarity, but with skip_patch_similarity=true.
+        // Without patch similarity, the commit should not match.
+        let diff_content = "+added line\n-removed line\n";
+        let git = MockGitBuilder::new()
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/patch",
+                vec![("aaa1111".into(), "Completely different subject".into())],
+            )
+            .with_diff_commit_files(&repo(), "aaa1111", vec!["src/main.rs".into()])
+            .with_log_touching_files(
+                &repo(),
+                "origin/main",
+                vec![("bbb2222".into(), "Some other commit".into())],
+            )
+            .with_diff_commit(&repo(), "aaa1111", diff_content)
+            .with_diff_commit_on_ref(&repo(), "bbb2222", diff_content)
+            .build();
+
+        let options = LandedOptions {
+            skip_patch_similarity: true,
+            ..Default::default()
+        };
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/patch",
+            false,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(result.matched, 0);
+        assert_eq!(result.total, 1);
+    }
+
+    #[test]
+    fn max_unmatched_stops_evaluation() {
+        // Three commits, none match. With max_unmatched=2, only the first two
+        // should run the full pipeline; the third should be skipped.
+        let git = MockGitBuilder::new()
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/many",
+                vec![
+                    ("aaa1111".into(), "Unique work one".into()),
+                    ("bbb2222".into(), "Unique work two".into()),
+                    ("ccc3333".into(), "Unique work three".into()),
+                ],
+            )
+            // No matches configured — all three fail exact/fuzzy/patch
+            .build();
+
+        let options = LandedOptions {
+            max_unmatched: Some(2),
+            ..Default::default()
+        };
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/many",
+            false,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(result.matched, 0);
+        assert_eq!(result.total, 3);
+    }
+
+    #[test]
+    fn max_unmatched_resets_on_match() {
+        // Four commits: first unmatched, second matches, third unmatched, fourth unmatched.
+        // With max_unmatched=2, all should be evaluated because the match resets the counter.
+        let git = MockGitBuilder::new()
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/mixed",
+                vec![
+                    ("aaa1111".into(), "Unique work".into()),
+                    ("bbb2222".into(), "feat: add widget".into()),
+                    ("ccc3333".into(), "More unique work".into()),
+                    ("ddd4444".into(), "Even more unique".into()),
+                ],
+            )
+            .with_log_grep(
+                &repo(),
+                "origin/main",
+                "add widget",
+                vec![("eee".into(), "feat: add widget".into())],
+            )
+            .build();
+
+        let options = LandedOptions {
+            max_unmatched: Some(2),
+            ..Default::default()
+        };
+        let result = detect_landed(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/mixed",
+            false,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(result.matched, 1);
+        assert_eq!(result.total, 4);
     }
 }
