@@ -29,6 +29,7 @@ pub struct MockGitBuilder {
     remove_force_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
     prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     branch_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
+    branch_delete_errors: HashMap<(PathBuf, String), String>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
     worktree_list: HashMap<PathBuf, Vec<(PathBuf, Option<String>)>>,
@@ -246,6 +247,12 @@ impl MockGitBuilder {
             (repo.to_path_buf(), branch.to_string()),
             upstream.map(|s| s.to_string()),
         );
+        self
+    }
+
+    pub fn with_branch_delete_error(mut self, repo: &Path, branch: &str, error: &str) -> Self {
+        self.branch_delete_errors
+            .insert((repo.to_path_buf(), branch.to_string()), error.to_string());
         self
     }
 
@@ -504,6 +511,7 @@ impl MockGitBuilder {
             remove_force_calls: self.remove_force_calls,
             prune_calls: self.prune_calls,
             branch_delete_calls: self.branch_delete_calls,
+            branch_delete_errors: self.branch_delete_errors,
             worktree_remove_errors: self.worktree_remove_errors,
             worktree_remove_force_errors: self.worktree_remove_force_errors,
             worktree_list: self.worktree_list,
@@ -574,6 +582,7 @@ pub struct MockGit {
     remove_force_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
     prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     branch_delete_calls: std::sync::Mutex<Vec<(PathBuf, String)>>,
+    branch_delete_errors: HashMap<(PathBuf, String), String>,
     worktree_remove_errors: HashMap<PathBuf, String>,
     worktree_remove_force_errors: HashMap<PathBuf, String>,
     worktree_list: HashMap<PathBuf, Vec<(PathBuf, Option<String>)>>,
@@ -864,6 +873,15 @@ impl GitOps for MockGit {
     }
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {
+        if let Some(err) = self
+            .branch_delete_errors
+            .get(&(repo.to_path_buf(), branch.to_string()))
+        {
+            return Err(Error::GitCommand {
+                command: format!("branch -D {branch}"),
+                message: err.clone(),
+            });
+        }
         self.branch_delete_calls
             .lock()
             .unwrap()

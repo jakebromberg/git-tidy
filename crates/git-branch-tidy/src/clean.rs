@@ -71,8 +71,15 @@ pub fn run_clean(
                 continue;
             }
 
-            // Delete the local branch
-            let delete_result = if options.force {
+            // Delete the local branch.
+            // Use force-delete for branches our analysis has confirmed as landed,
+            // since git's built-in merge check doesn't understand squash merges.
+            let force_delete = options.force
+                || matches!(
+                    branch.classification,
+                    Classification::Landed | Classification::LandedByContent { .. }
+                );
+            let delete_result = if force_delete {
                 git.branch_delete(&branch.repo_path, &branch.name)
             } else {
                 git.branch_delete_safe(&branch.repo_path, &branch.name)
@@ -241,7 +248,8 @@ mod tests {
 
         assert_eq!(result.succeeded.len(), 1);
         assert_eq!(result.succeeded[0].name, "feature/done");
-        assert_eq!(git.branch_delete_safe_calls().len(), 1);
+        // Landed branches use force-delete since git's merge check is redundant
+        assert_eq!(git.branch_delete_calls().len(), 1);
     }
 
     #[test]
@@ -349,6 +357,26 @@ mod tests {
     }
 
     #[test]
+    fn clean_landed_by_content_uses_force_delete() {
+        let git = MockGitBuilder::new().build();
+        let mut branch = merged_branch("feature/squashed");
+        branch.classification = Classification::LandedByContent {
+            matched: 2,
+            total: 2,
+        };
+        let scan = make_scan_result(vec![branch]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        // LandedByContent uses force-delete since git's merge check
+        // doesn't understand squash merges
+        assert_eq!(git.branch_delete_calls().len(), 1);
+        assert_eq!(git.branch_delete_safe_calls().len(), 0);
+    }
+
+    #[test]
     fn clean_include_remote_deletes_remote_branch() {
         let git = MockGitBuilder::new()
             .with_upstream_branch(&repo(), "feature/done", Some("origin/feature/done"))
@@ -408,7 +436,7 @@ mod tests {
     #[test]
     fn clean_handles_delete_failure() {
         let git = MockGitBuilder::new()
-            .with_branch_delete_safe_error(&repo(), "feature/unmerged", "not fully merged")
+            .with_branch_delete_error(&repo(), "feature/unmerged", "not fully merged")
             .build();
         let scan = make_scan_result(vec![merged_branch("feature/unmerged")]);
         let mut buf = Vec::new();
