@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::thread;
 
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
@@ -52,36 +53,47 @@ pub fn run_audit_inprocess(
         })
         .collect();
 
+    let tools_found: Vec<String> = specs.iter().map(|s| s.binary.to_string()).collect();
+
     let pb = progress.bar(specs.len() as u64, "Auditing");
-    let mut results = Vec::new();
-    let mut tools_found = Vec::new();
 
     // Sub-tool scans get disabled progress to avoid visual conflicts.
     let sub_progress = Progress::disabled();
 
-    for (idx, spec) in specs.iter().enumerate() {
-        pb.set_message(format!(
-            "[{}/{}] Scanning {}...",
-            idx + 1,
-            specs.len(),
-            spec.item_noun
-        ));
+    // Run all tool scans concurrently, each returning (index, result).
+    let mut indexed_results: Vec<(usize, ToolResult)> = thread::scope(|s| {
+        let handles: Vec<_> = specs
+            .iter()
+            .enumerate()
+            .map(|(idx, spec)| {
+                let pb = &pb;
+                let caching = &caching;
+                let repo_paths = &repo_paths;
+                let noise_patterns = &noise_patterns;
+                let sub_progress = &sub_progress;
+                s.spawn(move || {
+                    let result = run_tool_scan(
+                        spec,
+                        caching,
+                        directory,
+                        repo_paths,
+                        noise_patterns,
+                        verbose,
+                        sub_progress,
+                    );
+                    pb.inc(1);
+                    (idx, result)
+                })
+            })
+            .collect();
 
-        tools_found.push(spec.binary.to_string());
-
-        let result = run_tool_scan(
-            spec,
-            &caching,
-            directory,
-            &repo_paths,
-            &noise_patterns,
-            verbose,
-            &sub_progress,
-        );
-        results.push(result);
-        pb.inc(1);
-    }
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
     pb.finish_and_clear();
+
+    // Restore original TOOL_SPECS ordering.
+    indexed_results.sort_by_key(|(idx, _)| *idx);
+    let results = indexed_results.into_iter().map(|(_, r)| r).collect();
 
     AuditResult {
         directory: directory.to_path_buf(),
@@ -421,6 +433,47 @@ mod tests {
             &p,
         );
         assert!(result.error.is_some() || result.total == 0);
+    }
+
+    #[test]
+    fn parallel_tool_scans_preserve_order() {
+        let mock = MockGitBuilder::new().build();
+        let p = Progress::disabled();
+        let specs: Vec<_> = ["git-branch-tidy", "git-stash-tidy"]
+            .iter()
+            .map(|name| spec_for(name))
+            .collect();
+
+        let mut indexed: Vec<(usize, ToolResult)> = std::thread::scope(|s| {
+            let handles: Vec<_> = specs
+                .iter()
+                .enumerate()
+                .map(|(idx, spec)| {
+                    let mock = &mock;
+                    let p = &p;
+                    s.spawn(move || {
+                        let result = run_tool_scan(
+                            spec,
+                            mock,
+                            Path::new("/nonexistent"),
+                            &[],
+                            &[],
+                            false,
+                            p,
+                        );
+                        (idx, result)
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        indexed.sort_by_key(|(idx, _)| *idx);
+        let results: Vec<_> = indexed.into_iter().map(|(_, r)| r).collect();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "git-branch-tidy");
+        assert_eq!(results[1].name, "git-stash-tidy");
     }
 
     #[test]
