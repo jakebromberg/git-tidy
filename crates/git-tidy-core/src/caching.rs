@@ -17,6 +17,9 @@ macro_rules! delegate_git_ops {
     };
 }
 
+/// Key for `log_grep` cache: `(repo_path, branch_or_ref, needle)`.
+type LogGrepKey = (PathBuf, String, String);
+
 /// A caching wrapper around a `GitOps` implementation.
 ///
 /// Memoizes read-only, idempotent queries that are commonly shared across
@@ -35,6 +38,10 @@ pub struct CachingGitOps<'a> {
     ls_remote_check_cache: Mutex<HashMap<(PathBuf, String), bool>>,
     builtin_commands_cache: Mutex<Option<Vec<String>>>,
     lfs_installed_cache: Mutex<Option<bool>>,
+    log_grep_cache: Mutex<HashMap<LogGrepKey, Vec<(String, String)>>>,
+    diff_commit_cache: Mutex<HashMap<(PathBuf, String), String>>,
+    diff_commit_files_cache: Mutex<HashMap<(PathBuf, String), Vec<String>>>,
+    diff_commit_on_ref_cache: Mutex<HashMap<(PathBuf, String), String>>,
 }
 
 impl<'a> CachingGitOps<'a> {
@@ -50,6 +57,10 @@ impl<'a> CachingGitOps<'a> {
             ls_remote_check_cache: Mutex::new(HashMap::new()),
             builtin_commands_cache: Mutex::new(None),
             lfs_installed_cache: Mutex::new(None),
+            log_grep_cache: Mutex::new(HashMap::new()),
+            diff_commit_cache: Mutex::new(HashMap::new()),
+            diff_commit_files_cache: Mutex::new(HashMap::new()),
+            diff_commit_on_ref_cache: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -150,16 +161,73 @@ impl GitOps for CachingGitOps<'_> {
         Ok(result)
     }
 
+    fn log_grep(
+        &self,
+        repo: &Path,
+        branch_or_ref: &str,
+        needle: &str,
+    ) -> GitResult<Vec<(String, String)>> {
+        let key = (
+            repo.to_path_buf(),
+            branch_or_ref.to_string(),
+            needle.to_string(),
+        );
+        if let Some(cached) = self.log_grep_cache.lock().unwrap().get(&key) {
+            return Ok(cached.clone());
+        }
+        let result = self.inner.log_grep(repo, branch_or_ref, needle)?;
+        self.log_grep_cache
+            .lock()
+            .unwrap()
+            .insert(key, result.clone());
+        Ok(result)
+    }
+
+    fn diff_commit(&self, repo: &Path, commit: &str) -> GitResult<String> {
+        let key = (repo.to_path_buf(), commit.to_string());
+        if let Some(cached) = self.diff_commit_cache.lock().unwrap().get(&key) {
+            return Ok(cached.clone());
+        }
+        let result = self.inner.diff_commit(repo, commit)?;
+        self.diff_commit_cache
+            .lock()
+            .unwrap()
+            .insert(key, result.clone());
+        Ok(result)
+    }
+
+    fn diff_commit_files(&self, repo: &Path, commit: &str) -> GitResult<Vec<String>> {
+        let key = (repo.to_path_buf(), commit.to_string());
+        if let Some(cached) = self.diff_commit_files_cache.lock().unwrap().get(&key) {
+            return Ok(cached.clone());
+        }
+        let result = self.inner.diff_commit_files(repo, commit)?;
+        self.diff_commit_files_cache
+            .lock()
+            .unwrap()
+            .insert(key, result.clone());
+        Ok(result)
+    }
+
+    fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String> {
+        let key = (repo.to_path_buf(), commit_hash.to_string());
+        if let Some(cached) = self.diff_commit_on_ref_cache.lock().unwrap().get(&key) {
+            return Ok(cached.clone());
+        }
+        let result = self.inner.diff_commit_on_ref(repo, commit_hash)?;
+        self.diff_commit_on_ref_cache
+            .lock()
+            .unwrap()
+            .insert(key, result.clone());
+        Ok(result)
+    }
+
     // All remaining methods delegate directly to the inner implementation.
     delegate_git_ops! {
         fn is_ancestor(&self, repo: &Path, branch: &str, target: &str) -> GitResult<bool>;
         fn rev_list_left_right_count(&self, repo: &Path, left: &str, right: &str) -> GitResult<(usize, usize)>;
         fn log_exclusive(&self, repo: &Path, base: &str, branch: &str) -> GitResult<Vec<(String, String)>>;
-        fn log_grep(&self, repo: &Path, branch_or_ref: &str, needle: &str) -> GitResult<Vec<(String, String)>>;
-        fn diff_commit(&self, repo: &Path, commit: &str) -> GitResult<String>;
-        fn diff_commit_files(&self, repo: &Path, commit: &str) -> GitResult<Vec<String>>;
         fn log_touching_files(&self, repo: &Path, ref_spec: &str, files: &[String]) -> GitResult<Vec<(String, String)>>;
-        fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String>;
         fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>>;
         fn worktree_branch(&self, worktree_path: &Path) -> GitResult<Option<String>>;
         fn rev_parse(&self, repo: &Path, refspec: &str) -> GitResult<String>;
@@ -220,6 +288,10 @@ mod tests {
         ls_remote_check_count: Mutex<usize>,
         list_builtin_commands_count: Mutex<usize>,
         lfs_installed_count: Mutex<usize>,
+        log_grep_count: Mutex<usize>,
+        diff_commit_count: Mutex<usize>,
+        diff_commit_files_count: Mutex<usize>,
+        diff_commit_on_ref_count: Mutex<usize>,
     }
 
     impl<'a> CountingGitOps<'a> {
@@ -234,6 +306,10 @@ mod tests {
                 ls_remote_check_count: Mutex::new(0),
                 list_builtin_commands_count: Mutex::new(0),
                 lfs_installed_count: Mutex::new(0),
+                log_grep_count: Mutex::new(0),
+                diff_commit_count: Mutex::new(0),
+                diff_commit_files_count: Mutex::new(0),
+                diff_commit_on_ref_count: Mutex::new(0),
             }
         }
     }
@@ -279,16 +355,37 @@ mod tests {
             self.inner.lfs_installed()
         }
 
+        fn log_grep(
+            &self,
+            repo: &Path,
+            branch_or_ref: &str,
+            needle: &str,
+        ) -> GitResult<Vec<(String, String)>> {
+            *self.log_grep_count.lock().unwrap() += 1;
+            self.inner.log_grep(repo, branch_or_ref, needle)
+        }
+
+        fn diff_commit(&self, repo: &Path, commit: &str) -> GitResult<String> {
+            *self.diff_commit_count.lock().unwrap() += 1;
+            self.inner.diff_commit(repo, commit)
+        }
+
+        fn diff_commit_files(&self, repo: &Path, commit: &str) -> GitResult<Vec<String>> {
+            *self.diff_commit_files_count.lock().unwrap() += 1;
+            self.inner.diff_commit_files(repo, commit)
+        }
+
+        fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String> {
+            *self.diff_commit_on_ref_count.lock().unwrap() += 1;
+            self.inner.diff_commit_on_ref(repo, commit_hash)
+        }
+
         // Remaining methods delegate directly.
         delegate_git_ops! {
             fn is_ancestor(&self, repo: &Path, branch: &str, target: &str) -> GitResult<bool>;
             fn rev_list_left_right_count(&self, repo: &Path, left: &str, right: &str) -> GitResult<(usize, usize)>;
             fn log_exclusive(&self, repo: &Path, base: &str, branch: &str) -> GitResult<Vec<(String, String)>>;
-            fn log_grep(&self, repo: &Path, branch_or_ref: &str, needle: &str) -> GitResult<Vec<(String, String)>>;
-            fn diff_commit(&self, repo: &Path, commit: &str) -> GitResult<String>;
-            fn diff_commit_files(&self, repo: &Path, commit: &str) -> GitResult<Vec<String>>;
             fn log_touching_files(&self, repo: &Path, ref_spec: &str, files: &[String]) -> GitResult<Vec<(String, String)>>;
-            fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String>;
             fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>>;
             fn worktree_branch(&self, worktree_path: &Path) -> GitResult<Option<String>>;
             fn rev_parse(&self, repo: &Path, refspec: &str) -> GitResult<String>;
@@ -500,6 +597,123 @@ mod tests {
         assert!(r1);
         assert_eq!(r1, r2);
         assert_eq!(*counter.lfs_installed_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn log_grep_cached() {
+        let m = MockGitBuilder::new()
+            .with_log_grep(
+                Path::new("/repo"),
+                "origin/main",
+                "add widget",
+                vec![("abc".into(), "feat: add widget".into())],
+            )
+            .build();
+        let counter = CountingGitOps::new(&m);
+        let caching = CachingGitOps::new(&counter);
+
+        let r1 = caching
+            .log_grep(Path::new("/repo"), "origin/main", "add widget")
+            .unwrap();
+        let r2 = caching
+            .log_grep(Path::new("/repo"), "origin/main", "add widget")
+            .unwrap();
+
+        assert_eq!(r1.len(), 1);
+        assert_eq!(r1, r2);
+        assert_eq!(*counter.log_grep_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn log_grep_different_needles_not_shared() {
+        let m = MockGitBuilder::new()
+            .with_log_grep(
+                Path::new("/repo"),
+                "origin/main",
+                "add widget",
+                vec![("abc".into(), "feat: add widget".into())],
+            )
+            .with_log_grep(
+                Path::new("/repo"),
+                "origin/main",
+                "fix bug",
+                vec![("def".into(), "fix: fix bug".into())],
+            )
+            .build();
+        let counter = CountingGitOps::new(&m);
+        let caching = CachingGitOps::new(&counter);
+
+        let r1 = caching
+            .log_grep(Path::new("/repo"), "origin/main", "add widget")
+            .unwrap();
+        let r2 = caching
+            .log_grep(Path::new("/repo"), "origin/main", "fix bug")
+            .unwrap();
+
+        assert_eq!(r1.len(), 1);
+        assert_eq!(r2.len(), 1);
+        assert_ne!(r1, r2);
+        assert_eq!(*counter.log_grep_count.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn diff_commit_cached() {
+        let m = MockGitBuilder::new()
+            .with_diff_commit(Path::new("/repo"), "abc123", "+added line\n")
+            .build();
+        let counter = CountingGitOps::new(&m);
+        let caching = CachingGitOps::new(&counter);
+
+        let r1 = caching.diff_commit(Path::new("/repo"), "abc123").unwrap();
+        let r2 = caching.diff_commit(Path::new("/repo"), "abc123").unwrap();
+
+        assert_eq!(r1, "+added line\n");
+        assert_eq!(r1, r2);
+        assert_eq!(*counter.diff_commit_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn diff_commit_files_cached() {
+        let m = MockGitBuilder::new()
+            .with_diff_commit_files(
+                Path::new("/repo"),
+                "abc123",
+                vec!["src/main.rs".into(), "src/lib.rs".into()],
+            )
+            .build();
+        let counter = CountingGitOps::new(&m);
+        let caching = CachingGitOps::new(&counter);
+
+        let r1 = caching
+            .diff_commit_files(Path::new("/repo"), "abc123")
+            .unwrap();
+        let r2 = caching
+            .diff_commit_files(Path::new("/repo"), "abc123")
+            .unwrap();
+
+        assert_eq!(r1, vec!["src/main.rs", "src/lib.rs"]);
+        assert_eq!(r1, r2);
+        assert_eq!(*counter.diff_commit_files_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn diff_commit_on_ref_cached() {
+        let m = MockGitBuilder::new()
+            .with_diff_commit_on_ref(Path::new("/repo"), "abc123", "+added line\n")
+            .build();
+        let counter = CountingGitOps::new(&m);
+        let caching = CachingGitOps::new(&counter);
+
+        let r1 = caching
+            .diff_commit_on_ref(Path::new("/repo"), "abc123")
+            .unwrap();
+        let r2 = caching
+            .diff_commit_on_ref(Path::new("/repo"), "abc123")
+            .unwrap();
+
+        assert_eq!(r1, "+added line\n");
+        assert_eq!(r1, r2);
+        assert_eq!(*counter.diff_commit_on_ref_count.lock().unwrap(), 1);
     }
 
     #[test]

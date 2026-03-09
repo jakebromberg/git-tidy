@@ -42,7 +42,7 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
 - **Parallel fetch** (`git-tidy-core/src/fetch.rs`): `parallel_fetch` runs `git fetch --prune` concurrently across repos using `thread::scope`. Used by worktree-tidy and branch-tidy before classification.
 - **Library-first design**: `scan.rs` and `clean.rs` are library functions; `main.rs` is thin dispatch. Enables `git-tidy` to call each tool's scan/lint as a library.
-- **`CachingGitOps`** (`git-tidy-core/src/caching.rs`): `GitOps` wrapper that memoizes read-only queries (`fetch_prune`, `list_local_branches`, `list_remotes`, `ls_remote_check`, etc.) via `Mutex<HashMap>`. Used by the in-process audit runner to avoid redundant git calls across tools. A `delegate_git_ops!` macro forwards uncached methods to the inner `GitOps`.
+- **`CachingGitOps`** (`git-tidy-core/src/caching.rs`): `GitOps` wrapper that memoizes read-only queries (`fetch_prune`, `symbolic_ref_origin_head`, `rev_parse_verify`, `list_local_branches`, `list_remotes`, `ls_remote_check`, `list_builtin_commands`, `lfs_installed`, `log_grep`, `diff_commit`, `diff_commit_files`, `diff_commit_on_ref`) via `Mutex<HashMap>`. Used by the in-process audit runner to avoid redundant git calls across tools. A `delegate_git_ops!` macro forwards uncached methods to the inner `GitOps`.
 
 ### CLI pattern (shared `resolve_directory`, per-crate `clap` definitions)
 
