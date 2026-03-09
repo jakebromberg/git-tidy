@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::dirty;
 use crate::error::Error;
 use crate::git::GitOps;
-use crate::landed;
+use crate::landed::{self, LandedCache};
 use crate::types::{
     Annotations, BranchClassification, Classification, ClassificationLabel, WorktreeInfo,
 };
@@ -87,6 +87,100 @@ pub fn classify_branch(
         // Try content-based landed detection
         let landed_result =
             landed::detect_landed(git, repo, &comparison_target, branch_name, verbose)?;
+
+        enum Action {
+            UseContentResult,
+            Landed,
+            Active,
+            Local,
+        }
+        let action = match &landed_result.classification {
+            Classification::LandedByContent { .. } if landed_result.total > 0 => {
+                Action::UseContentResult
+            }
+            Classification::LandedByContent { .. } => Action::Landed,
+            Classification::LandedPartial { .. } => Action::UseContentResult,
+            _ if has_remote => Action::Active,
+            _ => Action::Local,
+        };
+        let cls = match action {
+            Action::UseContentResult => landed_result.classification,
+            Action::Landed => Classification::Landed,
+            Action::Active => Classification::Active,
+            Action::Local => Classification::Local,
+        };
+        if verbose {
+            eprintln!(
+                "  {branch_name}: content detection ({}/{}) → {}",
+                landed_result.matched,
+                landed_result.total,
+                cls.label(),
+            );
+        }
+        cls
+    };
+
+    Ok(BranchClassification {
+        classification,
+        remote_tracking: has_remote,
+        remote_deleted,
+        ahead,
+        behind,
+        diverged: behind > behind_threshold,
+    })
+}
+
+/// Classify a branch, reusing cached landed detection results from previous
+/// branches in the same repo. Use this when classifying multiple branches
+/// within a single repo to avoid redundant git subprocess calls for shared commits.
+pub fn classify_branch_cached(
+    git: &dyn GitOps,
+    repo: &Path,
+    branch_name: &str,
+    default_branch: &str,
+    behind_threshold: usize,
+    verbose: bool,
+    landed_cache: &mut LandedCache,
+) -> Result<BranchClassification, Error> {
+    // Determine whether origin has the default branch
+    let origin_ref = format!("refs/remotes/origin/{default_branch}");
+    let has_origin = git.rev_parse_verify(repo, &origin_ref)?;
+    let comparison_target = if has_origin {
+        format!("origin/{default_branch}")
+    } else {
+        default_branch.to_string()
+    };
+
+    // Check remote tracking branch
+    let remote_ref = format!("refs/remotes/origin/{branch_name}");
+    let has_remote = git.rev_parse_verify(repo, &remote_ref)?;
+    let remote_deleted = has_origin && !has_remote;
+
+    // Ahead/behind counts
+    let (behind, ahead) = git.rev_list_left_right_count(repo, &comparison_target, branch_name)?;
+
+    if verbose {
+        eprintln!("  {branch_name}: remote={has_remote}, ahead={ahead}, behind={behind}",);
+    }
+
+    // Check if structurally landed — skip the subprocess call when ahead == 0
+    let is_merged = ahead == 0 || git.is_ancestor(repo, branch_name, &comparison_target)?;
+
+    let classification = if is_merged {
+        if verbose {
+            eprintln!("  {branch_name}: structurally merged → landed");
+        }
+        Classification::Landed
+    } else {
+        // Try content-based landed detection with cache
+        let landed_result = landed::detect_landed_cached(
+            git,
+            repo,
+            &comparison_target,
+            branch_name,
+            verbose,
+            landed_cache,
+        )?;
 
         enum Action {
             UseContentResult,

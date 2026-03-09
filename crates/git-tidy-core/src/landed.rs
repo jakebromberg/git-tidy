@@ -1,9 +1,28 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::error::Error;
 use crate::git::GitOps;
 use crate::types::{Classification, UnmatchedCommit};
+
+/// Cache for per-commit landed detection results within a repo.
+///
+/// When multiple branches share the same commits, this cache avoids redundant
+/// git subprocess calls by remembering whether each commit was already matched
+/// against the default branch. Create one per repo and pass it to
+/// [`detect_landed_cached`] for each branch.
+#[derive(Default)]
+pub struct LandedCache {
+    /// Maps commit hash to whether it was matched on the default branch.
+    results: HashMap<String, bool>,
+}
+
+impl LandedCache {
+    /// Create an empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 /// Threshold for fuzzy subject matching (combined Jaccard + Levenshtein).
 const FUZZY_THRESHOLD: f64 = 0.6;
@@ -27,6 +46,30 @@ pub fn detect_landed(
     default_branch_ref: &str,
     branch_ref: &str,
     verbose: bool,
+) -> Result<LandedResult, Error> {
+    detect_landed_cached(
+        git,
+        repo,
+        default_branch_ref,
+        branch_ref,
+        verbose,
+        &mut LandedCache::new(),
+    )
+}
+
+/// Check if branch commits have "landed" on the default branch, reusing
+/// cached per-commit results from previous branches in the same repo.
+///
+/// When a repo has many branches that share commits (e.g., branches forked
+/// from the same point), this avoids re-running the full detection pipeline
+/// (exact match, fuzzy match, patch similarity) for commits already seen.
+pub fn detect_landed_cached(
+    git: &dyn GitOps,
+    repo: &Path,
+    default_branch_ref: &str,
+    branch_ref: &str,
+    verbose: bool,
+    cache: &mut LandedCache,
 ) -> Result<LandedResult, Error> {
     let unique_commits = git.log_exclusive(repo, default_branch_ref, branch_ref)?;
     let total = unique_commits.len();
@@ -52,8 +95,28 @@ pub fn detect_landed(
     for (hash, subject) in &unique_commits {
         let short_hash = &hash[..hash.len().min(7)];
 
+        // Check the cache for a previous result on this commit.
+        if let Some(&was_matched) = cache.results.get(hash) {
+            if was_matched {
+                matched += 1;
+                if verbose {
+                    eprintln!("    {short_hash}: cached match \"{subject}\"");
+                }
+            } else {
+                if verbose {
+                    eprintln!("    {short_hash}: cached no-match \"{subject}\"");
+                }
+                unmatched.push(UnmatchedCommit {
+                    short_hash: short_hash.to_string(),
+                    subject: subject.clone(),
+                });
+            }
+            continue;
+        }
+
         if try_exact_subject_match(git, repo, default_branch_ref, subject)? {
             matched += 1;
+            cache.results.insert(hash.clone(), true);
             if verbose {
                 eprintln!("    {short_hash}: exact subject match \"{subject}\"");
             }
@@ -62,6 +125,7 @@ pub fn detect_landed(
 
         if try_fuzzy_subject_match(git, repo, default_branch_ref, subject)? {
             matched += 1;
+            cache.results.insert(hash.clone(), true);
             if verbose {
                 eprintln!("    {short_hash}: fuzzy subject match \"{subject}\"");
             }
@@ -70,12 +134,14 @@ pub fn detect_landed(
 
         if try_patch_similarity(git, repo, default_branch_ref, hash)? {
             matched += 1;
+            cache.results.insert(hash.clone(), true);
             if verbose {
                 eprintln!("    {short_hash}: patch similarity match \"{subject}\"");
             }
             continue;
         }
 
+        cache.results.insert(hash.clone(), false);
         if verbose {
             eprintln!("    {short_hash}: no match \"{subject}\"");
         }
@@ -526,6 +592,142 @@ mod tests {
             Classification::LandedByContent {
                 matched: 0,
                 total: 0
+            }
+        ));
+    }
+
+    #[test]
+    fn detect_landed_cached_skips_redundant_commits() {
+        // Two branches share commit "aaa1111" which doesn't match.
+        // The second branch should use the cached result.
+        let git = MockGitBuilder::new()
+            // Branch 1: has aaa1111 (unmatched) and bbb2222 (matched)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/branch1",
+                vec![
+                    ("aaa1111".into(), "Unique unmatched work".into()),
+                    ("bbb2222".into(), "feat: add widget".into()),
+                ],
+            )
+            .with_log_grep(
+                &repo(),
+                "origin/main",
+                "add widget",
+                vec![("ccc".into(), "feat: add widget".into())],
+            )
+            // Branch 2: shares aaa1111 with branch1, plus has ddd4444 (matched)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/branch2",
+                vec![
+                    ("aaa1111".into(), "Unique unmatched work".into()),
+                    ("ddd4444".into(), "fix: widget alignment".into()),
+                ],
+            )
+            .with_log_grep(
+                &repo(),
+                "origin/main",
+                "widget alignment",
+                vec![("eee".into(), "fix: widget alignment".into())],
+            )
+            .build();
+
+        let mut cache = LandedCache::new();
+
+        // First branch: aaa1111 runs full pipeline (no exact, no fuzzy, no patch → unmatched)
+        let r1 = detect_landed_cached(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/branch1",
+            false,
+            &mut cache,
+        )
+        .unwrap();
+        assert_eq!(r1.matched, 1); // bbb2222 matched
+        assert_eq!(r1.total, 2);
+        assert_eq!(cache.results.len(), 2); // both commits cached
+
+        // Second branch: aaa1111 should be served from cache (no git calls),
+        // ddd4444 runs the pipeline fresh
+        let r2 = detect_landed_cached(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/branch2",
+            false,
+            &mut cache,
+        )
+        .unwrap();
+        assert_eq!(r2.matched, 1); // ddd4444 matched
+        assert_eq!(r2.total, 2);
+        assert_eq!(cache.results.len(), 3); // aaa1111, bbb2222, ddd4444
+    }
+
+    #[test]
+    fn detect_landed_cached_reuses_matched_commits() {
+        // Both branches have the same matched commit — second should hit cache
+        let git = MockGitBuilder::new()
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/branch1",
+                vec![("aaa1111".into(), "feat: add widget".into())],
+            )
+            .with_log_grep(
+                &repo(),
+                "origin/main",
+                "add widget",
+                vec![("ccc".into(), "feat: add widget".into())],
+            )
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "feature/branch2",
+                vec![("aaa1111".into(), "feat: add widget".into())],
+            )
+            // No log_grep needed for branch2 — cache should handle it
+            .build();
+
+        let mut cache = LandedCache::new();
+
+        let r1 = detect_landed_cached(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/branch1",
+            false,
+            &mut cache,
+        )
+        .unwrap();
+        assert_eq!(r1.matched, 1);
+        assert!(matches!(
+            r1.classification,
+            Classification::LandedByContent {
+                matched: 1,
+                total: 1,
+            }
+        ));
+
+        // Second branch: aaa1111 is in cache as matched — no git calls needed
+        let r2 = detect_landed_cached(
+            &git,
+            &repo(),
+            "origin/main",
+            "feature/branch2",
+            false,
+            &mut cache,
+        )
+        .unwrap();
+        assert_eq!(r2.matched, 1);
+        assert!(matches!(
+            r2.classification,
+            Classification::LandedByContent {
+                matched: 1,
+                total: 1,
             }
         ));
     }
