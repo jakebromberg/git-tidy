@@ -4,6 +4,7 @@ use git_tidy_core::classification;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
+use git_tidy_core::landed::LandedCache;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
@@ -91,6 +92,7 @@ pub fn run_scan_repos(
             }
 
             let mut classified = Vec::with_capacity(branches.len());
+            let mut landed_cache = LandedCache::new();
 
             for branch_name in &branches {
                 if branch_name == &default_branch {
@@ -103,13 +105,14 @@ pub fn run_scan_repos(
 
                 let is_current = current.as_deref() == Some(branch_name.as_str());
 
-                match classification::classify_branch(
+                match classification::classify_branch_cached(
                     git,
                     repo_path,
                     branch_name,
                     &default_branch,
                     behind_threshold,
                     verbose,
+                    &mut landed_cache,
                 ) {
                     Ok(bc) => {
                         if verbose {
