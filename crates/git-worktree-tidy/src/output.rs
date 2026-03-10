@@ -223,10 +223,8 @@ mod tests {
             total_scanned: 2,
             counts: ScanCounts {
                 landed: 1,
-                landed_content: 0,
-                partial: 0,
                 active: 1,
-                local: 0,
+                ..Default::default()
             },
             warnings: vec![],
         }
@@ -244,10 +242,9 @@ mod tests {
         assert!(output.contains("active"));
         assert!(output.contains("Backend-parallel"));
         assert!(output.contains("Backend-caps"));
-        assert!(
-            output
-                .contains("2 worktrees scanned: 1 landed, 0 content, 0 partial, 1 active, 0 local")
-        );
+        assert!(output.contains(
+            "2 worktrees scanned: 1 landed, 0 stale, 0 content, 0 partial, 1 active, 0 local"
+        ));
     }
 
     #[test]

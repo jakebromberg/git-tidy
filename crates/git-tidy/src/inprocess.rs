@@ -231,6 +231,7 @@ fn run_tool_scan(
             |r| {
                 vec![
                     ("landed", r.counts.landed),
+                    ("landed-stale", r.counts.landed_stale),
                     ("landed-content", r.counts.landed_content),
                     ("partial", r.counts.partial),
                     ("active", r.counts.active),
@@ -251,6 +252,7 @@ fn run_tool_scan(
             |r| {
                 vec![
                     ("landed", r.counts.landed),
+                    ("landed-stale", r.counts.landed_stale),
                     ("landed-content", r.counts.landed_content),
                     ("partial", r.counts.partial),
                     ("active", r.counts.active),

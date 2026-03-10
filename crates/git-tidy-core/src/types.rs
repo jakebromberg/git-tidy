@@ -61,6 +61,9 @@ pub struct CleanResult<S> {
 pub enum Classification {
     /// Branch tip is a structural ancestor of the default branch (git merge-base proof).
     Landed,
+    /// Branch ref was deleted (typically after a PR merge) but worktree remains.
+    #[serde(rename = "landed-stale")]
+    LandedStale,
     /// All branch commits have matching commits on the default branch (heuristic content matching).
     #[serde(rename = "landed-content")]
     LandedByContent { matched: usize, total: usize },
@@ -80,6 +83,7 @@ impl ClassificationLabel for Classification {
     fn priority(&self) -> u8 {
         match self {
             Classification::Landed => 0,
+            Classification::LandedStale => 0,
             Classification::LandedByContent { .. } => 1,
             Classification::LandedPartial { .. } => 2,
             Classification::Active => 3,
@@ -90,6 +94,7 @@ impl ClassificationLabel for Classification {
     fn label(&self) -> &'static str {
         match self {
             Classification::Landed => "landed",
+            Classification::LandedStale => "landed-stale",
             Classification::LandedByContent { .. } => "landed-content",
             Classification::LandedPartial { .. } => "partial",
             Classification::Active => "active",
@@ -208,6 +213,7 @@ pub struct RepoGroup {
 
 define_counts!(ScanCounts, Classification, {
     Classification::Landed => landed,
+    Classification::LandedStale => landed_stale,
     Classification::LandedByContent { .. } => landed_content,
     Classification::LandedPartial { .. } => partial,
     Classification::Active => active,
@@ -292,6 +298,7 @@ mod tests {
     #[test]
     fn classification_label_trait() {
         assert_eq!(Classification::Landed.label(), "landed");
+        assert_eq!(Classification::LandedStale.label(), "landed-stale");
         assert_eq!(
             Classification::LandedByContent {
                 matched: 1,
@@ -312,6 +319,14 @@ mod tests {
         assert_eq!(Classification::Active.label(), "active");
         assert_eq!(Classification::Local.label(), "local");
         assert!(Classification::Landed.priority() < Classification::Active.priority());
+    }
+
+    #[test]
+    fn landed_stale_priority_same_as_landed() {
+        assert_eq!(
+            Classification::LandedStale.priority(),
+            Classification::Landed.priority()
+        );
     }
 
     #[test]

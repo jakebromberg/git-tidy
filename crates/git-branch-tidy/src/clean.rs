@@ -77,7 +77,9 @@ pub fn run_clean(
             let force_delete = options.force
                 || matches!(
                     branch.classification,
-                    Classification::Landed | Classification::LandedByContent { .. }
+                    Classification::Landed
+                        | Classification::LandedStale
+                        | Classification::LandedByContent { .. }
                 );
             let delete_result = if force_delete {
                 git.branch_delete(&branch.repo_path, &branch.name)
@@ -151,10 +153,12 @@ fn should_clean(classification: &Classification, options: &CleanOptions) -> bool
         return matches!(classification, Classification::Landed);
     }
 
-    // Default: landed (structural) + landed-by-content
+    // Default: landed (structural) + landed-stale + landed-by-content
     matches!(
         classification,
-        Classification::Landed | Classification::LandedByContent { .. }
+        Classification::Landed
+            | Classification::LandedStale
+            | Classification::LandedByContent { .. }
     )
 }
 
