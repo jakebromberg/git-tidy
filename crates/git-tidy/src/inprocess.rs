@@ -100,8 +100,15 @@ pub fn run_audit_inprocess(
         })
         .collect();
 
-    // Sub-tool scans get disabled progress to avoid visual conflicts.
-    let sub_progress = Progress::disabled();
+    // Per-tool forwarding progress: sub-tool bars appear beneath each spinner.
+    // When progress is disabled, falls back to hidden bars.
+    let sub_progresses: Vec<Progress> = spinners
+        .iter()
+        .map(|spinner| match mp.as_ref() {
+            Some(mp) => Progress::forwarding(mp, spinner),
+            None => Progress::disabled(),
+        })
+        .collect();
 
     // Run all tool scans concurrently, each returning (index, result).
     let mut indexed_results: Vec<(usize, ToolResult)> = thread::scope(|s| {
@@ -113,7 +120,7 @@ pub fn run_audit_inprocess(
                 let caching = &caching;
                 let repo_paths = &repo_paths;
                 let noise_patterns = &noise_patterns;
-                let sub_progress = &sub_progress;
+                let sub_progresses = &sub_progresses;
                 s.spawn(move || {
                     let result = run_tool_scan(
                         spec,
@@ -122,7 +129,7 @@ pub fn run_audit_inprocess(
                         repo_paths,
                         noise_patterns,
                         verbose,
-                        sub_progress,
+                        &sub_progresses[idx],
                     );
                     spinners[idx].finish_with_message(format_spinner_done(&result));
                     (idx, result)
