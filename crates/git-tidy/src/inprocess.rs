@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::Duration;
 
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
@@ -9,6 +10,7 @@ use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::gix_ops::GixGitOps;
 use git_tidy_core::progress::Progress;
+use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::runner::matches_filter;
 use crate::types::{AuditResult, TOOL_SPECS, ToolResult, ToolSpec};
@@ -25,6 +27,33 @@ const DEFAULT_STALE_DAYS: u64 = 6 * 30;
 const DEFAULT_LFS_SIZE_THRESHOLD: u64 = 1_000_000;
 /// Default LFS commit depth for large blob scanning.
 const DEFAULT_LFS_DEPTH: usize = 1000;
+
+/// Format a completed spinner message from a `ToolResult`.
+///
+/// - Success with counts: `"✓ branches: 12 scanned (3 landed, 9 active)"`
+/// - Success with zero: `"✓ LFS files: 0 scanned"`
+/// - Error: `"✗ branches: error: process failed"`
+fn format_spinner_done(result: &ToolResult) -> String {
+    if let Some(ref err) = result.error {
+        return format!("✗ {}: error: {err}", result.item_noun);
+    }
+
+    let counts_str = if result.counts.is_empty() {
+        String::new()
+    } else {
+        let parts: Vec<String> = result
+            .counts
+            .iter()
+            .map(|(k, v)| format!("{v} {k}"))
+            .collect();
+        format!(" ({})", parts.join(", "))
+    };
+
+    format!(
+        "✓ {}: {} scanned{counts_str}",
+        result.item_noun, result.total,
+    )
+}
 
 /// Run an audit by calling each tool's scan/lint function in-process,
 /// sharing a `CachingGitOps` to avoid redundant git calls.
@@ -43,7 +72,7 @@ pub fn run_audit_inprocess(
     // Discover repos once and share across all tools.
     let repo_paths = discovery::discover_repos(directory).unwrap_or_default();
 
-    // Collect tools to run (for progress bar length).
+    // Collect tools to run.
     let specs: Vec<_> = TOOL_SPECS
         .iter()
         .filter(|spec| {
@@ -55,7 +84,23 @@ pub fn run_audit_inprocess(
 
     let tools_found: Vec<String> = specs.iter().map(|s| s.binary.to_string()).collect();
 
-    let pb = progress.bar(specs.len() as u64, "Auditing");
+    // Create per-tool spinners under a MultiProgress container.
+    let mp = progress.multi();
+    let spinners: Vec<ProgressBar> = specs
+        .iter()
+        .map(|spec| match mp.as_ref() {
+            Some(mp) => {
+                let pb = mp.add(ProgressBar::new_spinner());
+                pb.set_style(
+                    ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap(),
+                );
+                pb.set_message(format!("Scanning {}...", spec.item_noun));
+                pb.enable_steady_tick(Duration::from_millis(100));
+                pb
+            }
+            None => ProgressBar::hidden(),
+        })
+        .collect();
 
     // Sub-tool scans get disabled progress to avoid visual conflicts.
     let sub_progress = Progress::disabled();
@@ -66,7 +111,7 @@ pub fn run_audit_inprocess(
             .iter()
             .enumerate()
             .map(|(idx, spec)| {
-                let pb = &pb;
+                let spinners = &spinners;
                 let caching = &caching;
                 let repo_paths = &repo_paths;
                 let noise_patterns = &noise_patterns;
@@ -81,7 +126,7 @@ pub fn run_audit_inprocess(
                         verbose,
                         sub_progress,
                     );
-                    pb.inc(1);
+                    spinners[idx].finish_with_message(format_spinner_done(&result));
                     (idx, result)
                 })
             })
@@ -89,7 +134,6 @@ pub fn run_audit_inprocess(
 
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
-    pb.finish_and_clear();
 
     // Restore original TOOL_SPECS ordering.
     indexed_results.sort_by_key(|(idx, _)| *idx);
@@ -474,6 +518,66 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "git-branch-tidy");
         assert_eq!(results[1].name, "git-stash-tidy");
+    }
+
+    #[test]
+    fn spinner_done_with_counts() {
+        let result = ToolResult {
+            name: "git-branch-tidy".to_string(),
+            item_noun: "branches".to_string(),
+            total: 12,
+            counts: BTreeMap::from([
+                ("active".to_string(), 9),
+                ("landed".to_string(), 3),
+            ]),
+            error: None,
+        };
+        assert_eq!(
+            format_spinner_done(&result),
+            "✓ branches: 12 scanned (9 active, 3 landed)"
+        );
+    }
+
+    #[test]
+    fn spinner_done_zero_counts() {
+        let result = ToolResult {
+            name: "git-lfs-tidy".to_string(),
+            item_noun: "LFS files".to_string(),
+            total: 0,
+            counts: BTreeMap::new(),
+            error: None,
+        };
+        assert_eq!(format_spinner_done(&result), "✓ LFS files: 0 scanned");
+    }
+
+    #[test]
+    fn spinner_done_error() {
+        let result = ToolResult {
+            name: "git-branch-tidy".to_string(),
+            item_noun: "branches".to_string(),
+            total: 0,
+            counts: BTreeMap::new(),
+            error: Some("process failed".to_string()),
+        };
+        assert_eq!(
+            format_spinner_done(&result),
+            "✗ branches: error: process failed"
+        );
+    }
+
+    #[test]
+    fn spinner_done_single_count() {
+        let result = ToolResult {
+            name: "git-remote-tidy".to_string(),
+            item_noun: "remotes".to_string(),
+            total: 1,
+            counts: BTreeMap::from([("unreachable".to_string(), 1)]),
+            error: None,
+        };
+        assert_eq!(
+            format_spinner_done(&result),
+            "✓ remotes: 1 scanned (1 unreachable)"
+        );
     }
 
     #[test]

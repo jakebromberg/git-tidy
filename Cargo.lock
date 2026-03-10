@@ -682,6 +682,7 @@ dependencies = [
  "git-tag-tidy",
  "git-tidy-core",
  "git-worktree-tidy",
+ "indicatif",
  "serde",
  "serde_json",
  "tempfile",

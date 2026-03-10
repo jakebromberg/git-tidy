@@ -1,6 +1,6 @@
 use std::io::IsTerminal;
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 /// Factory for creating progress bars that respect TTY detection.
 ///
@@ -51,6 +51,18 @@ impl Progress {
         );
         pb.set_message(msg.to_string());
         pb
+    }
+
+    /// Create a `MultiProgress` container for managing multiple concurrent spinners.
+    ///
+    /// Returns `Some(MultiProgress)` when display is enabled, `None` when disabled.
+    /// Callers should fall back to hidden bars when `None`.
+    pub fn multi(&self) -> Option<MultiProgress> {
+        if self.enabled {
+            Some(MultiProgress::new())
+        } else {
+            None
+        }
     }
 
     /// Create a spinner with a message (no known length).
@@ -108,6 +120,18 @@ mod tests {
         let spinner = p.spinner("Scanning...");
         assert_eq!(spinner.message(), "Scanning...");
         spinner.finish_and_clear();
+    }
+
+    #[test]
+    fn disabled_returns_none_for_multi() {
+        let p = Progress::disabled();
+        assert!(p.multi().is_none());
+    }
+
+    #[test]
+    fn enabled_returns_some_for_multi() {
+        let p = Progress { enabled: true };
+        assert!(p.multi().is_some());
     }
 
     #[test]
