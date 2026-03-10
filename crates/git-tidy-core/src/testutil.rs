@@ -19,6 +19,8 @@ pub struct MockGitBuilder {
     diff_commit_files: HashMap<(PathBuf, String), Vec<String>>,
     log_touching_files: HashMap<(PathBuf, String), Vec<(String, String)>>,
     diff_commit_on_ref: HashMap<(PathBuf, String), String>,
+    diff_working_tree_files: HashMap<(PathBuf, String), Vec<String>>,
+    diff_working_tree_files_errors: HashMap<(PathBuf, String), String>,
     status_porcelain: HashMap<PathBuf, Vec<String>>,
     worktree_branch: HashMap<PathBuf, Option<String>>,
     rev_parse: HashMap<(PathBuf, String), String>,
@@ -209,6 +211,30 @@ impl MockGitBuilder {
     pub fn with_diff_commit_on_ref(mut self, repo: &Path, commit: &str, diff: &str) -> Self {
         self.diff_commit_on_ref
             .insert((repo.to_path_buf(), commit.to_string()), diff.to_string());
+        self
+    }
+
+    pub fn with_diff_working_tree_files(
+        mut self,
+        worktree_path: &Path,
+        ref_spec: &str,
+        files: Vec<String>,
+    ) -> Self {
+        self.diff_working_tree_files
+            .insert((worktree_path.to_path_buf(), ref_spec.to_string()), files);
+        self
+    }
+
+    pub fn with_diff_working_tree_files_error(
+        mut self,
+        worktree_path: &Path,
+        ref_spec: &str,
+        error: &str,
+    ) -> Self {
+        self.diff_working_tree_files_errors.insert(
+            (worktree_path.to_path_buf(), ref_spec.to_string()),
+            error.to_string(),
+        );
         self
     }
 
@@ -501,6 +527,8 @@ impl MockGitBuilder {
             diff_commit_files: self.diff_commit_files,
             log_touching_files: self.log_touching_files,
             diff_commit_on_ref: self.diff_commit_on_ref,
+            diff_working_tree_files: self.diff_working_tree_files,
+            diff_working_tree_files_errors: self.diff_working_tree_files_errors,
             status_porcelain: self.status_porcelain,
             worktree_branch: self.worktree_branch,
             rev_parse: self.rev_parse,
@@ -572,6 +600,8 @@ pub struct MockGit {
     diff_commit_files: HashMap<(PathBuf, String), Vec<String>>,
     log_touching_files: HashMap<(PathBuf, String), Vec<(String, String)>>,
     diff_commit_on_ref: HashMap<(PathBuf, String), String>,
+    diff_working_tree_files: HashMap<(PathBuf, String), Vec<String>>,
+    diff_working_tree_files_errors: HashMap<(PathBuf, String), String>,
     status_porcelain: HashMap<PathBuf, Vec<String>>,
     worktree_branch: HashMap<PathBuf, Option<String>>,
     rev_parse: HashMap<(PathBuf, String), String>,
@@ -795,6 +825,25 @@ impl GitOps for MockGit {
         Ok(self
             .diff_commit_on_ref
             .get(&(repo.to_path_buf(), commit_hash.to_string()))
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn diff_working_tree_files(
+        &self,
+        worktree_path: &Path,
+        ref_spec: &str,
+    ) -> GitResult<Vec<String>> {
+        let key = (worktree_path.to_path_buf(), ref_spec.to_string());
+        if let Some(err) = self.diff_working_tree_files_errors.get(&key) {
+            return Err(Error::GitCommand {
+                command: format!("diff --name-only {ref_spec}"),
+                message: err.clone(),
+            });
+        }
+        Ok(self
+            .diff_working_tree_files
+            .get(&key)
             .cloned()
             .unwrap_or_default())
     }

@@ -66,6 +66,13 @@ pub trait GitOps: Send + Sync {
     /// Get the diff for a commit on the default branch (for patch comparison).
     fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String>;
 
+    /// List files that differ between the working tree and a ref.
+    fn diff_working_tree_files(
+        &self,
+        worktree_path: &Path,
+        ref_spec: &str,
+    ) -> GitResult<Vec<String>>;
+
     /// Run `git -C <path> status --porcelain`. Returns raw lines.
     fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>>;
 
@@ -445,6 +452,19 @@ impl GitOps for RealGit {
 
     fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String> {
         Self::run_success(repo, &["diff-tree", "-p", "--root", commit_hash])
+    }
+
+    fn diff_working_tree_files(
+        &self,
+        worktree_path: &Path,
+        ref_spec: &str,
+    ) -> GitResult<Vec<String>> {
+        let text = Self::run_success(worktree_path, &["diff", "--name-only", ref_spec])?;
+        Ok(text
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect())
     }
 
     fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>> {

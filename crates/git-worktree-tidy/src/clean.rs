@@ -55,13 +55,31 @@ pub fn run_clean(
 
             // Check if dirty and not forced
             if wt.annotations.dirty && !options.force {
-                writeln!(
-                    out,
-                    "skipped {dir_name}: dirty ({} files), use --force to remove",
-                    wt.annotations.dirty_file_count
-                )?;
-                skipped += 1;
-                continue;
+                // LandedStale dirty is always a stale-index artifact — safe to clean
+                if matches!(wt.classification, Classification::LandedStale) {
+                    // Fall through to removal
+                } else {
+                    // Check if working tree matches default branch
+                    let diff_ref = format!("origin/{}", wt.default_branch);
+                    let diff_files = git
+                        .diff_working_tree_files(&wt.path, &diff_ref)
+                        .or_else(|_| git.diff_working_tree_files(&wt.path, &wt.default_branch));
+
+                    match diff_files {
+                        Ok(files) if files.is_empty() => {
+                            // Working tree matches main — dirty is informational
+                        }
+                        _ => {
+                            writeln!(
+                                out,
+                                "skipped {dir_name}: dirty ({} files), use --force to remove",
+                                wt.annotations.dirty_file_count
+                            )?;
+                            skipped += 1;
+                            continue;
+                        }
+                    }
+                }
             }
 
             if options.dry_run {
@@ -398,7 +416,10 @@ mod tests {
 
     #[test]
     fn clean_dirty_blocked_without_force() {
-        let git = MockGitBuilder::new().build();
+        let wt_path = PathBuf::from("/dev/wt-dirty");
+        let git = MockGitBuilder::new()
+            .with_diff_working_tree_files(&wt_path, "origin/main", vec!["changed.rs".to_string()])
+            .build();
         let mut wt = make_worktree("wt-dirty", "fix/dirty", Classification::Landed);
         wt.annotations.dirty = true;
         wt.annotations.dirty_file_count = 3;
@@ -617,5 +638,116 @@ mod tests {
         assert!(!result.succeeded[0].branch_deleted);
         // No branch_delete calls — the branch ref is already gone
         assert!(git.branch_delete_calls().is_empty());
+    }
+
+    #[test]
+    fn clean_dirty_landed_stale_bypasses_dirty_block() {
+        let git = MockGitBuilder::new().build();
+        let mut wt = make_worktree("wt-stale", "feature/stale", Classification::LandedStale);
+        wt.annotations.dirty = true;
+        wt.annotations.dirty_file_count = 100;
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(git.remove_force_calls().len(), 1);
+    }
+
+    #[test]
+    fn clean_dirty_matches_main_bypasses_dirty_block() {
+        let wt_path = PathBuf::from("/dev/wt-landed");
+        let git = MockGitBuilder::new()
+            .with_diff_working_tree_files(&wt_path, "origin/main", vec![])
+            .build();
+        let mut wt = make_worktree("wt-landed", "feature/landed", Classification::Landed);
+        wt.annotations.dirty = true;
+        wt.annotations.dirty_file_count = 5;
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(git.remove_force_calls().len(), 1);
+    }
+
+    #[test]
+    fn clean_dirty_real_changes_still_blocked() {
+        let wt_path = PathBuf::from("/dev/wt-dirty");
+        let git = MockGitBuilder::new()
+            .with_diff_working_tree_files(&wt_path, "origin/main", vec!["new_file.rs".to_string()])
+            .build();
+        let mut wt = make_worktree("wt-dirty", "feature/dirty", Classification::Landed);
+        wt.annotations.dirty = true;
+        wt.annotations.dirty_file_count = 1;
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 0);
+        assert_eq!(result.skipped, 1);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("skipped wt-dirty: dirty (1 files)"));
+    }
+
+    #[test]
+    fn clean_dirty_diff_failure_falls_back_to_blocking() {
+        let wt_path = PathBuf::from("/dev/wt-dirty");
+        let git = MockGitBuilder::new()
+            .with_diff_working_tree_files_error(&wt_path, "origin/main", "ref not found")
+            .with_diff_working_tree_files_error(&wt_path, "main", "ref not found")
+            .build();
+        let mut wt = make_worktree("wt-dirty", "feature/dirty", Classification::Landed);
+        wt.annotations.dirty = true;
+        wt.annotations.dirty_file_count = 2;
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 0);
+        assert_eq!(result.skipped, 1);
+    }
+
+    #[test]
+    fn clean_force_skips_diff_check_for_dirty() {
+        // With --force, no diff calls should be made; the worktree is just removed
+        let git = MockGitBuilder::new().build();
+        let mut wt = make_worktree("wt-dirty", "feature/dirty", Classification::Landed);
+        wt.annotations.dirty = true;
+        wt.annotations.dirty_file_count = 5;
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+        let options = CleanOptions {
+            force: true,
+            ..default_options()
+        };
+
+        let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(git.remove_force_calls().len(), 1);
+    }
+
+    #[test]
+    fn clean_dirty_diff_falls_back_to_local_ref() {
+        let wt_path = PathBuf::from("/dev/wt-local");
+        let git = MockGitBuilder::new()
+            .with_diff_working_tree_files_error(&wt_path, "origin/main", "ref not found")
+            .with_diff_working_tree_files(&wt_path, "main", vec![])
+            .build();
+        let mut wt = make_worktree("wt-local", "feature/local", Classification::Landed);
+        wt.annotations.dirty = true;
+        wt.annotations.dirty_file_count = 3;
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(git.remove_force_calls().len(), 1);
     }
 }

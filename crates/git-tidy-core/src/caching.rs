@@ -228,6 +228,7 @@ impl GitOps for CachingGitOps<'_> {
         fn rev_list_left_right_count(&self, repo: &Path, left: &str, right: &str) -> GitResult<(usize, usize)>;
         fn log_exclusive(&self, repo: &Path, base: &str, branch: &str) -> GitResult<Vec<(String, String)>>;
         fn log_touching_files(&self, repo: &Path, ref_spec: &str, files: &[String]) -> GitResult<Vec<(String, String)>>;
+        fn diff_working_tree_files(&self, worktree_path: &Path, ref_spec: &str) -> GitResult<Vec<String>>;
         fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>>;
         fn worktree_branch(&self, worktree_path: &Path) -> GitResult<Option<String>>;
         fn rev_parse(&self, repo: &Path, refspec: &str) -> GitResult<String>;
@@ -386,6 +387,7 @@ mod tests {
             fn rev_list_left_right_count(&self, repo: &Path, left: &str, right: &str) -> GitResult<(usize, usize)>;
             fn log_exclusive(&self, repo: &Path, base: &str, branch: &str) -> GitResult<Vec<(String, String)>>;
             fn log_touching_files(&self, repo: &Path, ref_spec: &str, files: &[String]) -> GitResult<Vec<(String, String)>>;
+            fn diff_working_tree_files(&self, worktree_path: &Path, ref_spec: &str) -> GitResult<Vec<String>>;
             fn status_porcelain(&self, worktree_path: &Path) -> GitResult<Vec<String>>;
             fn worktree_branch(&self, worktree_path: &Path) -> GitResult<Option<String>>;
             fn rev_parse(&self, repo: &Path, refspec: &str) -> GitResult<String>;

@@ -251,6 +251,14 @@ impl GitOps for GixGitOps {
         RealGit.status_porcelain(worktree_path)
     }
 
+    fn diff_working_tree_files(
+        &self,
+        worktree_path: &Path,
+        ref_spec: &str,
+    ) -> GitResult<Vec<String>> {
+        RealGit.diff_working_tree_files(worktree_path, ref_spec)
+    }
+
     fn worktree_branch(&self, worktree_path: &Path) -> GitResult<Option<String>> {
         let r = open_repo(worktree_path)?;
         match r.head_name() {
