@@ -70,10 +70,10 @@ fn discover_repos_recursive(directory: &Path, depth: usize, repos: &mut Vec<Path
         let entry_path = entry.path();
 
         // Skip hidden directories (e.g. .git, .claude, .cache)
-        if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with('.') {
-                continue;
-            }
+        if let Some(name) = entry_path.file_name().and_then(|n| n.to_str())
+            && name.starts_with('.')
+        {
+            continue;
         }
 
         let git_path = entry_path.join(".git");
