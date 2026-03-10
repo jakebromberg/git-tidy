@@ -91,9 +91,7 @@ pub fn run_audit_inprocess(
         .map(|spec| match mp.as_ref() {
             Some(mp) => {
                 let pb = mp.add(ProgressBar::new_spinner());
-                pb.set_style(
-                    ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap(),
-                );
+                pb.set_style(ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap());
                 pb.set_message(format!("Scanning {}...", spec.item_noun));
                 pb.enable_steady_tick(Duration::from_millis(100));
                 pb
@@ -526,10 +524,7 @@ mod tests {
             name: "git-branch-tidy".to_string(),
             item_noun: "branches".to_string(),
             total: 12,
-            counts: BTreeMap::from([
-                ("active".to_string(), 9),
-                ("landed".to_string(), 3),
-            ]),
+            counts: BTreeMap::from([("active".to_string(), 9), ("landed".to_string(), 3)]),
             error: None,
         };
         assert_eq!(
