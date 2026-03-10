@@ -20,6 +20,12 @@ static GLOSSARY: &[GlossaryEntry] = &[
         used_by: &["branches", "worktrees"],
     },
     GlossaryEntry {
+        term: "landed-stale",
+        section: "Branches & Worktrees",
+        description: "Branch ref was deleted (typically after a PR merge) but worktree remains. Safe to remove.",
+        used_by: &["worktrees"],
+    },
+    GlossaryEntry {
         term: "landed-content",
         section: "Branches & Worktrees",
         description: "All branch commits matched on the default branch by content (patch heuristic).",

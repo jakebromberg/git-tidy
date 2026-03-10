@@ -120,10 +120,12 @@ fn should_clean(classification: &Classification, options: &CleanOptions) -> bool
         return matches!(classification, Classification::Landed);
     }
 
-    // Default: landed (structural) + landed-by-content
+    // Default: landed (structural) + landed-stale + landed-by-content
     matches!(
         classification,
-        Classification::Landed | Classification::LandedByContent { .. }
+        Classification::Landed
+            | Classification::LandedStale
+            | Classification::LandedByContent { .. }
     )
 }
 
@@ -173,9 +175,10 @@ fn remove_worktree(
         }
     }
 
-    // Delete branch if requested
+    // Delete branch if requested (skip for LandedStale — the branch ref is already gone)
     let mut branch_deleted = false;
     if opts.delete_branches
+        && !matches!(wt.classification, Classification::LandedStale)
         && let Some(branch) = &wt.branch
     {
         if git
@@ -545,6 +548,7 @@ mod tests {
         let options = default_options();
 
         assert!(should_clean(&Classification::Landed, &options));
+        assert!(should_clean(&Classification::LandedStale, &options));
         assert!(should_clean(
             &Classification::LandedByContent {
                 matched: 1,
@@ -572,6 +576,7 @@ mod tests {
         };
 
         assert!(should_clean(&Classification::Landed, &options));
+        assert!(should_clean(&Classification::LandedStale, &options));
         assert!(should_clean(&Classification::Active, &options));
         assert!(should_clean(&Classification::Local, &options));
     }
@@ -584,6 +589,7 @@ mod tests {
         };
 
         assert!(should_clean(&Classification::Landed, &options));
+        assert!(!should_clean(&Classification::LandedStale, &options));
         assert!(!should_clean(
             &Classification::LandedByContent {
                 matched: 1,
@@ -592,5 +598,24 @@ mod tests {
             &options
         ));
         assert!(!should_clean(&Classification::Active, &options));
+    }
+
+    #[test]
+    fn clean_landed_stale_skips_branch_delete() {
+        let git = MockGitBuilder::new().build();
+        let wt = make_worktree("wt-stale", "feature/stale", Classification::LandedStale);
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+        let options = CleanOptions {
+            delete_branches: true,
+            ..default_options()
+        };
+
+        let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert!(!result.succeeded[0].branch_deleted);
+        // No branch_delete calls — the branch ref is already gone
+        assert!(git.branch_delete_calls().is_empty());
     }
 }

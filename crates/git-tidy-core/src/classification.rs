@@ -249,6 +249,32 @@ pub fn classify_worktree(
 ) -> Result<WorktreeInfo, Error> {
     let branch = git.worktree_branch(worktree_path)?;
 
+    // Detect dangling branch ref: branch name is known but ref doesn't resolve.
+    // This happens when a PR is merged and the branch is deleted while the worktree remains.
+    if let Some(ref branch_name) = branch {
+        let ref_path = format!("refs/heads/{branch_name}");
+        if !git.rev_parse_verify(parent_repo, &ref_path)? {
+            let dirty_result = dirty::check_dirty(git, worktree_path, noise_patterns)?;
+            return Ok(WorktreeInfo {
+                path: worktree_path.to_path_buf(),
+                parent_repo: parent_repo.to_path_buf(),
+                branch,
+                default_branch: default_branch.to_string(),
+                classification: Classification::LandedStale,
+                annotations: Annotations {
+                    dirty: !dirty_result.meaningful_files.is_empty(),
+                    dirty_file_count: dirty_result.meaningful_files.len(),
+                    ..Default::default()
+                },
+                remote_tracking: false,
+                ahead: 0,
+                behind: 0,
+                dirty_files: dirty_result.all_files,
+                meaningful_dirty_files: dirty_result.meaningful_files,
+            });
+        }
+    }
+
     // Determine the ref to compare against
     let detached_head;
     let branch_ref: &str = match &branch {
@@ -380,6 +406,7 @@ mod tests {
     fn classify_merged_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/done"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/done", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/done", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/done", (0, 0))
             .with_is_ancestor(&repo(), "feature/done", "origin/main", true)
@@ -397,6 +424,7 @@ mod tests {
     fn classify_active_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/wip"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/wip", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/wip", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/wip", (5, 3))
@@ -421,6 +449,7 @@ mod tests {
     fn classify_local_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/local"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/local", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/local", false)
             .with_rev_list_counts(&repo(), "origin/main", "feature/local", (10, 2))
@@ -444,6 +473,7 @@ mod tests {
     fn classify_dirty_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/dirty"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/dirty", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/dirty", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/dirty", (0, 1))
             .with_is_ancestor(&repo(), "feature/dirty", "origin/main", false)
@@ -469,6 +499,7 @@ mod tests {
     fn classify_diverged_branch() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/old"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/old", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/old", true)
             .with_rev_list_counts(&repo(), "origin/main", "feature/old", (150, 5))
@@ -492,6 +523,7 @@ mod tests {
     fn classify_remote_deleted() {
         let git = MockGitBuilder::new()
             .with_worktree_branch(&wt(), Some("feature/gone"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/gone", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
             .with_rev_parse_verify(&repo(), "refs/remotes/origin/feature/gone", false)
             .with_rev_list_counts(&repo(), "origin/main", "feature/gone", (0, 0))
@@ -802,5 +834,39 @@ mod tests {
         let info =
             classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
         assert_eq!(info.classification, Classification::Local);
+    }
+
+    #[test]
+    fn classify_dangling_ref_returns_landed_stale() {
+        // Branch name is known but the ref doesn't exist (deleted after merge)
+        let git = MockGitBuilder::new()
+            .with_worktree_branch(&wt(), Some("feature/merged"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/merged", false)
+            .with_status_porcelain(&wt(), vec![])
+            .build();
+
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        assert_eq!(info.classification, Classification::LandedStale);
+        assert_eq!(info.branch.as_deref(), Some("feature/merged"));
+        assert!(!info.annotations.dirty);
+        assert!(!info.remote_tracking);
+        assert_eq!(info.ahead, 0);
+        assert_eq!(info.behind, 0);
+    }
+
+    #[test]
+    fn classify_dangling_ref_with_dirty_files() {
+        let git = MockGitBuilder::new()
+            .with_worktree_branch(&wt(), Some("feature/merged-dirty"))
+            .with_rev_parse_verify(&repo(), "refs/heads/feature/merged-dirty", false)
+            .with_status_porcelain(&wt(), vec![" M src/lib.rs".to_string()])
+            .build();
+
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        assert_eq!(info.classification, Classification::LandedStale);
+        assert!(info.annotations.dirty);
+        assert_eq!(info.annotations.dirty_file_count, 1);
     }
 }

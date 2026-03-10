@@ -66,7 +66,7 @@ All tools follow a similar CLI shape:
 - All modules that call git take `&dyn GitOps` to enable mocking.
 - Tests use `tempfile::tempdir()` for isolation with real git repos.
 - Path canonicalization in discovery handles macOS `/var` -> `/private/var` symlinks.
-- Classification priority order: landed (0) > landed-content (1) > partial (2) > active (3) > local (4).
+- Classification priority order: landed (0) = landed-stale (0) > landed-content (1) > partial (2) > active (3) > local (4). `LandedStale` is for worktrees whose branch ref was deleted (typically after a PR merge).
 - Shared test utilities (MockGitBuilder, TestRepo, git helper) live in `git-tidy-core/src/testutil.rs`, gated behind the `testutil` feature. Binary crates depend on `git-tidy-core = { features = ["testutil"] }` in `[dev-dependencies]`.
 - `classify_branch` is the core classification function shared by both tools. `classify_worktree` is a thin wrapper that adds dirty detection.
 - Discovery is inverted between tools: worktree discovery finds `.git` files (linked worktrees), branch discovery finds `.git` directories (repos).

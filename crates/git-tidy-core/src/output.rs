@@ -16,8 +16,13 @@ pub fn write_summary_line(
 ) -> std::io::Result<()> {
     writeln!(
         out,
-        "\n{total} {item_noun} scanned: {} landed, {} content, {} partial, {} active, {} local",
-        counts.landed, counts.landed_content, counts.partial, counts.active, counts.local,
+        "\n{total} {item_noun} scanned: {} landed, {} stale, {} content, {} partial, {} active, {} local",
+        counts.landed,
+        counts.landed_stale,
+        counts.landed_content,
+        counts.partial,
+        counts.active,
+        counts.local,
     )
 }
 
@@ -94,6 +99,7 @@ mod tests {
     fn summary_line_format() {
         let counts = ScanCounts {
             landed: 3,
+            landed_stale: 0,
             landed_content: 1,
             partial: 0,
             active: 2,
@@ -104,7 +110,7 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
-            "\n7 branches scanned: 3 landed, 1 content, 0 partial, 2 active, 1 local\n"
+            "\n7 branches scanned: 3 landed, 0 stale, 1 content, 0 partial, 2 active, 1 local\n"
         );
     }
 

@@ -1,7 +1,12 @@
 mod common;
 
+use std::collections::BTreeMap;
+
 use common::TestRepo;
 use git_tidy_core::git::{GitOps, RealGit};
+use git_tidy_core::progress::Progress;
+use git_tidy_core::types::Classification;
+use git_worktree_tidy::discovery::DiscoveredWorktree;
 
 #[test]
 fn diff_commit_handles_root_commit() {
@@ -114,4 +119,61 @@ fn branch_delete_safe_refuses_unmerged_branch() {
         result.is_err(),
         "branch -d should refuse to delete unmerged branch"
     );
+}
+
+#[test]
+fn worktree_with_deleted_branch_classifies_as_landed_stale() {
+    let test = TestRepo::new();
+    let git = RealGit;
+
+    // Create a worktree on a feature branch
+    let wt_path = test.add_worktree("main-repo-stale", "feature/stale-branch");
+
+    // Merge the branch into main, then delete the branch ref directly
+    // (git branch -d won't delete a branch checked out in a worktree)
+    common::git(&test.main_repo, &["merge", "feature/stale-branch"]);
+    common::git(
+        &test.main_repo,
+        &["update-ref", "-d", "refs/heads/feature/stale-branch"],
+    );
+
+    // Verify the branch ref is gone
+    assert!(
+        !git.rev_parse_verify(&test.main_repo, "refs/heads/feature/stale-branch")
+            .unwrap(),
+        "branch ref should be deleted"
+    );
+
+    // Verify the worktree still reports the branch name
+    let branch = git.worktree_branch(&wt_path).unwrap();
+    assert_eq!(
+        branch.as_deref(),
+        Some("feature/stale-branch"),
+        "worktree HEAD should still reference the deleted branch"
+    );
+
+    // Scan using run_scan_repos and verify LandedStale classification
+    let mut groups = BTreeMap::new();
+    groups.insert(
+        test.main_repo.clone(),
+        vec![DiscoveredWorktree {
+            path: wt_path.clone(),
+            parent_repo: test.main_repo.clone(),
+        }],
+    );
+
+    let progress = Progress::disabled();
+    let result =
+        git_worktree_tidy::scan::run_scan_repos(&git, groups, 100, false, &[], &progress).unwrap();
+
+    assert_eq!(result.total_scanned, 1);
+    assert_eq!(result.repos.len(), 1);
+    let wt_info = &result.repos[0].worktrees[0];
+    assert_eq!(
+        wt_info.classification,
+        Classification::LandedStale,
+        "worktree with deleted branch ref should be classified as LandedStale"
+    );
+    assert_eq!(wt_info.branch.as_deref(), Some("feature/stale-branch"));
+    assert_eq!(result.counts.landed_stale, 1);
 }

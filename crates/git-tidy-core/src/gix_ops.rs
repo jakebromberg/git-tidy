@@ -253,9 +253,9 @@ impl GitOps for GixGitOps {
 
     fn worktree_branch(&self, worktree_path: &Path) -> GitResult<Option<String>> {
         let r = open_repo(worktree_path)?;
-        match r.head_ref() {
-            Ok(Some(reference)) => Ok(Some(reference.name().shorten().to_string())),
-            Ok(None) => Ok(None),
+        match r.head_name() {
+            Ok(Some(name)) => Ok(Some(name.shorten().to_string())),
+            Ok(None) => Ok(None), // genuinely detached HEAD
             Err(_) => Ok(None),
         }
     }
