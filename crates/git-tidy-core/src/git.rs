@@ -232,6 +232,45 @@ pub trait GitOps: Send + Sync {
     ) -> GitResult<Vec<(String, u64, String)>>;
 }
 
+/// Parse `git worktree list --porcelain` output into `(path, branch)` pairs.
+///
+/// Skips the first (main) worktree and any prunable entries (worktrees whose
+/// directories have been deleted but whose metadata hasn't been pruned).
+fn parse_worktree_list_porcelain(text: &str) -> Vec<(PathBuf, Option<String>)> {
+    let mut result = Vec::new();
+    let mut current_path: Option<PathBuf> = None;
+    let mut current_branch: Option<String> = None;
+    let mut is_prunable = false;
+    let mut is_first = true;
+
+    for line in text.lines().chain(std::iter::once("")) {
+        if line.is_empty() {
+            // Block boundary: emit previous entry (skip first/main and prunable)
+            if let Some(path) = current_path.take() {
+                if !is_first && !is_prunable {
+                    result.push((path, current_branch.take()));
+                } else {
+                    is_first = false;
+                }
+            }
+            current_branch = None;
+            is_prunable = false;
+            continue;
+        }
+        if let Some(path_str) = line.strip_prefix("worktree ") {
+            current_path = Some(PathBuf::from(path_str));
+        } else if let Some(branch_ref) = line.strip_prefix("branch ") {
+            current_branch = branch_ref
+                .strip_prefix("refs/heads/")
+                .map(|s| s.to_string());
+        } else if line.starts_with("prunable ") {
+            is_prunable = true;
+        }
+    }
+
+    result
+}
+
 /// Real git implementation that shells out to the `git` binary.
 pub struct RealGit;
 
@@ -517,34 +556,7 @@ impl GitOps for RealGit {
 
     fn worktree_list(&self, repo: &Path) -> GitResult<Vec<(PathBuf, Option<String>)>> {
         let text = Self::run_success(repo, &["worktree", "list", "--porcelain"])?;
-        let mut result = Vec::new();
-        let mut current_path: Option<PathBuf> = None;
-        let mut current_branch: Option<String> = None;
-        let mut is_first = true;
-
-        for line in text.lines().chain(std::iter::once("")) {
-            if line.is_empty() {
-                // Block boundary: emit previous entry (skip the first/main worktree)
-                if let Some(path) = current_path.take() {
-                    if !is_first {
-                        result.push((path, current_branch.take()));
-                    } else {
-                        is_first = false;
-                    }
-                }
-                current_branch = None;
-                continue;
-            }
-            if let Some(path_str) = line.strip_prefix("worktree ") {
-                current_path = Some(PathBuf::from(path_str));
-            } else if let Some(branch_ref) = line.strip_prefix("branch ") {
-                current_branch = branch_ref
-                    .strip_prefix("refs/heads/")
-                    .map(|s| s.to_string());
-            }
-        }
-
-        Ok(result)
+        Ok(parse_worktree_list_porcelain(&text))
     }
 
     fn branch_delete(&self, repo: &Path, branch: &str) -> GitResult<()> {
@@ -1181,5 +1193,85 @@ mod tests {
     fn parse_human_bytes_invalid() {
         assert_eq!(parse_human_bytes("not a size"), 0);
         assert_eq!(parse_human_bytes(""), 0);
+    }
+
+    #[test]
+    fn parse_worktree_list_basic() {
+        let porcelain = "\
+worktree /main/repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /worktrees/feat
+HEAD def456
+branch refs/heads/feat
+
+";
+        let result = parse_worktree_list_porcelain(porcelain);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, PathBuf::from("/worktrees/feat"));
+        assert_eq!(result[0].1, Some("feat".to_string()));
+    }
+
+    #[test]
+    fn parse_worktree_list_skips_prunable() {
+        let porcelain = "\
+worktree /main/repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /worktrees/feat
+HEAD def456
+branch refs/heads/feat
+
+worktree /worktrees/deleted
+HEAD 789012
+branch refs/heads/old-branch
+prunable gitdir file points to non-existent location
+
+";
+        let result = parse_worktree_list_porcelain(porcelain);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, PathBuf::from("/worktrees/feat"));
+    }
+
+    #[test]
+    fn parse_worktree_list_detached_head() {
+        let porcelain = "\
+worktree /main/repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /worktrees/detached
+HEAD def456
+detached
+
+";
+        let result = parse_worktree_list_porcelain(porcelain);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, PathBuf::from("/worktrees/detached"));
+        assert_eq!(result[0].1, None);
+    }
+
+    #[test]
+    fn parse_worktree_list_all_prunable() {
+        let porcelain = "\
+worktree /main/repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /worktrees/gone1
+HEAD 111111
+branch refs/heads/gone1
+prunable gitdir file points to non-existent location
+
+worktree /worktrees/gone2
+HEAD 222222
+branch refs/heads/gone2
+prunable gitdir file points to non-existent location
+
+";
+        let result = parse_worktree_list_porcelain(porcelain);
+        assert!(result.is_empty());
     }
 }
