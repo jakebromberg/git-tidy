@@ -222,7 +222,7 @@ pub trait GitOps: Send + Sync {
     /// Remove orphaned LFS objects.
     fn lfs_prune(&self, repo: &Path) -> GitResult<()>;
 
-    /// Find blobs above `threshold` bytes in the last `depth` commits.
+    /// Find blobs above `threshold` bytes across up to `depth` branch/tag tip trees.
     /// Returns `(hash, size, path)` tuples.
     fn find_large_blobs(
         &self,
@@ -957,96 +957,58 @@ impl GitOps for RealGit {
         threshold: u64,
         depth: usize,
     ) -> GitResult<Vec<(String, u64, String)>> {
-        use std::collections::HashMap;
-        use std::io::{BufRead, BufReader, Write as IoWrite};
-        use std::process::Stdio;
+        use std::collections::HashSet;
 
-        // Phase 1: Get all objects with paths
-        let depth_str = depth.to_string();
-        let output = Self::run(
-            repo,
-            &["rev-list", "--objects", "--all", "--max-count", &depth_str],
-        )?;
-        let rev_list_text = String::from_utf8_lossy(&output.stdout);
+        // Get unique root tree hashes from all ref tips.
+        // Do NOT use --max-count here — it changes --no-walk semantics.
+        let output = Self::run(repo, &["rev-list", "--all", "--no-walk", "--format=%T"])?;
+        let text = String::from_utf8_lossy(&output.stdout);
 
-        // Build hash-to-path mapping and collect blob candidates
-        let mut hash_to_path: HashMap<String, String> = HashMap::new();
-        let mut all_hashes: Vec<String> = Vec::new();
+        let unique_trees: HashSet<&str> = text
+            .lines()
+            .filter(|l| !l.starts_with("commit ") && !l.is_empty())
+            .collect();
 
-        for line in rev_list_text.lines() {
-            if line.is_empty() {
-                continue;
-            }
-            if let Some((hash, path)) = line.split_once(' ')
-                && !path.is_empty()
-            {
-                hash_to_path.insert(hash.to_string(), path.to_string());
-                all_hashes.push(hash.to_string());
-            }
-        }
-
-        if all_hashes.is_empty() {
+        if unique_trees.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Phase 2: Feed hashes to cat-file --batch-check to get sizes
-        let mut child = Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["cat-file", "--batch-check"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| Error::GitCommand {
-                command: "git cat-file --batch-check".to_string(),
-                message: e.to_string(),
-            })?;
+        // For each unique tree (up to depth), scan with ls-tree -r -l.
+        let mut seen_hashes: HashSet<String> = HashSet::new();
+        let mut results: Vec<(String, u64, String)> = Vec::new();
 
-        // Write all hashes to stdin, then drop to close the pipe (signals EOF).
-        {
-            let mut stdin = child.stdin.take().ok_or_else(|| Error::GitCommand {
-                command: "git cat-file --batch-check".to_string(),
-                message: "failed to open stdin".to_string(),
-            })?;
-            for hash in &all_hashes {
-                writeln!(stdin, "{hash}").map_err(|e| Error::GitCommand {
-                    command: "git cat-file --batch-check".to_string(),
-                    message: e.to_string(),
-                })?;
+        for tree in unique_trees.iter().take(depth) {
+            let output = Self::run(repo, &["ls-tree", "-r", "-l", tree])?;
+            let tree_text = String::from_utf8_lossy(&output.stdout);
+
+            for line in tree_text.lines() {
+                // Format: "<mode> <type> <hash> <size>\t<path>"
+                let Some((metadata, path)) = line.split_once('\t') else {
+                    continue;
+                };
+                let parts: Vec<&str> = metadata.split_whitespace().collect();
+                if parts.len() != 4 {
+                    continue;
+                }
+                if parts[1] != "blob" {
+                    continue;
+                }
+                let Ok(size) = parts[3].parse::<u64>() else {
+                    continue;
+                };
+                if size < threshold {
+                    continue;
+                }
+                let hash = parts[2];
+                if !seen_hashes.insert(hash.to_string()) {
+                    continue;
+                }
+                results.push((hash.to_string(), size, path.to_string()));
             }
         }
 
-        // Read results: "<hash> <type> <size>" per line
-        let stdout = child.stdout.take().ok_or_else(|| Error::GitCommand {
-            command: "git cat-file --batch-check".to_string(),
-            message: "failed to capture stdout".to_string(),
-        })?;
-        let reader = BufReader::new(stdout);
-
-        let mut result = Vec::new();
-        for line in reader.lines() {
-            let line = line.map_err(|e| Error::GitCommand {
-                command: "git cat-file --batch-check".to_string(),
-                message: e.to_string(),
-            })?;
-            // Format: "<hash> blob <size>" or "<hash> tree <size>" etc.
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() == 3
-                && parts[1] == "blob"
-                && let Ok(size) = parts[2].parse::<u64>()
-                && size >= threshold
-                && let Some(path) = hash_to_path.get(parts[0])
-            {
-                result.push((parts[0].to_string(), size, path.clone()));
-            }
-        }
-
-        let _ = child.wait();
-
-        // Sort by size descending for readability
-        result.sort_by(|a, b| b.1.cmp(&a.1));
-        Ok(result)
+        results.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(results)
     }
 }
 

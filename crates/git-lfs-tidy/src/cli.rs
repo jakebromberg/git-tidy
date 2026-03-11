@@ -44,7 +44,7 @@ pub enum Command {
         #[arg(long, default_value = "1MB")]
         size_threshold: String,
 
-        /// Maximum number of commits to scan for large blobs
+        /// Maximum number of branch/tag tip trees to scan for large blobs
         #[arg(long, default_value_t = 1000)]
         depth: usize,
     },
@@ -70,7 +70,7 @@ pub enum Command {
         #[arg(long, default_value = "1MB")]
         size_threshold: String,
 
-        /// Maximum number of commits to scan for large blobs
+        /// Maximum number of branch/tag tip trees to scan for large blobs
         #[arg(long, default_value_t = 1000)]
         depth: usize,
 
