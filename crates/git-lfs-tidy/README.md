@@ -24,7 +24,7 @@ git-lfs-tidy scan ~/Developer --porcelain          # machine-readable tab-delimi
 
 # Custom thresholds
 git-lfs-tidy scan ~/Developer --size-threshold 500KB  # flag files above 500KB (default: 1MB)
-git-lfs-tidy scan ~/Developer --depth 500              # scan last 500 commits (default: 1000)
+git-lfs-tidy scan ~/Developer --depth 500              # scan up to 500 branch/tag tip trees (default: 1000)
 
 # Clean up orphaned LFS objects
 git-lfs-tidy clean ~/Developer --prune             # prune orphaned LFS objects
@@ -38,7 +38,7 @@ git-lfs-tidy clean ~/Developer --prune --yes       # skip confirmation
 2. If `git lfs` is installed:
    - Lists LFS-tracked files (`git lfs ls-files`) and classifies them as **healthy** or **missing**.
    - Checks for prunable objects (`git lfs prune --dry-run`) and reports **orphaned** count.
-3. Scans commit history for large blobs (`git rev-list` + `git cat-file --batch-check`) above the size threshold and flags **untracked** files not in LFS.
+3. Scans branch/tag tip trees for large blobs (`git rev-list` + `git ls-tree`) above the size threshold and flags **untracked** files not in LFS.
 4. When `git lfs` is not installed, gracefully degrades to only scanning for large untracked blobs.
 
 ## Part of git-tidy
