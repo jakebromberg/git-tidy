@@ -3,12 +3,14 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::types::{Classification, ClassificationLabel, ScanResult, WorktreeInfo};
 
-const MIN_DIR_NAME_WIDTH: usize = 20;
-const MIN_BRANCH_WIDTH: usize = 20;
-const MIN_RATIO_WIDTH: usize = 5;
-const MIN_AHEAD_BEHIND_WIDTH: usize = 10;
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_DIRECTORY: &str = "DIRECTORY";
+const HEADER_BRANCH: &str = "BRANCH";
+const HEADER_RATIO: &str = "RATIO";
+const HEADER_AHEAD_BEHIND: &str = "AHEAD/BEHIND";
 
 struct ColumnWidths {
+    status: usize,
     dir_name: usize,
     branch: usize,
     ratio: usize,
@@ -18,14 +20,16 @@ struct ColumnWidths {
 }
 
 fn compute_column_widths(worktrees: &[WorktreeInfo]) -> ColumnWidths {
-    let mut max_dir = 0usize;
-    let mut max_branch = 0usize;
-    let mut max_ratio = 0usize;
-    let mut max_ab = 0usize;
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_dir = HEADER_DIRECTORY.len();
+    let mut max_branch = HEADER_BRANCH.len();
+    let mut max_ratio = HEADER_RATIO.len();
+    let mut max_ab = HEADER_AHEAD_BEHIND.len();
     let mut has_ratio = false;
     let mut has_ahead_behind = false;
 
     for wt in worktrees {
+        max_status = max_status.max(wt.classification.label().len());
         let dir_name = wt
             .path
             .file_name()
@@ -48,13 +52,31 @@ fn compute_column_widths(worktrees: &[WorktreeInfo]) -> ColumnWidths {
     }
 
     ColumnWidths {
-        dir_name: max_dir.max(MIN_DIR_NAME_WIDTH),
-        branch: max_branch.max(MIN_BRANCH_WIDTH),
-        ratio: max_ratio.max(MIN_RATIO_WIDTH),
-        ahead_behind: max_ab.max(MIN_AHEAD_BEHIND_WIDTH),
+        status: max_status,
+        dir_name: max_dir,
+        branch: max_branch,
+        ratio: max_ratio,
+        ahead_behind: max_ab,
         has_ratio,
         has_ahead_behind,
     }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let dw = widths.dir_name;
+    let bw = widths.branch;
+    let mut line = format!("  {HEADER_STATUS:<sw$} {HEADER_DIRECTORY:<dw$} {HEADER_BRANCH:<bw$}");
+    if widths.has_ratio {
+        let rw = widths.ratio;
+        line.push_str(&format!(" {HEADER_RATIO:<rw$}"));
+    }
+    if widths.has_ahead_behind {
+        let aw = widths.ahead_behind;
+        line.push_str(&format!(" {HEADER_AHEAD_BEHIND:<aw$}"));
+    }
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
 }
 
 /// Write human-readable scan output.
@@ -70,6 +92,7 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
         )?;
 
         let widths = compute_column_widths(&group.worktrees);
+        write_header(out, &widths)?;
 
         for wt in &group.worktrees {
             write_worktree_line(out, wt, &widths)?;
@@ -98,7 +121,7 @@ fn write_worktree_line(
     wt: &WorktreeInfo,
     widths: &ColumnWidths,
 ) -> std::io::Result<()> {
-    let label = format!("{:<8}", wt.classification.label());
+    let label = wt.classification.label();
     let dir_name = wt
         .path
         .file_name()
@@ -121,9 +144,10 @@ fn write_worktree_line(
         annotations.push("remote deleted".to_string());
     }
 
+    let sw = widths.status;
     let dw = widths.dir_name;
     let bw = widths.branch;
-    let mut line = format!("  {label} {dir_name:<dw$} {branch:<bw$}");
+    let mut line = format!("  {label:<sw$} {dir_name:<dw$} {branch:<bw$}");
     if widths.has_ratio {
         let rw = widths.ratio;
         line.push_str(&format!(" {ratio:<rw$}"));
@@ -238,6 +262,10 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("Backend (2 worktrees)"));
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("DIRECTORY"));
+        assert!(output.contains("BRANCH"));
         assert!(output.contains("landed"));
         assert!(output.contains("active"));
         assert!(output.contains("Backend-parallel"));
@@ -337,11 +365,15 @@ mod tests {
         assert_eq!(fields2[3], "active");
     }
 
-    /// Collect worktree data lines from human output (lines starting with "  " but not "    unmatched:").
+    /// Collect worktree data lines from human output (lines starting with "  " but not headers or unmatched).
     fn worktree_lines(output: &str) -> Vec<&str> {
         output
             .lines()
-            .filter(|l| l.starts_with("  ") && !l.starts_with("    unmatched:"))
+            .filter(|l| {
+                l.starts_with("  ")
+                    && !l.starts_with("    unmatched:")
+                    && !l.trim_start().starts_with("STATUS")
+            })
             .collect()
     }
 

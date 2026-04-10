@@ -2,7 +2,52 @@ use std::io::Write;
 
 use git_tidy_core::output as shared;
 
-use crate::types::{ConfigLintResult, JsonConfigIssue};
+use crate::types::{ConfigIssue, ConfigLintResult, JsonConfigIssue};
+
+const HEADER_SEVERITY: &str = "SEVERITY";
+const HEADER_KIND: &str = "KIND";
+const HEADER_SETTING: &str = "SETTING";
+const HEADER_MESSAGE: &str = "MESSAGE";
+
+struct ColumnWidths {
+    severity: usize,
+    kind: usize,
+    setting: usize,
+    message: usize,
+}
+
+fn compute_column_widths(issues: &[ConfigIssue]) -> ColumnWidths {
+    let mut max_severity = HEADER_SEVERITY.len();
+    let mut max_kind = HEADER_KIND.len();
+    let mut max_setting = HEADER_SETTING.len();
+    let mut max_message = HEADER_MESSAGE.len();
+
+    for i in issues {
+        max_severity = max_severity.max(i.severity.label().len());
+        max_kind = max_kind.max(i.kind.label().len());
+        // key=value combined
+        max_setting = max_setting.max(i.key.len() + 1 + i.value.len());
+        max_message = max_message.max(i.message.len());
+    }
+
+    ColumnWidths {
+        severity: max_severity,
+        kind: max_kind,
+        setting: max_setting,
+        message: max_message,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.severity;
+    let kw = widths.kind;
+    let stw = widths.setting;
+    let line = format!(
+        "  {HEADER_SEVERITY:<sw$} {HEADER_KIND:<kw$} {HEADER_SETTING:<stw$} {HEADER_MESSAGE}"
+    );
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
+}
 
 /// Write human-readable lint output.
 pub fn write_human(out: &mut dyn Write, result: &ConfigLintResult) -> std::io::Result<()> {
@@ -16,16 +61,23 @@ pub fn write_human(out: &mut dyn Write, result: &ConfigLintResult) -> std::io::R
         };
         writeln!(out, "\n{} ({} {noun})", group.name, group.issues.len())?;
 
+        let widths = compute_column_widths(&group.issues);
+        write_header(out, &widths)?;
+
         for issue in &group.issues {
-            writeln!(
-                out,
-                "  {:<8} {:<26} {}={} {}",
+            let setting = format!("{}={}", issue.key, issue.value);
+
+            let sw = widths.severity;
+            let kw = widths.kind;
+            let stw = widths.setting;
+            let line = format!(
+                "  {:<sw$} {:<kw$} {setting:<stw$} {}",
                 issue.severity.label(),
                 issue.kind.label(),
-                issue.key,
-                issue.value,
                 issue.message,
-            )?;
+            );
+            let trimmed = line.trim_end();
+            writeln!(out, "{trimmed}")?;
         }
     }
 
@@ -126,6 +178,11 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("backend (2 issues)"));
+        // Header row
+        assert!(output.contains("SEVERITY"));
+        assert!(output.contains("KIND"));
+        assert!(output.contains("SETTING"));
+        assert!(output.contains("MESSAGE"));
         assert!(output.contains("warning"));
         assert!(output.contains("orphaned_branch_config"));
         assert!(output.contains("branch.old-feature.remote=origin"));

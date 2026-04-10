@@ -3,7 +3,79 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::TagScanResult;
+use crate::types::{TagInfo, TagScanResult};
+
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_NAME: &str = "NAME";
+const HEADER_COMMIT: &str = "COMMIT";
+const HEADER_KIND: &str = "KIND";
+const HEADER_DATE: &str = "DATE";
+
+struct ColumnWidths {
+    status: usize,
+    name: usize,
+    commit: usize,
+    kind: usize,
+    date: usize,
+    has_date: bool,
+}
+
+fn commit_short(commit: &str) -> &str {
+    if commit.len() >= 7 {
+        &commit[..7]
+    } else {
+        commit
+    }
+}
+
+fn compute_column_widths(tags: &[TagInfo]) -> ColumnWidths {
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_name = HEADER_NAME.len();
+    let mut max_commit = HEADER_COMMIT.len();
+    let mut max_kind = HEADER_KIND.len();
+    let mut max_date = HEADER_DATE.len();
+    let mut has_date = false;
+
+    for t in tags {
+        max_status = max_status.max(t.classification.label().len());
+        max_name = max_name.max(t.name.len());
+        max_commit = max_commit.max(commit_short(&t.commit).len());
+        let kind = if t.is_annotated {
+            "annotated"
+        } else {
+            "lightweight"
+        };
+        max_kind = max_kind.max(kind.len());
+        if let Some(ref d) = t.tagger_date {
+            has_date = true;
+            max_date = max_date.max(d.len());
+        }
+    }
+
+    ColumnWidths {
+        status: max_status,
+        name: max_name,
+        commit: max_commit,
+        kind: max_kind,
+        date: max_date,
+        has_date,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let nw = widths.name;
+    let cw = widths.commit;
+    let kw = widths.kind;
+    let mut line = format!(
+        "  {HEADER_STATUS:<sw$} {HEADER_NAME:<nw$} {HEADER_COMMIT:<cw$} {HEADER_KIND:<kw$}"
+    );
+    if widths.has_date {
+        line.push_str(&format!(" {HEADER_DATE}"));
+    }
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
+}
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Result<()> {
@@ -13,13 +85,12 @@ pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Resu
         let noun = if group.tags.len() == 1 { "tag" } else { "tags" };
         writeln!(out, "\n{} ({} {noun})", group.name, group.tags.len())?;
 
+        let widths = compute_column_widths(&group.tags);
+        write_header(out, &widths)?;
+
         for tag in &group.tags {
-            let label = format!("{:<13}", tag.classification.label());
-            let commit_short = if tag.commit.len() >= 7 {
-                &tag.commit[..7]
-            } else {
-                &tag.commit
-            };
+            let label = tag.classification.label();
+            let cs = commit_short(&tag.commit);
             let kind = if tag.is_annotated {
                 "annotated"
             } else {
@@ -27,11 +98,17 @@ pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Resu
             };
             let date = tag.tagger_date.as_deref().unwrap_or("");
 
-            writeln!(
-                out,
-                "  {label} {:<20} {:<9} {:<12} {date}",
-                tag.name, commit_short, kind,
-            )?;
+            let sw = widths.status;
+            let nw = widths.name;
+            let cw = widths.commit;
+            let kw = widths.kind;
+            let mut line = format!("  {label:<sw$} {:<nw$} {cs:<cw$} {kind:<kw$}", tag.name);
+            if widths.has_date {
+                let dw = widths.date;
+                line.push_str(&format!(" {date:<dw$}"));
+            }
+            let trimmed = line.trim_end();
+            writeln!(out, "{trimmed}")?;
         }
     }
 
@@ -142,6 +219,11 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("backend (3 tags)"));
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("NAME"));
+        assert!(output.contains("COMMIT"));
+        assert!(output.contains("KIND"));
         assert!(output.contains("stale"));
         assert!(output.contains("local_only"));
         assert!(output.contains("synced"));

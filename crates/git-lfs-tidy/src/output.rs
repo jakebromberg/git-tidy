@@ -2,7 +2,12 @@ use std::io::Write;
 
 use git_tidy_core::output as shared;
 
-use crate::types::{JsonLfsItem, LfsScanResult};
+use crate::types::{JsonLfsItem, LfsInfo, LfsScanResult};
+
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_PATH: &str = "PATH";
+const HEADER_SIZE: &str = "SIZE";
+const HEADER_OID: &str = "OID";
 
 /// Format bytes into a human-readable string.
 pub fn format_bytes(bytes: u64) -> String {
@@ -15,6 +20,48 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{bytes} B")
     }
+}
+
+struct ColumnWidths {
+    status: usize,
+    path: usize,
+    size: usize,
+    oid: usize,
+}
+
+fn oid_short(oid: &str) -> &str {
+    if oid.len() >= 7 { &oid[..7] } else { oid }
+}
+
+fn compute_column_widths(items: &[LfsInfo]) -> ColumnWidths {
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_path = HEADER_PATH.len();
+    let mut max_size = HEADER_SIZE.len();
+    let mut max_oid = HEADER_OID.len();
+
+    for i in items {
+        max_status = max_status.max(i.classification.label().len());
+        max_path = max_path.max(i.path.len());
+        max_size = max_size.max(i.size_bytes.map(format_bytes).unwrap_or_default().len());
+        max_oid = max_oid.max(oid_short(&i.oid).len());
+    }
+
+    ColumnWidths {
+        status: max_status,
+        path: max_path,
+        size: max_size,
+        oid: max_oid,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let pw = widths.path;
+    let szw = widths.size;
+    let line =
+        format!("  {HEADER_STATUS:<sw$} {HEADER_PATH:<pw$} {HEADER_SIZE:<szw$} {HEADER_OID}");
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
 }
 
 /// Write human-readable scan output.
@@ -33,16 +80,20 @@ pub fn write_human(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Resu
             writeln!(out, "  LFS patterns: {}", group.track_patterns.join(", "))?;
         }
 
-        for item in &group.items {
-            let label = format!("{:<11}", item.classification.label());
-            let size = item.size_bytes.map(format_bytes).unwrap_or_default();
-            let oid_short = if item.oid.len() >= 7 {
-                &item.oid[..7]
-            } else {
-                &item.oid
-            };
+        let widths = compute_column_widths(&group.items);
+        write_header(out, &widths)?;
 
-            writeln!(out, "  {label} {:<40} {:<10} {oid_short}", item.path, size)?;
+        for item in &group.items {
+            let label = item.classification.label();
+            let size = item.size_bytes.map(format_bytes).unwrap_or_default();
+            let oid_s = oid_short(&item.oid);
+
+            let sw = widths.status;
+            let pw = widths.path;
+            let szw = widths.size;
+            let line = format!("  {label:<sw$} {:<pw$} {size:<szw$} {oid_s}", item.path);
+            let trimmed = line.trim_end();
+            writeln!(out, "{trimmed}")?;
         }
 
         // Hints for actionable items
@@ -206,6 +257,11 @@ mod tests {
 
         assert!(output.contains("backend (3 items)"));
         assert!(output.contains("LFS patterns: *.bin, *.zip"));
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("PATH"));
+        assert!(output.contains("SIZE"));
+        assert!(output.contains("OID"));
         assert!(output.contains("untracked"));
         assert!(output.contains("missing"));
         assert!(output.contains("healthy"));

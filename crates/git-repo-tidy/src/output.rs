@@ -2,7 +2,51 @@ use std::io::Write;
 
 use git_tidy_core::output as shared;
 
-use crate::types::{JsonRepo, RepoScanResult, format_disk_size, format_last_commit_age};
+use crate::types::{JsonRepo, RepoInfo, RepoScanResult, format_disk_size, format_last_commit_age};
+
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_NAME: &str = "NAME";
+const HEADER_AGE: &str = "AGE";
+const HEADER_SIZE: &str = "SIZE";
+
+struct ColumnWidths {
+    status: usize,
+    name: usize,
+    age: usize,
+    size: usize,
+}
+
+fn compute_column_widths(repos: &[RepoInfo]) -> ColumnWidths {
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_name = HEADER_NAME.len();
+    let mut max_age = HEADER_AGE.len();
+    let mut max_size = HEADER_SIZE.len();
+
+    for r in repos {
+        max_status = max_status.max(r.classification.label().len());
+        max_name = max_name.max(r.name.len());
+        max_age = max_age.max(format_last_commit_age(r.last_commit_age_days).len());
+        max_size = max_size.max(format_disk_size(r.disk_usage_bytes).len());
+    }
+
+    ColumnWidths {
+        status: max_status,
+        name: max_name,
+        age: max_age,
+        size: max_size,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let nw = widths.name;
+    let aw = widths.age;
+    let szw = widths.size;
+    let line =
+        format!("  {HEADER_STATUS:<sw$} {HEADER_NAME:<nw$} {HEADER_AGE:<aw$} {HEADER_SIZE:<szw$}");
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
+}
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Result<()> {
@@ -10,29 +54,36 @@ pub fn write_human(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Res
 
     if !result.repos.is_empty() {
         writeln!(out)?;
-    }
+        let widths = compute_column_widths(&result.repos);
+        write_header(out, &widths)?;
 
-    for repo in &result.repos {
-        let label = format!("{:<10}", repo.classification.label());
-        let age = format_last_commit_age(repo.last_commit_age_days);
-        let size = format_disk_size(repo.disk_usage_bytes);
+        for repo in &result.repos {
+            let label = repo.classification.label();
+            let age = format_last_commit_age(repo.last_commit_age_days);
+            let size = format_disk_size(repo.disk_usage_bytes);
 
-        let dirty_note = if repo.is_dirty {
-            let noun = if repo.dirty_file_count == 1 {
-                "file"
+            let dirty_note = if repo.is_dirty {
+                let noun = if repo.dirty_file_count == 1 {
+                    "file"
+                } else {
+                    "files"
+                };
+                format!("  dirty ({} {noun})", repo.dirty_file_count)
             } else {
-                "files"
+                String::new()
             };
-            format!("  dirty ({} {noun})", repo.dirty_file_count)
-        } else {
-            String::new()
-        };
 
-        writeln!(
-            out,
-            "  {label} {:<25} {:<20} {:<10}{dirty_note}",
-            repo.name, age, size,
-        )?;
+            let sw = widths.status;
+            let nw = widths.name;
+            let aw = widths.age;
+            let szw = widths.size;
+            let line = format!(
+                "  {label:<sw$} {:<nw$} {age:<aw$} {size:<szw$}{dirty_note}",
+                repo.name,
+            );
+            let trimmed = line.trim_end();
+            writeln!(out, "{trimmed}")?;
+        }
     }
 
     write_summary(out, result)?;
@@ -166,6 +217,11 @@ mod tests {
         write_human(&mut buf, &result).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("NAME"));
+        assert!(output.contains("AGE"));
+        assert!(output.contains("SIZE"));
         assert!(output.contains("stale"));
         assert!(output.contains("old-project"));
         assert!(output.contains("549 days ago"));
