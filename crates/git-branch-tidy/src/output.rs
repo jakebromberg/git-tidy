@@ -5,6 +5,70 @@ use git_tidy_core::types::{Classification, ClassificationLabel};
 
 use crate::types::{BranchInfo, BranchScanResult};
 
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_BRANCH: &str = "BRANCH";
+const HEADER_RATIO: &str = "RATIO";
+const HEADER_AHEAD_BEHIND: &str = "AHEAD/BEHIND";
+
+struct ColumnWidths {
+    status: usize,
+    name: usize,
+    ratio: usize,
+    ahead_behind: usize,
+    has_ratio: bool,
+    has_ahead_behind: bool,
+}
+
+fn compute_column_widths(branches: &[BranchInfo]) -> ColumnWidths {
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_name = HEADER_BRANCH.len();
+    let mut max_ratio = HEADER_RATIO.len();
+    let mut max_ab = HEADER_AHEAD_BEHIND.len();
+    let mut has_ratio = false;
+    let mut has_ahead_behind = false;
+
+    for b in branches {
+        max_status = max_status.max(b.classification.label().len());
+        // +2 for "* " or "  " prefix
+        max_name = max_name.max(b.name.len() + 2);
+        let ratio = shared::format_landed_ratio(&b.classification);
+        let ab = shared::format_ahead_behind(b.ahead, b.behind);
+        if !ratio.is_empty() {
+            has_ratio = true;
+            max_ratio = max_ratio.max(ratio.len());
+        }
+        if !ab.is_empty() {
+            has_ahead_behind = true;
+            max_ab = max_ab.max(ab.len());
+        }
+    }
+
+    ColumnWidths {
+        status: max_status,
+        name: max_name,
+        ratio: max_ratio,
+        ahead_behind: max_ab,
+        has_ratio,
+        has_ahead_behind,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let nw = widths.name;
+    let mut line = format!("  {HEADER_STATUS:<sw$} {HEADER_BRANCH:<nw$}");
+    if widths.has_ratio {
+        let rw = widths.ratio;
+        line.push_str(&format!(" {HEADER_RATIO:<rw$}"));
+    }
+    if widths.has_ahead_behind {
+        let aw = widths.ahead_behind;
+        line.push_str(&format!(" {HEADER_AHEAD_BEHIND:<aw$}"));
+    }
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
+}
+
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
     shared::write_warnings(out, &result.warnings)?;
@@ -12,8 +76,11 @@ pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::R
     for group in &result.repos {
         writeln!(out, "\n{} ({} branches)", group.name, group.branches.len())?;
 
+        let widths = compute_column_widths(&group.branches);
+        write_header(out, &widths)?;
+
         for branch in &group.branches {
-            write_branch_line(out, branch)?;
+            write_branch_line(out, branch, &widths)?;
 
             // For partial landings, list unmatched commits
             if let Classification::LandedPartial { unmatched, .. } = &branch.classification {
@@ -34,8 +101,12 @@ pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::R
     Ok(())
 }
 
-fn write_branch_line(out: &mut dyn Write, branch: &BranchInfo) -> std::io::Result<()> {
-    let label = format!("{:<8}", branch.classification.label());
+fn write_branch_line(
+    out: &mut dyn Write,
+    branch: &BranchInfo,
+    widths: &ColumnWidths,
+) -> std::io::Result<()> {
+    let label = branch.classification.label();
 
     let name = if branch.is_current {
         format!("* {}", branch.name)
@@ -56,17 +127,22 @@ fn write_branch_line(out: &mut dyn Write, branch: &BranchInfo) -> std::io::Resul
     }
     let annotations = shared::format_annotations(&ann_strs);
 
-    write!(out, "  {label} {name:<34}")?;
-    if !ratio.is_empty() {
-        write!(out, " {ratio:<8}")?;
+    let sw = widths.status;
+    let nw = widths.name;
+    let mut line = format!("  {label:<sw$} {name:<nw$}");
+    if widths.has_ratio {
+        let rw = widths.ratio;
+        line.push_str(&format!(" {ratio:<rw$}"));
     }
-    if !ahead_behind.is_empty() {
-        write!(out, " {ahead_behind:<10}")?;
+    if widths.has_ahead_behind {
+        let aw = widths.ahead_behind;
+        line.push_str(&format!(" {ahead_behind:<aw$}"));
     }
     if !annotations.is_empty() {
-        write!(out, "  {annotations}")?;
+        line.push_str(&format!("  {annotations}"));
     }
-    writeln!(out)?;
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")?;
 
     Ok(())
 }
@@ -162,6 +238,9 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("Backend (2 branches)"));
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("BRANCH"));
         assert!(output.contains("landed"));
         assert!(output.contains("active"));
         assert!(output.contains("fix/skip-db-init"));

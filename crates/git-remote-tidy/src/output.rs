@@ -3,7 +3,72 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::RemoteScanResult;
+use crate::types::{RemoteInfo, RemoteScanResult};
+
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_NAME: &str = "NAME";
+const HEADER_URL: &str = "URL";
+const HEADER_TRACKING: &str = "TRACKING";
+
+struct ColumnWidths {
+    status: usize,
+    name: usize,
+    url: usize,
+    tracking: usize,
+    has_tracking: bool,
+}
+
+fn format_tracking(remote: &RemoteInfo) -> String {
+    if remote.tracking_count > 0 {
+        let branch_noun = if remote.tracking_count == 1 {
+            "tracking branch"
+        } else {
+            "tracking branches"
+        };
+        format!("({} {branch_noun})", remote.tracking_count)
+    } else {
+        String::new()
+    }
+}
+
+fn compute_column_widths(remotes: &[RemoteInfo]) -> ColumnWidths {
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_name = HEADER_NAME.len();
+    let mut max_url = HEADER_URL.len();
+    let mut max_tracking = HEADER_TRACKING.len();
+    let mut has_tracking = false;
+
+    for r in remotes {
+        max_status = max_status.max(r.classification.label().len());
+        max_name = max_name.max(r.name.len());
+        max_url = max_url.max(r.url.as_deref().unwrap_or("").len());
+        let tracking = format_tracking(r);
+        if !tracking.is_empty() {
+            has_tracking = true;
+            max_tracking = max_tracking.max(tracking.len());
+        }
+    }
+
+    ColumnWidths {
+        status: max_status,
+        name: max_name,
+        url: max_url,
+        tracking: max_tracking,
+        has_tracking,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let nw = widths.name;
+    let uw = widths.url;
+    let mut line = format!("  {HEADER_STATUS:<sw$} {HEADER_NAME:<nw$} {HEADER_URL:<uw$}");
+    if widths.has_tracking {
+        line.push_str(&format!(" {HEADER_TRACKING}"));
+    }
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
+}
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Result<()> {
@@ -17,21 +82,24 @@ pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::R
         };
         writeln!(out, "\n{} ({} {noun})", group.name, group.remotes.len())?;
 
-        for remote in &group.remotes {
-            let label = format!("{:<13}", remote.classification.label());
-            let url = remote.url.as_deref().unwrap_or("");
-            let tracking = if remote.tracking_count > 0 {
-                let branch_noun = if remote.tracking_count == 1 {
-                    "tracking branch"
-                } else {
-                    "tracking branches"
-                };
-                format!("({} {branch_noun})", remote.tracking_count)
-            } else {
-                String::new()
-            };
+        let widths = compute_column_widths(&group.remotes);
+        write_header(out, &widths)?;
 
-            writeln!(out, "  {label} {:<12} {:<50} {tracking}", remote.name, url,)?;
+        for remote in &group.remotes {
+            let label = remote.classification.label();
+            let url = remote.url.as_deref().unwrap_or("");
+            let tracking = format_tracking(remote);
+
+            let sw = widths.status;
+            let nw = widths.name;
+            let uw = widths.url;
+            let mut line = format!("  {label:<sw$} {:<nw$} {url:<uw$}", remote.name);
+            if widths.has_tracking {
+                let tw = widths.tracking;
+                line.push_str(&format!(" {tracking:<tw$}"));
+            }
+            let trimmed = line.trim_end();
+            writeln!(out, "{trimmed}")?;
         }
     }
 
@@ -125,6 +193,11 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("backend (2 remotes)"));
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("NAME"));
+        assert!(output.contains("URL"));
+        assert!(output.contains("TRACKING"));
         assert!(output.contains("unreachable"));
         assert!(output.contains("active"));
         assert!(output.contains("origin"));

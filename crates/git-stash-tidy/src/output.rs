@@ -3,7 +3,59 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::StashScanResult;
+use crate::types::{StashInfo, StashScanResult};
+
+const HEADER_STATUS: &str = "STATUS";
+const HEADER_REF: &str = "REF";
+const HEADER_MESSAGE: &str = "MESSAGE";
+const HEADER_AGE: &str = "AGE";
+
+struct ColumnWidths {
+    status: usize,
+    stash_ref: usize,
+    message: usize,
+    age: usize,
+}
+
+fn format_age(age_days: Option<u64>) -> String {
+    match age_days {
+        Some(0) => "today".to_string(),
+        Some(1) => "1 day ago".to_string(),
+        Some(d) => format!("{d} days ago"),
+        None => String::new(),
+    }
+}
+
+fn compute_column_widths(stashes: &[StashInfo]) -> ColumnWidths {
+    let mut max_status = HEADER_STATUS.len();
+    let mut max_ref = HEADER_REF.len();
+    let mut max_msg = HEADER_MESSAGE.len();
+    let mut max_age = HEADER_AGE.len();
+
+    for s in stashes {
+        max_status = max_status.max(s.classification.label().len());
+        max_ref = max_ref.max(s.stash_ref.len());
+        max_msg = max_msg.max(s.message.len());
+        max_age = max_age.max(format_age(s.age_days).len());
+    }
+
+    ColumnWidths {
+        status: max_status,
+        stash_ref: max_ref,
+        message: max_msg,
+        age: max_age,
+    }
+}
+
+fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
+    let sw = widths.status;
+    let rw = widths.stash_ref;
+    let mw = widths.message;
+    let line =
+        format!("  {HEADER_STATUS:<sw$} {HEADER_REF:<rw$} {HEADER_MESSAGE:<mw$} {HEADER_AGE}");
+    let trimmed = line.trim_end();
+    writeln!(out, "{trimmed}")
+}
 
 /// Write human-readable scan output.
 pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Result<()> {
@@ -12,20 +64,22 @@ pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Re
     for group in &result.repos {
         writeln!(out, "\n{} ({} stashes)", group.name, group.stashes.len())?;
 
-        for stash in &group.stashes {
-            let label = format!("{:<10}", stash.classification.label());
-            let age = match stash.age_days {
-                Some(0) => "today".to_string(),
-                Some(1) => "1 day ago".to_string(),
-                Some(d) => format!("{d} days ago"),
-                None => String::new(),
-            };
+        let widths = compute_column_widths(&group.stashes);
+        write_header(out, &widths)?;
 
-            writeln!(
-                out,
-                "  {label} {:<14} {:<50} {age}",
+        for stash in &group.stashes {
+            let label = stash.classification.label();
+            let age = format_age(stash.age_days);
+
+            let sw = widths.status;
+            let rw = widths.stash_ref;
+            let mw = widths.message;
+            let line = format!(
+                "  {label:<sw$} {:<rw$} {:<mw$} {age}",
                 stash.stash_ref, stash.message,
-            )?;
+            );
+            let trimmed = line.trim_end();
+            writeln!(out, "{trimmed}")?;
         }
     }
 
@@ -128,6 +182,11 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("my-repo (3 stashes)"));
+        // Header row
+        assert!(output.contains("STATUS"));
+        assert!(output.contains("REF"));
+        assert!(output.contains("MESSAGE"));
+        assert!(output.contains("AGE"));
         assert!(output.contains("committed"));
         assert!(output.contains("orphaned"));
         assert!(output.contains("active"));
