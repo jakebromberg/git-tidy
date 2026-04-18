@@ -59,7 +59,7 @@ pub fn run_clean(
         }
 
         // Sort by descending index to prevent renumbering
-        to_drop.sort_by(|a, b| b.0.cmp(&a.0));
+        to_drop.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         for (_, stash_ref, _) in &to_drop {
             if options.dry_run {

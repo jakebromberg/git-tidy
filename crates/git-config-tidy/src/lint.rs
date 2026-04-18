@@ -66,7 +66,7 @@ pub fn lint_repo(
     }
 
     // Sort by priority
-    issues.sort_by(|a, b| a.kind.priority().cmp(&b.kind.priority()));
+    issues.sort_by_key(|a| a.kind.priority());
 
     Ok(issues)
 }
