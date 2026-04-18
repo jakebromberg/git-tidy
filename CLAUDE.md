@@ -56,7 +56,7 @@ All tools follow a similar CLI shape:
 - Remote-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Tag-tidy global arg: `--offline` instead of `--behind-threshold`/`--verbose`
 - Repo-tidy global args: `--stale-months` (default 6), `--offline`
-- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote`/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`, lfs-tidy has `--prune` (enable orphaned LFS object removal)
+- Tool-specific flags: worktree-tidy has `--delete-branches`, branch-tidy has `--include-remote` (on both scan and clean: discovers remote-only branches and deletes them)/`--force`, remote-tidy has `--force` (allow removing origin)/`--all` (include orphaned), tag-tidy has `--stale-only`/`--local-only`/`--include-remote`/`--force` (bypass release protection)/`--all`, repo-tidy has `--force` (allow deleting dirty repos)/`--stale-only`/`--orphaned-only`/`--all`, lfs-tidy has `--prune` (enable orphaned LFS object removal)
 - git-tidy (audit runner + dispatch): Pre-clap alias dispatch in `main.rs` checks `args[1]` against `ToolSpec::aliases` and execs the binary. Falls through to `Audit` subcommand (default) with `--json`/`--porcelain`/`--verbose`/`--tools`/`--subprocess`. `Explain` subcommand prints a terminology glossary. Default mode calls tool scan/lint functions in-process with `CachingGitOps`; `--subprocess` shells out via `ToolRunner` trait.
 - Config-tidy uses **lint/fix** subcommands instead of scan/clean (config issues are "lint findings")
 - LFS-tidy scan args: `--size-threshold` (default "1MB"), `--depth` (default 1000)
@@ -68,7 +68,7 @@ All tools follow a similar CLI shape:
 - Path canonicalization in discovery handles macOS `/var` -> `/private/var` symlinks.
 - Classification priority order: landed (0) = landed-stale (0) > landed-content (1) > partial (2) > active (3) > local (4). `LandedStale` is for worktrees whose branch ref was deleted (typically after a PR merge).
 - Shared test utilities (MockGitBuilder, TestRepo, git helper) live in `git-tidy-core/src/testutil.rs`, gated behind the `testutil` feature. Binary crates depend on `git-tidy-core = { features = ["testutil"] }` in `[dev-dependencies]`.
-- `classify_branch` is the core classification function shared by both tools. `classify_worktree` is a thin wrapper that adds dirty detection.
+- `classify_branch` is the core classification function shared by both tools. `classify_worktree` is a thin wrapper that adds dirty detection. `classify_remote_branch` classifies remote-only branches (on origin but no local counterpart), using `origin/<branch>` as the git ref.
 - Discovery is inverted between tools: worktree discovery finds `.git` files (linked worktrees), branch discovery finds `.git` directories (repos).
 - `delete_fn` pattern: `run_clean` takes `&dyn Fn(&Path) -> io::Result<()>` so tests can verify deletion logic without `rm -rf`. Used in repo-tidy.
 - Injectable `du_fn`: `run_scan_with_du` takes a disk-usage function parameter so unit tests can provide canned sizes without hitting the filesystem. Used in repo-tidy.

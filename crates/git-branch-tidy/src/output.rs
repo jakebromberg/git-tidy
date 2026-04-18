@@ -119,6 +119,9 @@ fn write_branch_line(
 
     // Annotations
     let mut ann_strs = Vec::new();
+    if branch.remote_only {
+        ann_strs.push("remote");
+    }
     if branch.diverged {
         ann_strs.push("diverged");
     }
@@ -162,6 +165,9 @@ pub fn write_porcelain(out: &mut dyn Write, result: &BranchScanResult) -> std::i
             let ratio = shared::format_landed_ratio(&branch.classification);
 
             let mut anns = Vec::new();
+            if branch.remote_only {
+                anns.push("remote_only");
+            }
             if branch.remote_deleted {
                 anns.push("remote_deleted");
             }
@@ -205,6 +211,7 @@ mod tests {
                         behind: 0,
                         diverged: false,
                         is_current: false,
+                        remote_only: false,
                     },
                     BranchInfo {
                         repo_path: PathBuf::from("/repos/Backend"),
@@ -217,6 +224,7 @@ mod tests {
                         behind: 0,
                         diverged: false,
                         is_current: true,
+                        remote_only: false,
                     },
                 ],
             }],
@@ -281,6 +289,7 @@ mod tests {
                     behind: 324,
                     diverged: true,
                     is_current: false,
+                    remote_only: false,
                 }],
             }],
             total_scanned: 1,
@@ -338,6 +347,112 @@ mod tests {
         let fields2: Vec<&str> = lines[1].split('\t').collect();
         assert_eq!(fields2[2], "active");
         assert_eq!(fields2[6], "true");
+    }
+
+    #[test]
+    fn human_output_remote_only_annotation() {
+        let result = BranchScanResult {
+            repos: vec![BranchRepoGroup {
+                repo_path: PathBuf::from("/repos/App"),
+                name: "App".to_string(),
+                branches: vec![BranchInfo {
+                    repo_path: PathBuf::from("/repos/App"),
+                    name: "feature/stale-remote".to_string(),
+                    default_branch: "main".to_string(),
+                    classification: Classification::Landed,
+                    remote_tracking: true,
+                    remote_deleted: false,
+                    ahead: 0,
+                    behind: 0,
+                    diverged: false,
+                    is_current: false,
+                    remote_only: true,
+                }],
+            }],
+            total_scanned: 1,
+            counts: ScanCounts {
+                landed: 1,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_human(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("remote"));
+        assert!(output.contains("feature/stale-remote"));
+    }
+
+    #[test]
+    fn porcelain_output_remote_only_annotation() {
+        let result = BranchScanResult {
+            repos: vec![BranchRepoGroup {
+                repo_path: PathBuf::from("/repos/App"),
+                name: "App".to_string(),
+                branches: vec![BranchInfo {
+                    repo_path: PathBuf::from("/repos/App"),
+                    name: "feature/stale-remote".to_string(),
+                    default_branch: "main".to_string(),
+                    classification: Classification::Landed,
+                    remote_tracking: true,
+                    remote_deleted: false,
+                    ahead: 0,
+                    behind: 0,
+                    diverged: false,
+                    is_current: false,
+                    remote_only: true,
+                }],
+            }],
+            total_scanned: 1,
+            counts: ScanCounts {
+                landed: 1,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_porcelain(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let fields: Vec<&str> = output.lines().next().unwrap().split('\t').collect();
+        assert_eq!(fields[7], "remote_only");
+    }
+
+    #[test]
+    fn json_output_includes_remote_only_field() {
+        let result = BranchScanResult {
+            repos: vec![BranchRepoGroup {
+                repo_path: PathBuf::from("/repos/App"),
+                name: "App".to_string(),
+                branches: vec![BranchInfo {
+                    repo_path: PathBuf::from("/repos/App"),
+                    name: "feature/stale-remote".to_string(),
+                    default_branch: "main".to_string(),
+                    classification: Classification::Landed,
+                    remote_tracking: true,
+                    remote_deleted: false,
+                    ahead: 0,
+                    behind: 0,
+                    diverged: false,
+                    is_current: false,
+                    remote_only: true,
+                }],
+            }],
+            total_scanned: 1,
+            counts: ScanCounts {
+                landed: 1,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_json(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let arr = parsed.as_array().unwrap();
+        assert_eq!(arr[0]["remote_only"], true);
     }
 
     #[test]

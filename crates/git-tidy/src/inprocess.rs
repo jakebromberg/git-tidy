@@ -246,6 +246,7 @@ fn run_tool_scan(
                 DEFAULT_BEHIND_THRESHOLD,
                 verbose,
                 &filter,
+                false, // exclude remote-only branches from audit
                 progress,
             ),
             spec,

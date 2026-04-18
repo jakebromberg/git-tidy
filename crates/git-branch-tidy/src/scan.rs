@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
@@ -15,7 +16,11 @@ use git_tidy_core::types::{ClassificationLabel, ScanCounts};
 use crate::discovery;
 use crate::types::{BranchInfo, BranchRepoGroup, BranchScanResult};
 
-/// Scan all repos in `directory` for stale local branches.
+/// Scan all repos in `directory` for stale branches.
+///
+/// When `include_remote` is true, also discovers remote-only branches
+/// (branches on origin with no local counterpart).
+#[allow(clippy::too_many_arguments)]
 pub fn run_scan(
     git: &dyn GitOps,
     directory: &Path,
@@ -23,6 +28,7 @@ pub fn run_scan(
     verbose: bool,
     repo_filter: &NameFilter,
     entity_filter: &NameFilter,
+    include_remote: bool,
     progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
@@ -33,20 +39,25 @@ pub fn run_scan(
         behind_threshold,
         verbose,
         entity_filter,
+        include_remote,
         progress,
     )
 }
 
-/// Scan pre-discovered repos for stale local branches.
+/// Scan pre-discovered repos for stale branches.
 ///
 /// Accepts repo paths directly (skipping discovery), so the audit runner can
 /// call `discover_repos` once and share the result across tools.
+///
+/// When `include_remote` is true, also discovers remote-only branches
+/// (branches on origin with no local counterpart).
 pub fn run_scan_repos(
     git: &dyn GitOps,
     repo_paths: &[PathBuf],
     behind_threshold: usize,
     verbose: bool,
     entity_filter: &NameFilter,
+    include_remote: bool,
     progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
     let repo_paths_owned: Vec<PathBuf> = repo_paths.to_vec();
@@ -133,6 +144,7 @@ pub fn run_scan_repos(
                                 behind: bc.behind,
                                 diverged: bc.diverged,
                                 is_current,
+                                remote_only: false,
                             })
                         }
                         Err(e) => Err(format!(
@@ -149,6 +161,88 @@ pub fn run_scan_repos(
                 match result {
                     Ok(info) => classified.push(info),
                     Err(warning) => local_warnings.push(warning),
+                }
+            }
+
+            // Discover remote-only branches (on origin but no local counterpart)
+            if include_remote {
+                let local_names: HashSet<&str> = branches.iter().map(|b| b.as_str()).collect();
+
+                if let Ok(tracking_refs) = git.list_remote_tracking_refs(repo_path) {
+                    let remote_only_names: Vec<String> = tracking_refs
+                        .iter()
+                        .filter_map(|(short, _full)| {
+                            let branch = short.strip_prefix("origin/")?;
+                            if branch == "HEAD"
+                                || branch == default_branch
+                                || local_names.contains(branch)
+                            {
+                                return None;
+                            }
+                            if !entity_filter.matches(branch) {
+                                return None;
+                            }
+                            Some(branch.to_string())
+                        })
+                        .collect();
+
+                    if verbose && !remote_only_names.is_empty() {
+                        eprintln!(
+                            "{repo_name}: {} remote-only branches",
+                            remote_only_names.len(),
+                        );
+                    }
+
+                    let remote_results: Vec<_> = remote_only_names
+                        .par_iter()
+                        .map(|branch_name| {
+                            match classification::classify_remote_branch(
+                                git,
+                                repo_path,
+                                branch_name,
+                                &default_branch,
+                                behind_threshold,
+                                verbose,
+                                &landed_options,
+                            ) {
+                                Ok(bc) => {
+                                    if verbose {
+                                        eprintln!(
+                                            "  {branch_name} (remote): {} (ahead={}, behind={})",
+                                            bc.classification.label(),
+                                            bc.ahead,
+                                            bc.behind,
+                                        );
+                                    }
+                                    Ok(BranchInfo {
+                                        repo_path: repo_path.to_path_buf(),
+                                        name: branch_name.clone(),
+                                        default_branch: default_branch.clone(),
+                                        classification: bc.classification,
+                                        remote_tracking: true,
+                                        remote_deleted: false,
+                                        ahead: bc.ahead,
+                                        behind: bc.behind,
+                                        diverged: bc.diverged,
+                                        is_current: false,
+                                        remote_only: true,
+                                    })
+                                }
+                                Err(e) => Err(format!(
+                                    "error classifying remote branch {} in {}: {e}",
+                                    branch_name,
+                                    repo_path.display()
+                                )),
+                            }
+                        })
+                        .collect();
+
+                    for result in remote_results {
+                        match result {
+                            Ok(info) => classified.push(info),
+                            Err(warning) => local_warnings.push(warning),
+                        }
+                    }
                 }
             }
 
@@ -335,7 +429,7 @@ mod tests {
 
         let p = Progress::disabled();
         let filter = NameFilter::default();
-        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, &p).unwrap();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, false, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.landed, 1);
     }
@@ -373,5 +467,97 @@ mod tests {
         let is_current = git.current_branch(&repo()).unwrap() == Some("my-feature".to_string());
         assert!(is_current);
         assert_eq!(bc.classification, Classification::Active);
+    }
+
+    #[test]
+    fn scan_discovers_remote_only_branches() {
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .with_current_branch(&repo(), Some("main"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            // Remote-only branch: origin/feature/remote-only
+            .with_remote_tracking_refs(
+                &repo(),
+                vec![
+                    (
+                        "origin/main".to_string(),
+                        "refs/remotes/origin/main".to_string(),
+                    ),
+                    (
+                        "origin/feature/remote-only".to_string(),
+                        "refs/remotes/origin/feature/remote-only".to_string(),
+                    ),
+                ],
+            )
+            .with_rev_list_counts(&repo(), "origin/main", "origin/feature/remote-only", (0, 0))
+            .with_is_ancestor(&repo(), "origin/feature/remote-only", "origin/main", true)
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, true, &p).unwrap();
+        assert_eq!(result.total_scanned, 1);
+        assert_eq!(result.counts.landed, 1);
+        let branch = &result.repos[0].branches[0];
+        assert_eq!(branch.name, "feature/remote-only");
+        assert!(branch.remote_only);
+        assert!(branch.remote_tracking);
+    }
+
+    #[test]
+    fn scan_excludes_remote_only_when_flag_false() {
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .with_current_branch(&repo(), Some("main"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_remote_tracking_refs(
+                &repo(),
+                vec![
+                    (
+                        "origin/main".to_string(),
+                        "refs/remotes/origin/main".to_string(),
+                    ),
+                    (
+                        "origin/feature/remote-only".to_string(),
+                        "refs/remotes/origin/feature/remote-only".to_string(),
+                    ),
+                ],
+            )
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, false, &p).unwrap();
+        assert_eq!(result.total_scanned, 0);
+        assert!(result.repos.is_empty());
+    }
+
+    #[test]
+    fn scan_remote_only_skips_default_branch_and_head() {
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .with_current_branch(&repo(), Some("main"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_remote_tracking_refs(
+                &repo(),
+                vec![
+                    ("origin".to_string(), "refs/remotes/origin/HEAD".to_string()),
+                    (
+                        "origin/main".to_string(),
+                        "refs/remotes/origin/main".to_string(),
+                    ),
+                ],
+            )
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, true, &p).unwrap();
+        // Neither HEAD nor main should appear
+        assert_eq!(result.total_scanned, 0);
+        assert!(result.repos.is_empty());
     }
 }

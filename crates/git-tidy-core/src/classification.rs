@@ -234,6 +234,82 @@ pub fn classify_branch_cached(
     })
 }
 
+/// Classify a remote-only branch (one that exists on origin but has no local counterpart).
+///
+/// Uses `origin/{branch_name}` as the git ref for all comparisons. Always returns
+/// `remote_tracking: true` and `remote_deleted: false`. Non-merged branches are
+/// classified as `Active` (never `Local`, since they exist on the remote by definition).
+pub fn classify_remote_branch(
+    git: &dyn GitOps,
+    repo: &Path,
+    branch_name: &str,
+    default_branch: &str,
+    behind_threshold: usize,
+    verbose: bool,
+    landed_options: &LandedOptions,
+) -> Result<BranchClassification, Error> {
+    let origin_ref = format!("refs/remotes/origin/{default_branch}");
+    let has_origin = git.rev_parse_verify(repo, &origin_ref)?;
+    let comparison_target = if has_origin {
+        format!("origin/{default_branch}")
+    } else {
+        default_branch.to_string()
+    };
+
+    let remote_ref = format!("origin/{branch_name}");
+
+    let (behind, ahead) = git.rev_list_left_right_count(repo, &comparison_target, &remote_ref)?;
+
+    if verbose {
+        eprintln!("  {branch_name} (remote): ahead={ahead}, behind={behind}");
+    }
+
+    let is_merged = ahead == 0 || git.is_ancestor(repo, &remote_ref, &comparison_target)?;
+
+    let classification = if is_merged {
+        if verbose {
+            eprintln!("  {branch_name} (remote): structurally merged → landed");
+        }
+        Classification::Landed
+    } else {
+        let landed_result = landed::detect_landed(
+            git,
+            repo,
+            &comparison_target,
+            &remote_ref,
+            verbose,
+            landed_options,
+        )?;
+
+        let cls = match &landed_result.classification {
+            Classification::LandedByContent { .. } if landed_result.total > 0 => {
+                landed_result.classification
+            }
+            Classification::LandedByContent { .. } => Classification::Landed,
+            Classification::LandedPartial { .. } => landed_result.classification,
+            _ => Classification::Active,
+        };
+        if verbose {
+            eprintln!(
+                "  {branch_name} (remote): content detection ({}/{}) → {}",
+                landed_result.matched,
+                landed_result.total,
+                cls.label(),
+            );
+        }
+        cls
+    };
+
+    Ok(BranchClassification {
+        classification,
+        remote_tracking: true,
+        remote_deleted: false,
+        ahead,
+        behind,
+        diverged: behind > behind_threshold,
+    })
+}
+
 /// Classify a single worktree.
 ///
 /// Resolves the branch from the worktree, delegates to `classify_branch` for
@@ -868,5 +944,91 @@ mod tests {
         assert_eq!(info.classification, Classification::LandedStale);
         assert!(info.annotations.dirty);
         assert_eq!(info.annotations.dirty_file_count, 1);
+    }
+
+    // --- classify_remote_branch tests ---
+
+    #[test]
+    fn classify_remote_branch_landed() {
+        // Remote branch whose commits are all reachable from origin/main
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_rev_list_counts(&repo(), "origin/main", "origin/feature/done", (0, 0))
+            .with_is_ancestor(&repo(), "origin/feature/done", "origin/main", true)
+            .build();
+
+        let result = classify_remote_branch(
+            &git,
+            &repo(),
+            "feature/done",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result.classification, Classification::Landed);
+        assert!(result.remote_tracking);
+        assert!(!result.remote_deleted);
+    }
+
+    #[test]
+    fn classify_remote_branch_active() {
+        // Remote branch with commits not yet merged into origin/main
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_rev_list_counts(&repo(), "origin/main", "origin/feature/wip", (5, 3))
+            .with_is_ancestor(&repo(), "origin/feature/wip", "origin/main", false)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "origin/feature/wip",
+                vec![("abc".into(), "add feature".into())],
+            )
+            .build();
+
+        let result = classify_remote_branch(
+            &git,
+            &repo(),
+            "feature/wip",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result.classification, Classification::Active);
+        assert!(result.remote_tracking);
+        assert_eq!(result.ahead, 3);
+        assert_eq!(result.behind, 5);
+    }
+
+    #[test]
+    fn classify_remote_branch_diverged() {
+        let git = MockGitBuilder::new()
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_rev_list_counts(&repo(), "origin/main", "origin/feature/old", (150, 5))
+            .with_is_ancestor(&repo(), "origin/feature/old", "origin/main", false)
+            .with_log_exclusive(
+                &repo(),
+                "origin/main",
+                "origin/feature/old",
+                vec![("jkl".into(), "old work".into())],
+            )
+            .build();
+
+        let result = classify_remote_branch(
+            &git,
+            &repo(),
+            "feature/old",
+            "main",
+            100,
+            false,
+            &LandedOptions::default(),
+        )
+        .unwrap();
+        assert!(result.diverged);
+        assert_eq!(result.behind, 150);
+        assert_eq!(result.classification, Classification::Active);
     }
 }

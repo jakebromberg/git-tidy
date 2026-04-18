@@ -5,7 +5,7 @@ use git_tidy_core::types::{
 };
 use serde::Serialize;
 
-/// Information about a single local branch.
+/// Information about a single branch (local or remote-only).
 #[derive(Debug, Clone, Serialize)]
 pub struct BranchInfo {
     /// Path to the repo containing this branch.
@@ -28,6 +28,8 @@ pub struct BranchInfo {
     pub diverged: bool,
     /// Whether this branch is currently checked out.
     pub is_current: bool,
+    /// Whether this branch exists only on the remote (no local counterpart).
+    pub remote_only: bool,
 }
 
 /// A group of branches in the same repo.
@@ -79,6 +81,7 @@ pub struct JsonBranch {
     pub behind: usize,
     pub diverged: bool,
     pub is_current: bool,
+    pub remote_only: bool,
     pub landed_ratio: Option<String>,
     pub landed_total: Option<usize>,
     pub unmatched_commits: Vec<UnmatchedCommit>,
@@ -99,6 +102,7 @@ impl From<&BranchInfo> for JsonBranch {
             behind: b.behind,
             diverged: b.diverged,
             is_current: b.is_current,
+            remote_only: b.remote_only,
             landed_ratio: landed.ratio,
             landed_total: landed.total,
             unmatched_commits: landed.unmatched,

@@ -37,11 +37,13 @@ fn main() {
 
     match &cli.command {
         None | Some(cli::Command::Scan { .. }) => {
-            let format = match &cli.command {
-                Some(cli::Command::Scan { json, porcelain }) => {
-                    OutputFormat::from_flags(*json, *porcelain)
-                }
-                _ => OutputFormat::Human,
+            let (format, include_remote) = match &cli.command {
+                Some(cli::Command::Scan {
+                    json,
+                    porcelain,
+                    include_remote,
+                }) => (OutputFormat::from_flags(*json, *porcelain), *include_remote),
+                _ => (OutputFormat::Human, false),
             };
 
             match scan::run_scan(
@@ -51,6 +53,7 @@ fn main() {
                 cli.verbose,
                 &repo_filter,
                 &entity_filter,
+                include_remote,
                 &progress,
             ) {
                 Ok(result) => {
@@ -76,7 +79,8 @@ fn main() {
             include_remote,
             ..
         }) => {
-            // First, scan to get the current state
+            // First, scan to get the current state.
+            // When --include-remote is set, also discover remote-only branches.
             match scan::run_scan(
                 &git,
                 &directory,
@@ -84,6 +88,7 @@ fn main() {
                 cli.verbose,
                 &repo_filter,
                 &entity_filter,
+                *include_remote,
                 &progress,
             ) {
                 Ok(scan_result) => {
