@@ -51,6 +51,10 @@ pub enum Command {
         /// Machine-readable tab-delimited output
         #[arg(long)]
         porcelain: bool,
+
+        /// Include remote-only branches (branches on origin with no local counterpart)
+        #[arg(long)]
+        include_remote: bool,
     },
 
     #[command(flatten)]
@@ -164,7 +168,9 @@ mod tests {
     fn scan_json_flag() {
         let cli = Cli::parse_from(["git-branch-tidy", "scan", "--json"]);
         match cli.command {
-            Some(Command::Scan { json, porcelain }) => {
+            Some(Command::Scan {
+                json, porcelain, ..
+            }) => {
                 assert!(json);
                 assert!(!porcelain);
             }
@@ -176,9 +182,22 @@ mod tests {
     fn scan_porcelain_flag() {
         let cli = Cli::parse_from(["git-branch-tidy", "scan", "--porcelain"]);
         match cli.command {
-            Some(Command::Scan { json, porcelain }) => {
+            Some(Command::Scan {
+                json, porcelain, ..
+            }) => {
                 assert!(!json);
                 assert!(porcelain);
+            }
+            _ => panic!("expected Scan command"),
+        }
+    }
+
+    #[test]
+    fn scan_include_remote_flag() {
+        let cli = Cli::parse_from(["git-branch-tidy", "scan", "--include-remote"]);
+        match cli.command {
+            Some(Command::Scan { include_remote, .. }) => {
+                assert!(include_remote);
             }
             _ => panic!("expected Scan command"),
         }

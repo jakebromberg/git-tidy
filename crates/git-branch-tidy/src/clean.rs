@@ -57,6 +57,39 @@ pub fn run_clean(
                 continue;
             }
 
+            // Remote-only branches: delete from origin directly, skip local deletion
+            if branch.remote_only {
+                if options.dry_run {
+                    writeln!(out, "would delete remote {} in {}", branch.name, group.name)?;
+                    succeeded.push(DeletedBranch {
+                        repo: branch.repo_path.clone(),
+                        name: branch.name.clone(),
+                        remote_deleted: true,
+                    });
+                    continue;
+                }
+
+                match git.delete_remote_branch(&branch.repo_path, "origin", &branch.name) {
+                    Ok(()) => {
+                        writeln!(out, "deleted remote {}", branch.name)?;
+                        succeeded.push(DeletedBranch {
+                            repo: branch.repo_path.clone(),
+                            name: branch.name.clone(),
+                            remote_deleted: true,
+                        });
+                    }
+                    Err(e) => {
+                        writeln!(out, "error: could not delete remote {}: {e}", branch.name)?;
+                        failed.push(FailedItem {
+                            repo: branch.repo_path.clone(),
+                            name: branch.name.clone(),
+                            reason: e.to_string(),
+                        });
+                    }
+                }
+                continue;
+            }
+
             if options.dry_run {
                 write!(out, "would delete {}", branch.name)?;
                 if options.include_remote && branch.remote_tracking && !branch.remote_deleted {
@@ -213,6 +246,7 @@ mod tests {
             behind: 0,
             diverged: false,
             is_current: false,
+            remote_only: false,
         }
     }
 
@@ -228,6 +262,7 @@ mod tests {
             behind: 0,
             diverged: false,
             is_current: false,
+            remote_only: false,
         }
     }
 
@@ -450,5 +485,85 @@ mod tests {
         assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].name, "feature/unmerged");
+    }
+
+    fn remote_only_branch(name: &str) -> BranchInfo {
+        BranchInfo {
+            repo_path: repo(),
+            name: name.to_string(),
+            default_branch: "main".to_string(),
+            classification: Classification::Landed,
+            remote_tracking: true,
+            remote_deleted: false,
+            ahead: 0,
+            behind: 0,
+            diverged: false,
+            is_current: false,
+            remote_only: true,
+        }
+    }
+
+    #[test]
+    fn clean_deletes_remote_only_branch() {
+        let git = MockGitBuilder::new().build();
+        let scan = make_scan_result(vec![remote_only_branch("feature/remote")]);
+        let mut buf = Vec::new();
+
+        let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "feature/remote");
+        assert!(result.succeeded[0].remote_deleted);
+        // Should NOT call local branch_delete
+        assert_eq!(git.branch_delete_calls().len(), 0);
+        assert_eq!(git.branch_delete_safe_calls().len(), 0);
+        // Should call delete_remote_branch
+        assert_eq!(git.delete_remote_branch_calls().len(), 1);
+        assert_eq!(
+            git.delete_remote_branch_calls()[0],
+            (repo(), "origin".to_string(), "feature/remote".to_string())
+        );
+    }
+
+    #[test]
+    fn clean_dry_run_remote_only() {
+        let git = MockGitBuilder::new().build();
+        let scan = make_scan_result(vec![remote_only_branch("feature/remote")]);
+        let mut buf = Vec::new();
+        let options = CleanOptions {
+            dry_run: true,
+            ..default_options()
+        };
+
+        let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(git.delete_remote_branch_calls().len(), 0);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("would delete remote feature/remote"));
+    }
+
+    #[test]
+    fn clean_dry_run_mixed_local_and_remote_only() {
+        let git = MockGitBuilder::new()
+            .with_upstream_branch(&repo(), "feature/local", Some("origin/feature/local"))
+            .build();
+        let mut local = merged_branch("feature/local");
+        local.remote_tracking = true;
+        local.remote_deleted = false;
+        let scan = make_scan_result(vec![local, remote_only_branch("feature/remote")]);
+        let mut buf = Vec::new();
+        let options = CleanOptions {
+            dry_run: true,
+            include_remote: true,
+            ..default_options()
+        };
+
+        let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
+
+        assert_eq!(result.succeeded.len(), 2);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("would delete feature/local (and remote)"));
+        assert!(output.contains("would delete remote feature/remote"));
     }
 }
