@@ -376,9 +376,14 @@ impl RealGit {
         output
             .lines()
             .filter(|l| !l.is_empty())
-            .filter_map(|line| {
-                let (hash, subject) = line.split_once(' ')?;
-                Some((hash.to_string(), subject.to_string()))
+            .map(|line| match line.split_once(' ') {
+                Some((hash, subject)) => (hash.to_string(), subject.to_string()),
+                // A commit with an empty subject still has a hash on its own line.
+                // `split_once(' ')` returns None for it, which previously dropped the
+                // commit from the result and skewed the `total` count in
+                // LandedByContent { matched, total } — flipping the decision in
+                // boundary cases. Treat the whole line as the hash with an empty subject.
+                None => (line.to_string(), String::new()),
             })
             .collect()
     }
@@ -793,7 +798,8 @@ impl GitOps for RealGit {
     }
 
     fn is_commit_reachable(&self, repo: &Path, commit: &str) -> GitResult<bool> {
-        let output = Self::run(repo, &["branch", "--contains", commit])?;
+        // `-a` widens the search to include remote-tracking branches. Without it a commit reachable only from origin/feature (after the local branch was deleted, a common state for merged PRs that left a tag behind) is reported as unreachable, and git-tag-tidy classifies the tag as Stale → eligible for default deletion.
+        let output = Self::run(repo, &["branch", "-a", "--contains", commit])?;
         let text = String::from_utf8_lossy(&output.stdout);
         Ok(!text.trim().is_empty())
     }
@@ -1090,6 +1096,15 @@ mod tests {
     fn parse_log_oneline_empty() {
         let result = RealGit::parse_log_oneline("");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_log_oneline_keeps_commits_with_empty_subjects() {
+        // Regression: previously `split_once(' ')` returned None for a hash-only line, which dropped the commit from the result and shrank the `total` count in LandedByContent — flipping the matched/total ratio in boundary cases.
+        let output = "abc1234 with subject\ndef5678\nfff9999 another\n";
+        let result = RealGit::parse_log_oneline(output);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[1], ("def5678".to_string(), String::new()));
     }
 
     #[test]
