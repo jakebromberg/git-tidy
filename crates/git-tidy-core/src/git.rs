@@ -451,7 +451,18 @@ impl GitOps for RealGit {
         branch_or_ref: &str,
         needle: &str,
     ) -> GitResult<Vec<(String, String)>> {
-        let output = Self::run(repo, &["log", branch_or_ref, "--oneline", "--grep", needle])?;
+        // `--fixed-strings` treats the needle as a literal string. Without it, characters like `?`, `*`, `[`, `(`, `\` in commit subjects are interpreted as POSIX BRE metacharacters, producing wrong matches (or, for malformed regex, a non-zero exit that bubbles up as an error).
+        let output = Self::run(
+            repo,
+            &[
+                "log",
+                branch_or_ref,
+                "--oneline",
+                "--fixed-strings",
+                "--grep",
+                needle,
+            ],
+        )?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(Self::parse_log_oneline(&text))
     }
@@ -965,10 +976,13 @@ impl GitOps for RealGit {
         let output = Self::run(repo, &["rev-list", "--all", "--no-walk", "--format=%T"])?;
         let text = String::from_utf8_lossy(&output.stdout);
 
-        let unique_trees: HashSet<&str> = text
+        // De-dupe via HashSet for O(1) membership, but collect into a sorted Vec before applying `depth` so the subset of trees scanned is deterministic across runs (HashSet iteration order is randomized — without sorting, the same repo would surface a different blob list and a different CachingGitOps cache footprint each invocation).
+        let unique_set: HashSet<&str> = text
             .lines()
             .filter(|l| !l.starts_with("commit ") && !l.is_empty())
             .collect();
+        let mut unique_trees: Vec<&str> = unique_set.into_iter().collect();
+        unique_trees.sort_unstable();
 
         if unique_trees.is_empty() {
             return Ok(Vec::new());
