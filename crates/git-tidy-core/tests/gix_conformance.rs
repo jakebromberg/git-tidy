@@ -279,6 +279,38 @@ fn is_commit_reachable_true() {
 }
 
 #[test]
+fn is_commit_reachable_via_remote_only_branch() {
+    // Regression: previously `is_commit_reachable` ran `git branch --contains` without `-a`, so a commit reachable only via a remote-tracking branch (the merged-PR-with-tag-left-behind scenario) reported false → git-tag-tidy classified the tag as Stale → default delete. The `-a` flag fixes this; the test locks the behavior in.
+    let t = TestRepo::new();
+    let bare = t.set_up_remote();
+
+    // Create a feature branch with a unique commit and push it.
+    git(&t.main_repo, &["checkout", "-b", "feature"]);
+    t.commit_file(&t.main_repo, "feat.txt", "f", "feature commit");
+    let feature_sha = git(&t.main_repo, &["rev-parse", "HEAD"]);
+    git(&t.main_repo, &["push", "-u", "origin", "feature"]);
+
+    // Delete the local branch so the commit is reachable ONLY via origin/feature.
+    git(&t.main_repo, &["checkout", "main"]);
+    git(&t.main_repo, &["branch", "-D", "feature"]);
+
+    let real = RealGit;
+    let gix = GixGitOps;
+
+    let real_reachable = real
+        .is_commit_reachable(&t.main_repo, &feature_sha)
+        .unwrap();
+    let gix_reachable = gix.is_commit_reachable(&t.main_repo, &feature_sha).unwrap();
+    assert_eq!(real_reachable, gix_reachable);
+    assert!(
+        real_reachable,
+        "commit reachable only via origin/feature must report reachable",
+    );
+
+    let _ = bare;
+}
+
+#[test]
 fn is_commit_reachable_orphan() {
     let t = TestRepo::new();
     git(&t.main_repo, &["checkout", "--orphan", "orphan"]);
