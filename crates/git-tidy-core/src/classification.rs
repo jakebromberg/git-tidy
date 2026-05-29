@@ -630,6 +630,39 @@ mod tests {
         assert!(info.branch.is_none());
     }
 
+    #[test]
+    fn classify_detached_head_zeros_remote_fields() {
+        // Regression: classify_branch is called with the detached commit SHA as branch_ref. If the underlying BranchClassification spuriously reports remote_tracking/ahead/behind (because some ref happens to resolve, or the mock fabricates one as below), the worktree layer must clamp these to false/0 — they are meaningless for a detached HEAD.
+        let detached_sha = "abc123def";
+        let git = MockGitBuilder::new()
+            .with_worktree_branch(&wt(), None) // detached HEAD
+            .with_rev_parse(&wt(), "HEAD", detached_sha)
+            // Force classify_branch to compute non-zero remote analysis: pretend `refs/remotes/origin/<sha>` resolves and the underlying counts are non-zero.
+            .with_rev_parse_verify(
+                &repo(),
+                &format!("refs/remotes/origin/{detached_sha}"),
+                true,
+            )
+            .with_rev_list_counts(&repo(), "origin/main", detached_sha, (3, 5))
+            .with_is_ancestor(&repo(), detached_sha, "origin/main", false)
+            .with_status_porcelain(&wt(), vec![])
+            .build();
+
+        let info =
+            classify_worktree(&git, &wt(), &repo(), "main", 100, false, &default_noise()).unwrap();
+        assert!(info.branch.is_none(), "test premise: branch must be None");
+        assert!(
+            !info.remote_tracking,
+            "detached HEAD must report remote_tracking=false even when classify_branch reports otherwise",
+        );
+        assert_eq!(info.ahead, 0, "detached HEAD ahead must be 0");
+        assert_eq!(info.behind, 0, "detached HEAD behind must be 0");
+        assert!(
+            !info.annotations.remote_deleted,
+            "detached HEAD must not report remote_deleted",
+        );
+    }
+
     // --- classify_branch tests ---
 
     #[test]

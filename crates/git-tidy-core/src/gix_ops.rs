@@ -515,33 +515,65 @@ impl GitOps for GixGitOps {
             })?
             .detach();
 
-        // Check if any branch tip can reach this commit
-        let refs = r.references().map_err(|e| Error::GitCommand {
-            command: "gix references".to_string(),
-            message: e.to_string(),
-        })?;
-        for reference in refs.local_branches().map_err(|e| Error::GitCommand {
-            command: "gix local_branches".to_string(),
-            message: e.to_string(),
-        })? {
-            let reference = match reference {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            let tip = match reference.into_fully_peeled_id() {
-                Ok(id) => id.detach(),
-                Err(_) => continue,
-            };
-            if tip == target_id {
-                return Ok(true);
+        // Helper: given an iterator over ref tips, return true if any of them can reach the target. Closing over r so each pass uses the same open repo handle.
+        let check = |tips: &mut dyn Iterator<Item = gix::ObjectId>| -> bool {
+            for tip in tips {
+                if tip == target_id {
+                    return true;
+                }
+                if let Ok(base) = r.merge_base(tip, target_id)
+                    && base == target_id
+                {
+                    return true;
+                }
             }
-            // Walk from tip towards root, checking if target is reachable
-            if let Ok(base) = r.merge_base(tip, target_id)
-                && base == target_id
-            {
+            false
+        };
+
+        // Local branches.
+        {
+            let refs = r.references().map_err(|e| Error::GitCommand {
+                command: "gix references".to_string(),
+                message: e.to_string(),
+            })?;
+            let mut tips = refs
+                .local_branches()
+                .map_err(|e| Error::GitCommand {
+                    command: "gix local_branches".to_string(),
+                    message: e.to_string(),
+                })?
+                .filter_map(|reference| reference.ok())
+                .filter_map(|reference| {
+                    reference.into_fully_peeled_id().ok().map(|id| id.detach())
+                });
+            if check(&mut tips) {
                 return Ok(true);
             }
         }
+
+        // Remote-tracking branches. Matches RealGit's `git branch -a --contains`. Without this leg, a commit reachable only via origin/<branch> (a merged PR whose local branch was deleted but whose tag still points at the merge commit) is reported as unreachable, and git-tag-tidy classifies the tag as Stale → default delete.
+        {
+            let refs = r.references().map_err(|e| Error::GitCommand {
+                command: "gix references".to_string(),
+                message: e.to_string(),
+            })?;
+            let mut tips = refs
+                .prefixed("refs/remotes/")
+                .map_err(|e| Error::GitCommand {
+                    command: "gix prefixed refs/remotes/".to_string(),
+                    message: e.to_string(),
+                })?
+                .filter_map(|reference| reference.ok())
+                // Skip symbolic HEAD refs (e.g. refs/remotes/origin/HEAD) so they don't double-count what their target ref already covers.
+                .filter(|reference| !reference.name().as_bstr().ends_with(b"/HEAD"))
+                .filter_map(|reference| {
+                    reference.into_fully_peeled_id().ok().map(|id| id.detach())
+                });
+            if check(&mut tips) {
+                return Ok(true);
+            }
+        }
+
         Ok(false)
     }
 

@@ -271,7 +271,6 @@ mod tests {
         let options = CleanOptions {
             dry_run: false,
             prune: true,
-            ..default_options()
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
