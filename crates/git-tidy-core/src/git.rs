@@ -943,7 +943,8 @@ impl GitOps for RealGit {
     }
 
     fn list_builtin_commands(&self) -> GitResult<Vec<String>> {
-        let text = Self::run_global_text(&["--list-cmds=main,others"])?;
+        // Use `main` only. `others` enumerates every `git-*` binary on $PATH (including this tool's own subcommands and any third-party plugins) — git-config-tidy's alias-shadow check would then report aliases like `tidy` or `lfs` as "shadows built-in git command", which is a false positive.
+        let text = Self::run_global_text(&["--list-cmds=main"])?;
         Ok(text
             .lines()
             .filter(|l| !l.is_empty())

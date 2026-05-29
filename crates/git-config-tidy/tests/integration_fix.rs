@@ -32,6 +32,37 @@ fn set_up_orphaned_config(test: &TestRepo) {
 }
 
 #[test]
+fn fix_json_writes_valid_json_to_stdout_and_progress_to_stderr() {
+    // Regression: previously `fix --json` wrote the lint JSON to stdout then run_fix wrote "removed section X in repo" lines to the same stream, producing a JSON document followed by free-form text that no JSON parser can consume. The fix must keep stdout as a single valid JSON value and route progress to stderr.
+    let test = TestRepo::new();
+    set_up_orphaned_config(&test);
+
+    let binary = env!("CARGO_BIN_EXE_git-config-tidy");
+    let output = std::process::Command::new(binary)
+        .args(["fix", "--json"])
+        .arg(&test.main_repo)
+        .output()
+        .expect("failed to run git-config-tidy");
+
+    assert!(
+        output.status.success() || output.status.code() == Some(0),
+        "git-config-tidy fix --json failed: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("non-utf8 stdout");
+    serde_json::from_str::<serde_json::Value>(&stdout).unwrap_or_else(|e| {
+        panic!("stdout is not valid JSON: {e}\n--- stdout ---\n{stdout}");
+    });
+
+    let stderr = String::from_utf8(output.stderr).expect("non-utf8 stderr");
+    assert!(
+        stderr.contains("removed section"),
+        "expected progress on stderr, got: {stderr}",
+    );
+}
+
+#[test]
 fn fix_removes_orphaned_config() {
     let test = TestRepo::new();
     set_up_orphaned_config(&test);
