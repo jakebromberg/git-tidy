@@ -257,32 +257,49 @@ mod tests {
         );
     }
 
-    #[test]
-    fn generated_completion_parses_as_zsh() {
-        // End-to-end syntax check: pipe the full generated completion script through
-        // `zsh -n`. This catches escape bugs that only surface when help text or aliases
-        // sit inside the surrounding `'...'` quoting layer.
-        let output = generated_output();
-        let mut child = std::process::Command::new("zsh")
+    /// Pipe `script` through `zsh -n` (syntax-only). Returns `None` if `zsh` is not on
+    /// PATH (so the test can skip gracefully on Linux CI containers without zsh installed),
+    /// `Some(Ok(()))` on success, or `Some(Err(stderr))` on syntax error.
+    fn zsh_syntax_check(script: &str) -> Option<Result<(), String>> {
+        use std::io::Write;
+        let mut child = match std::process::Command::new("zsh")
             .arg("-n")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
-            .expect("spawn zsh");
-        use std::io::Write;
+        {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => panic!("spawn zsh: {e}"),
+        };
         child
             .stdin
             .as_mut()
             .unwrap()
-            .write_all(output.as_bytes())
+            .write_all(script.as_bytes())
             .unwrap();
         let result = child.wait_with_output().expect("wait zsh");
-        assert!(
-            result.status.success(),
-            "zsh -n rejected generated completion:\nstderr: {}",
-            String::from_utf8_lossy(&result.stderr),
-        );
+        if result.status.success() {
+            Some(Ok(()))
+        } else {
+            Some(Err(String::from_utf8_lossy(&result.stderr).into_owned()))
+        }
+    }
+
+    #[test]
+    fn generated_completion_parses_as_zsh() {
+        // End-to-end syntax check: pipe the full generated completion script through
+        // `zsh -n`. This catches escape bugs that only surface when help text or aliases
+        // sit inside the surrounding `'...'` quoting layer. Skipped on hosts without zsh.
+        let output = generated_output();
+        let Some(result) = zsh_syntax_check(&output) else {
+            eprintln!("skipping: zsh not installed on this host");
+            return;
+        };
+        if let Err(stderr) = result {
+            panic!("zsh -n rejected generated completion:\nstderr: {stderr}");
+        }
     }
 
     #[test]
@@ -315,7 +332,8 @@ mod tests {
     fn escape_zsh_help_output_parses_as_zsh_when_embedded_in_arguments_spec() {
         // End-to-end: embed escaped help in a real `_arguments` flag spec and verify
         // that `zsh -n` (syntax check) accepts the result. This catches escape strategies
-        // that look right per-character but break the surrounding zsh quoting.
+        // that look right per-character but break the surrounding zsh quoting. Skipped on
+        // hosts without zsh.
         let inputs = [
             "plain text",
             "with ] bracket",
@@ -326,29 +344,21 @@ mod tests {
             "all of \\]:'$ together",
             "embedded\nnewline\ttab",
         ];
+        // Early probe: if zsh isn't installed, skip without running the loop.
+        if zsh_syntax_check("true\n").is_none() {
+            eprintln!("skipping: zsh not installed on this host");
+            return;
+        }
         for input in inputs {
             let escaped = escape_zsh_help(input);
             let spec = format!("_arguments '--foo[{escaped}]'\n");
-            let mut child = std::process::Command::new("zsh")
-                .arg("-n")
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .expect("spawn zsh");
-            use std::io::Write;
-            child
-                .stdin
-                .as_mut()
-                .unwrap()
-                .write_all(spec.as_bytes())
-                .unwrap();
-            let output = child.wait_with_output().expect("wait zsh");
-            assert!(
-                output.status.success(),
-                "zsh -n rejected spec for input {input:?} (escaped: {escaped:?}):\nspec: {spec}stderr: {}",
-                String::from_utf8_lossy(&output.stderr),
-            );
+            match zsh_syntax_check(&spec) {
+                Some(Ok(())) => {}
+                Some(Err(stderr)) => panic!(
+                    "zsh -n rejected spec for input {input:?} (escaped: {escaped:?}):\nspec: {spec}stderr: {stderr}",
+                ),
+                None => panic!("zsh disappeared mid-test for input {input:?}"),
+            }
         }
     }
 
