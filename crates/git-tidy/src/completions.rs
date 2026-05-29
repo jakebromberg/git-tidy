@@ -94,12 +94,27 @@ pub fn generate_zsh(out: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
-/// Escape a string for use inside a zsh `_arguments` spec description `[...]`. The spec syntax treats `]`, `:`, `\`, single quotes, and the dollar sign as special; an unescaped `]` ends the description early, an unescaped `:` introduces an argument expression. Without this every clap help line containing parens, brackets, or quoted examples would produce malformed completion that errors on source.
+/// Escape a string for embedding inside a zsh `_arguments` flag spec like `'--foo[description]'`.
+///
+/// Two nested quoting layers apply:
+/// 1. The outer single-quoted shell string. Single quotes cannot be backslash-escaped
+///    inside `'...'` in zsh; the only way to embed one is the standard close-escape-reopen
+///    idiom `'\''` (end the literal, output an escaped quote, start a new literal).
+///    Backslash and `$` are not special inside `'...'`, so they pass through verbatim.
+/// 2. The inner `_arguments` spec description `[...]`. The spec parser treats `]`, `:`,
+///    and `\` as significant; an unescaped `]` closes the description early, `:` introduces
+///    an argument expression, and `\` is the spec's own escape character. These must be
+///    backslash-escaped so the spec parser sees them as literal text. Because backslash
+///    is not special in the outer single-quoted layer, the literal `\]` written here
+///    reaches the spec parser intact.
 fn escape_zsh_help(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
-            '\\' | '\'' | ']' | ':' | '$' => {
+            // Outer layer: close the single-quoted string, emit a literal `'`, reopen.
+            '\'' => out.push_str("'\\''"),
+            // Inner layer: spec-significant characters in `[...]`.
+            '\\' | ']' | ':' => {
                 out.push('\\');
                 out.push(ch);
             }
@@ -243,13 +258,98 @@ mod tests {
     }
 
     #[test]
+    fn generated_completion_parses_as_zsh() {
+        // End-to-end syntax check: pipe the full generated completion script through
+        // `zsh -n`. This catches escape bugs that only surface when help text or aliases
+        // sit inside the surrounding `'...'` quoting layer.
+        let output = generated_output();
+        let mut child = std::process::Command::new("zsh")
+            .arg("-n")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn zsh");
+        use std::io::Write;
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(output.as_bytes())
+            .unwrap();
+        let result = child.wait_with_output().expect("wait zsh");
+        assert!(
+            result.status.success(),
+            "zsh -n rejected generated completion:\nstderr: {}",
+            String::from_utf8_lossy(&result.stderr),
+        );
+    }
+
+    #[test]
     fn escape_zsh_help_escapes_special_chars() {
-        let escaped = escape_zsh_help("describe ]: 'quoted' \\backslash $env");
+        let escaped = escape_zsh_help("describe ]: \\backslash");
         assert!(escaped.contains("\\]"));
         assert!(escaped.contains("\\:"));
-        assert!(escaped.contains("\\'"));
         assert!(escaped.contains("\\\\"));
-        assert!(escaped.contains("\\$"));
+    }
+
+    #[test]
+    fn escape_zsh_help_uses_close_reopen_idiom_for_apostrophe() {
+        // Regression: a naive `'` -> `\'` mapping is broken inside zsh single-quoted strings,
+        // where backslash is not an escape character. The standard idiom is to terminate the
+        // outer single-quoted literal, emit a backslash-escaped quote, then reopen.
+        let escaped = escape_zsh_help("don't");
+        assert_eq!(escaped, "don'\\''t");
+    }
+
+    #[test]
+    fn escape_zsh_help_does_not_escape_dollar() {
+        // `$` is literal inside a zsh single-quoted string. Backslash-escaping it would
+        // produce a stray `\$` in completion menu text, since the `_arguments` spec
+        // parser does not treat `$` as significant either.
+        let escaped = escape_zsh_help("price $5");
+        assert_eq!(escaped, "price $5");
+    }
+
+    #[test]
+    fn escape_zsh_help_output_parses_as_zsh_when_embedded_in_arguments_spec() {
+        // End-to-end: embed escaped help in a real `_arguments` flag spec and verify
+        // that `zsh -n` (syntax check) accepts the result. This catches escape strategies
+        // that look right per-character but break the surrounding zsh quoting.
+        let inputs = [
+            "plain text",
+            "with ] bracket",
+            "with : colon",
+            "with \\ backslash",
+            "with 'quote'",
+            "with $variable",
+            "all of \\]:'$ together",
+            "embedded\nnewline\ttab",
+        ];
+        for input in inputs {
+            let escaped = escape_zsh_help(input);
+            let spec = format!("_arguments '--foo[{escaped}]'\n");
+            let mut child = std::process::Command::new("zsh")
+                .arg("-n")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("spawn zsh");
+            use std::io::Write;
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(spec.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().expect("wait zsh");
+            assert!(
+                output.status.success(),
+                "zsh -n rejected spec for input {input:?} (escaped: {escaped:?}):\nspec: {spec}stderr: {}",
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
     }
 
     #[test]
