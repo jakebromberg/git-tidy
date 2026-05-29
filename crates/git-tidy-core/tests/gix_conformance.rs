@@ -329,6 +329,32 @@ fn log_grep_passthrough() {
 }
 
 #[test]
+fn log_grep_treats_regex_metacharacters_as_literal() {
+    // Regression: previously log_grep passed the needle to `git log --grep`, which is POSIX BRE. A subject containing `(`, `[`, `?`, `*`, `+`, `\` would either match the wrong commits or fail the regex parse. With --fixed-strings the needle is matched literally.
+    let t = TestRepo::new();
+    t.commit_file(
+        &t.main_repo,
+        "a.txt",
+        "a",
+        "fix(auth): handle [null] tokens?",
+    );
+    t.commit_file(&t.main_repo, "b.txt", "b", "feat: add widget");
+
+    let real = RealGit;
+
+    // Use the literal subject (including parens, brackets, question mark) — regex characters that would either match nothing or error under POSIX BRE.
+    let matches = real
+        .log_grep(&t.main_repo, "main", "fix(auth): handle [null] tokens?")
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].1, "fix(auth): handle [null] tokens?");
+
+    // A literal needle that is a substring should also match.
+    let partial = real.log_grep(&t.main_repo, "main", "[null]").unwrap();
+    assert_eq!(partial.len(), 1);
+}
+
+#[test]
 fn diff_commit_passthrough() {
     let t = TestRepo::new();
     t.commit_file(&t.main_repo, "change.txt", "content", "a change");

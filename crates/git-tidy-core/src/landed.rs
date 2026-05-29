@@ -303,14 +303,7 @@ fn try_fuzzy_subject_match(
         return Ok(false);
     }
 
-    // Search for commits containing significant tokens
-    let search_term = tokens
-        .iter()
-        .filter(|t| t.len() >= 4)
-        .take(3)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let search_term = build_fuzzy_search_term(&tokens);
 
     if search_term.is_empty() {
         return Ok(false);
@@ -364,6 +357,18 @@ fn try_patch_similarity(
     }
 
     Ok(false)
+}
+
+/// Build a deterministic search needle from a token set: lexicographically smallest 3 tokens of length ≥ 4, space-joined. Iterating a HashSet directly produces a randomized order, which would change the `git log --grep` needle (and the CachingGitOps log_grep_cache key) per run.
+fn build_fuzzy_search_term(tokens: &HashSet<String>) -> String {
+    let mut sorted: Vec<&String> = tokens.iter().filter(|t| t.len() >= 4).collect();
+    sorted.sort();
+    sorted
+        .into_iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Tokenize a string into lowercase words.
@@ -455,6 +460,38 @@ mod tests {
     #[test]
     fn strip_cc_prefix_feat() {
         assert_eq!(strip_cc_prefix("feat: add login"), "add login");
+    }
+
+    #[test]
+    fn build_fuzzy_search_term_is_deterministic_across_runs() {
+        let tokens: HashSet<String> = ["alpha", "beta", "gamma", "delta", "epsilon"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        // Calling the function many times must always produce the same needle. Without sorting, HashSet iteration order would yield different `.take(3)` results across runs.
+        let first = build_fuzzy_search_term(&tokens);
+        for _ in 0..32 {
+            assert_eq!(build_fuzzy_search_term(&tokens), first);
+        }
+        // And it should be the lexicographically smallest 3 tokens.
+        assert_eq!(first, "alpha beta delta");
+    }
+
+    #[test]
+    fn build_fuzzy_search_term_filters_short_tokens() {
+        let tokens: HashSet<String> = ["fix", "auth", "tokens", "ab"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // "fix" (3 chars) and "ab" (2 chars) are below the 4-char floor; only "auth" and "tokens" qualify.
+        assert_eq!(build_fuzzy_search_term(&tokens), "auth tokens");
+    }
+
+    #[test]
+    fn build_fuzzy_search_term_returns_empty_when_no_long_tokens() {
+        let tokens: HashSet<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(build_fuzzy_search_term(&tokens), "");
     }
 
     #[test]
