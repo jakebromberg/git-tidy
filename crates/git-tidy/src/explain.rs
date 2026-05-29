@@ -244,27 +244,37 @@ pub fn write_full(out: &mut dyn Write) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Write a single-term lookup. Case-insensitive.
+/// Write a single-term lookup. Case-insensitive. Returns every glossary entry that matches, because many terms (`orphaned`, `active`, `stale`, …) appear in multiple sections with different meanings — previously only the first was returned, silently hiding the others.
 pub fn write_term(out: &mut dyn Write, term: &str) -> std::io::Result<()> {
     let lower = term.to_lowercase();
-    let found = GLOSSARY.iter().find(|e| e.term.to_lowercase() == lower);
+    let matches: Vec<&GlossaryEntry> = GLOSSARY
+        .iter()
+        .filter(|e| e.term.to_lowercase() == lower)
+        .collect();
 
-    match found {
-        Some(entry) => {
-            writeln!(out, "{}: {}", entry.term, entry.description)?;
-            writeln!(
-                out,
-                "{}  Used by: {}",
-                " ".repeat(entry.term.len() + 2),
-                entry.used_by.join(", ")
-            )?;
+    if matches.is_empty() {
+        writeln!(
+            out,
+            "Unknown term: \"{term}\". Run 'git tidy explain' to see all terms."
+        )?;
+        return Ok(());
+    }
+
+    for (i, entry) in matches.iter().enumerate() {
+        if i > 0 {
+            writeln!(out)?;
         }
-        None => {
-            writeln!(
-                out,
-                "Unknown term: \"{term}\". Run 'git tidy explain' to see all terms."
-            )?;
-        }
+        writeln!(
+            out,
+            "{} ({}): {}",
+            entry.term, entry.section, entry.description
+        )?;
+        writeln!(
+            out,
+            "{}  Used by: {}",
+            " ".repeat(entry.term.len() + entry.section.len() + 4),
+            entry.used_by.join(", ")
+        )?;
     }
 
     Ok(())
@@ -305,7 +315,7 @@ mod tests {
         write_term(&mut buf, "partial").unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("partial:"));
+        assert!(output.contains("partial"));
         assert!(output.contains("Some but not all"));
         assert!(output.contains("Used by:"));
         assert!(output.contains("branches"));
@@ -317,8 +327,31 @@ mod tests {
         write_term(&mut buf, "PARTIAL").unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("partial:"));
+        assert!(output.contains("partial"));
         assert!(output.contains("Used by:"));
+    }
+
+    #[test]
+    fn multi_section_term_returns_all_matches() {
+        // Regression: previously `write_term("orphaned")` returned only the first GLOSSARY entry, silently hiding the meanings of "orphaned" in the Stashes, Remotes, Repos, and LFS sections.
+        let mut buf = Vec::new();
+        write_term(&mut buf, "orphaned").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        let match_count = GLOSSARY
+            .iter()
+            .filter(|e| e.term.to_lowercase() == "orphaned")
+            .count();
+        assert!(
+            match_count >= 2,
+            "test premise: at least two glossary entries use the term 'orphaned'",
+        );
+
+        let section_headers = output.matches("orphaned (").count();
+        assert_eq!(
+            section_headers, match_count,
+            "every section's entry for 'orphaned' should appear in the output, got:\n{output}",
+        );
     }
 
     #[test]
@@ -337,7 +370,7 @@ mod tests {
         write_term(&mut buf, "landed-content").unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("landed-content:"));
+        assert!(output.contains("landed-content"));
         assert!(output.contains("patch heuristic"));
         assert!(output.contains("Used by:"));
     }
