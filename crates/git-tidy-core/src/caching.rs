@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::git::{GitOps, GitResult};
 
@@ -30,7 +30,10 @@ type LogGrepKey = (PathBuf, String, String);
 /// `CachingGitOps` is shared across all tool scans.
 pub struct CachingGitOps<'a> {
     inner: &'a dyn GitOps,
-    fetched_repos: Mutex<HashSet<PathBuf>>,
+    // Per-key single-flight gate for fetch_prune. The outer Mutex guards the map; the inner Mutex<bool> serializes concurrent fetches for the same repo. `true` means the fetch has already completed successfully — the next caller short-circuits and returns Ok(()). `false` (the initial state, or after a failed fetch) means the next caller is allowed to attempt the fetch.
+    //
+    // This is wider than the other caches because fetch_prune has a real side effect (network call); duplicating work for a read-only query at worst wastes CPU, but duplicating fetch_prune can hammer the same remote 8 times from 8 tools in parallel.
+    fetched_repos: Mutex<HashMap<PathBuf, Arc<Mutex<bool>>>>,
     symbolic_ref_cache: Mutex<HashMap<PathBuf, Option<String>>>,
     rev_parse_verify_cache: Mutex<HashMap<(PathBuf, String), bool>>,
     local_branches_cache: Mutex<HashMap<PathBuf, Vec<String>>>,
@@ -49,7 +52,7 @@ impl<'a> CachingGitOps<'a> {
     pub fn new(inner: &'a dyn GitOps) -> Self {
         Self {
             inner,
-            fetched_repos: Mutex::new(HashSet::new()),
+            fetched_repos: Mutex::new(HashMap::new()),
             symbolic_ref_cache: Mutex::new(HashMap::new()),
             rev_parse_verify_cache: Mutex::new(HashMap::new()),
             local_branches_cache: Mutex::new(HashMap::new()),
@@ -68,12 +71,24 @@ impl<'a> CachingGitOps<'a> {
 impl GitOps for CachingGitOps<'_> {
     fn fetch_prune(&self, repo: &Path) -> GitResult<()> {
         let key = repo.to_path_buf();
-        if self.fetched_repos.lock().unwrap().contains(&key) {
+        // Single-flight: get-or-insert a per-repo gate while holding the outer lock briefly, then release the outer lock and contend on the per-repo gate. Concurrent callers for the same repo serialize here; callers for different repos do not contend.
+        let gate = {
+            let mut map = self.fetched_repos.lock().unwrap();
+            map.entry(key)
+                .or_insert_with(|| Arc::new(Mutex::new(false)))
+                .clone()
+        };
+        // Recover from a previously poisoned gate (e.g. inner panic in a prior fetch) by reading the inner bool through into_inner — losing the fact of the panic but keeping the cache usable.
+        let mut completed = match gate.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if *completed {
             return Ok(());
         }
         let result = self.inner.fetch_prune(repo);
         if result.is_ok() {
-            self.fetched_repos.lock().unwrap().insert(key);
+            *completed = true;
         }
         result
     }
@@ -456,6 +471,34 @@ mod tests {
         caching.fetch_prune(Path::new("/repo")).unwrap();
 
         assert_eq!(*counter.fetch_prune_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn fetch_prune_single_flight_under_concurrency() {
+        // Regression: under the previous lock-check-release-compute-lock-insert pattern, N concurrent callers for the same repo would all miss the cache and all invoke the inner fetch. With per-key gating they must serialize and only the first invocation reaches the inner.
+        use std::sync::Arc;
+        use std::thread;
+
+        let m = mock();
+        let counter = Arc::new(CountingGitOps::new(&m));
+        let caching = Arc::new(CachingGitOps::new(counter.as_ref()));
+        let path = PathBuf::from("/concurrent-repo");
+
+        thread::scope(|s| {
+            for _ in 0..16 {
+                let caching = caching.clone();
+                let path = path.clone();
+                s.spawn(move || {
+                    caching.fetch_prune(&path).unwrap();
+                });
+            }
+        });
+
+        assert_eq!(
+            *counter.fetch_prune_count.lock().unwrap(),
+            1,
+            "single-flight should collapse 16 concurrent fetches into 1",
+        );
     }
 
     #[test]
