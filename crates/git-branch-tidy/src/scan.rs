@@ -94,7 +94,18 @@ pub fn run_scan_repos(
                 }
             };
 
-            let current = git.current_branch(repo_path).unwrap_or(None);
+            // Fail closed: if we cannot determine the current branch, drop this repo from the scan.
+            // is_current gates the safety check in clean.rs that prevents deleting the checked-out branch.
+            let current = match git.current_branch(repo_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not determine current branch for {}: {e}",
+                        repo_path.display()
+                    ));
+                    return (None, local_warnings);
+                }
+            };
             let repo_name = repo_display_name(repo_path);
 
             if verbose {
@@ -168,7 +179,14 @@ pub fn run_scan_repos(
             if include_remote {
                 let local_names: HashSet<&str> = branches.iter().map(|b| b.as_str()).collect();
 
-                if let Ok(tracking_refs) = git.list_remote_tracking_refs(repo_path) {
+                let tracking_refs_result = git.list_remote_tracking_refs(repo_path);
+                if let Err(e) = &tracking_refs_result {
+                    local_warnings.push(format!(
+                        "could not list remote tracking refs for {}: {e}",
+                        repo_path.display()
+                    ));
+                }
+                if let Ok(tracking_refs) = tracking_refs_result {
                     let remote_only_names: Vec<String> = tracking_refs
                         .iter()
                         .filter_map(|(short, _full)| {
@@ -532,6 +550,56 @@ mod tests {
         let result = run_scan_repos(&git, &[repo()], 100, false, &filter, false, &p).unwrap();
         assert_eq!(result.total_scanned, 0);
         assert!(result.repos.is_empty());
+    }
+
+    #[test]
+    fn scan_drops_repo_when_current_branch_errors() {
+        // Regression: previously `current_branch().unwrap_or(None)` silently masked errors, leaving is_current unset on every branch — so the clean.rs safety check that prevents deleting the checked-out branch could not fire.
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .with_current_branch_error(&repo(), "HEAD is unreadable")
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, false, &p).unwrap();
+
+        // No branches scanned for this repo.
+        assert!(result.repos.is_empty());
+        // The warning surface must mention the repo and the underlying error.
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("current branch") && w.contains("HEAD is unreadable")),
+            "expected current_branch warning, got: {:?}",
+            result.warnings,
+        );
+    }
+
+    #[test]
+    fn scan_warns_when_remote_tracking_refs_errors_with_include_remote() {
+        // Regression: previously the include_remote path used `if let Ok(...)` and silently produced zero remote-only branches when list_remote_tracking_refs errored. The user could not tell why include_remote returned nothing.
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .with_current_branch(&repo(), Some("main"))
+            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
+            .with_list_remote_tracking_refs_error(&repo(), "for-each-ref crashed")
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, true, &p).unwrap();
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("remote tracking refs") && w.contains("for-each-ref crashed")),
+            "expected warning, got: {:?}",
+            result.warnings,
+        );
     }
 
     #[test]

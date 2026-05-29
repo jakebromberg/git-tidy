@@ -85,7 +85,17 @@ pub fn run_scan_repos(
                 }
             };
 
-            let tracking_refs = git.list_remote_tracking_refs(repo_path).unwrap_or_default();
+            // Fail closed: if we cannot enumerate tracking refs, surface the warning. Orphan detection will under-report rather than silently report zero, and the user sees the failure.
+            let tracking_refs = match git.list_remote_tracking_refs(repo_path) {
+                Ok(refs) => refs,
+                Err(e) => {
+                    local_warnings.push(format!(
+                        "could not list remote tracking refs for {}: {e}",
+                        repo_path.display()
+                    ));
+                    Vec::new()
+                }
+            };
 
             let mut tracking_counts: HashMap<String, usize> = HashMap::new();
 
@@ -270,6 +280,29 @@ mod tests {
         let result = run_scan_repos(&git, &[repo()], false, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.active, 1);
+    }
+
+    #[test]
+    fn scan_warns_when_remote_tracking_refs_errors() {
+        // Regression: previously `list_remote_tracking_refs().unwrap_or_default()` silently returned zero orphaned remotes when the query errored. Fail closed: emit a warning so the user can tell the orphan-detection was incomplete.
+        let git = MockGitBuilder::new()
+            .with_list_remotes(&repo(), vec!["origin".to_string()])
+            .with_ls_remote_check(&repo(), "origin", true)
+            .with_remote_url(&repo(), "origin", "https://example.com/repo.git")
+            .with_list_remote_tracking_refs_error(&repo(), "for-each-ref failed")
+            .build();
+
+        let p = Progress::disabled();
+        let filter = NameFilter::default();
+        let result = run_scan_repos(&git, &[repo()], false, false, &filter, &p).unwrap();
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("tracking refs") && w.contains("for-each-ref failed")),
+            "expected warning, got: {:?}",
+            result.warnings,
+        );
     }
 
     #[test]

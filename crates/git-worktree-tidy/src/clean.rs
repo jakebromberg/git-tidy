@@ -199,16 +199,15 @@ fn remove_worktree(
         && !matches!(wt.classification, Classification::LandedStale)
         && let Some(branch) = &wt.branch
     {
-        if git
-            .is_branch_checked_out(&wt.parent_repo, branch)
-            .unwrap_or(false)
-        {
-            writeln!(
-                out,
-                "skipped branch delete for {branch}: checked out elsewhere"
-            )?;
-        } else {
-            match git.branch_delete(&wt.parent_repo, branch) {
+        // Fail closed: if we cannot determine whether the branch is checked out elsewhere, never delete it.
+        match git.is_branch_checked_out(&wt.parent_repo, branch) {
+            Ok(true) => {
+                writeln!(
+                    out,
+                    "skipped branch delete for {branch}: checked out elsewhere"
+                )?;
+            }
+            Ok(false) => match git.branch_delete(&wt.parent_repo, branch) {
                 Ok(()) => {
                     writeln!(out, "deleted branch {branch}")?;
                     branch_deleted = true;
@@ -216,6 +215,12 @@ fn remove_worktree(
                 Err(e) => {
                     writeln!(out, "warning: could not delete branch {branch}: {e}")?;
                 }
+            },
+            Err(e) => {
+                writeln!(
+                    out,
+                    "warning: skipped branch delete for {branch}: could not check worktree usage: {e}"
+                )?;
             }
         }
     }
@@ -730,6 +735,38 @@ mod tests {
 
         assert_eq!(result.succeeded.len(), 1);
         assert_eq!(git.remove_force_calls().len(), 1);
+    }
+
+    #[test]
+    fn clean_delete_branches_fails_closed_when_checkedout_check_errors() {
+        // Regression: previously `is_branch_checked_out().unwrap_or(false)` silently treated errors as "not checked out" and proceeded to delete the branch. Now the delete is skipped and a warning is emitted.
+        let git = MockGitBuilder::new()
+            .with_is_branch_checked_out_error(&repo(), "feature/done", "git plumbing broke")
+            .build();
+        let wt = make_worktree("wt-done", "feature/done", Classification::Landed);
+        let scan = make_scan(vec![wt]);
+        let mut buf = Vec::new();
+        let options = CleanOptions {
+            delete_branches: true,
+            ..default_options()
+        };
+
+        let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
+
+        // Worktree itself is still removed (that path's safety is separate).
+        assert_eq!(result.succeeded.len(), 1);
+        // But the branch must NOT be deleted when we cannot prove it is safe.
+        assert_eq!(git.branch_delete_calls().len(), 0);
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("skipped branch delete for feature/done"),
+            "output should warn about skipped delete, got: {output}"
+        );
+        assert!(
+            output.contains("could not check worktree usage"),
+            "output should mention the underlying error, got: {output}"
+        );
     }
 
     #[test]
