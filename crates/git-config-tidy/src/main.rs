@@ -59,7 +59,6 @@ fn main() {
         }
         Some(cli::Command::Fix {
             dry_run,
-            yes,
             json,
             porcelain,
         }) => match lint::run_lint(&git, &directory, cli.verbose, &repo_filter, &progress) {
@@ -77,10 +76,7 @@ fn main() {
                     process::exit(1);
                 }
 
-                let options = fix::FixOptions {
-                    dry_run: *dry_run,
-                    yes: *yes,
-                };
+                let options = fix::FixOptions { dry_run: *dry_run };
 
                 match fix::run_fix(&git, &lint_result, &options, &mut stdout) {
                     Ok(result) => {

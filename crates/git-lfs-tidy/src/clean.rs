@@ -11,9 +11,6 @@ use crate::types::{LfsClassification, LfsScanResult};
 pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Enable pruning of orphaned LFS objects.
     pub prune: bool,
 }
@@ -195,7 +192,6 @@ mod tests {
     fn default_options() -> CleanOptions {
         CleanOptions {
             dry_run: false,
-            yes: false,
             prune: false,
         }
     }
@@ -213,7 +209,7 @@ mod tests {
         let mut buf = Vec::new();
         let options = CleanOptions {
             prune: true,
-            ..default_options()
+            dry_run: false,
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
@@ -241,7 +237,6 @@ mod tests {
         let options = CleanOptions {
             dry_run: true,
             prune: true,
-            ..default_options()
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
@@ -285,7 +280,7 @@ mod tests {
         let mut buf = Vec::new();
         let options = CleanOptions {
             prune: true,
-            ..default_options()
+            dry_run: false,
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
@@ -315,7 +310,7 @@ mod tests {
         let mut buf = Vec::new();
         let options = CleanOptions {
             prune: true,
-            ..default_options()
+            dry_run: false,
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();

@@ -58,7 +58,6 @@ fn clean_removes_local_only_tag() {
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: false,
-        yes: true,
         force: false,
         stale_only: false,
         local_only: false,
@@ -105,7 +104,6 @@ fn clean_dry_run_preserves_tags() {
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: true,
-        yes: true,
         force: false,
         stale_only: false,
         local_only: false,
@@ -161,7 +159,6 @@ fn clean_removes_stale_tag() {
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: false,
-        yes: true,
         force: false,
         stale_only: false,
         local_only: false,
@@ -217,7 +214,6 @@ fn clean_include_remote_deletes_from_remote() {
 
     let options = git_tag_tidy::clean::CleanOptions {
         dry_run: false,
-        yes: true,
         force: false,
         stale_only: false,
         local_only: false,

@@ -68,7 +68,6 @@ fn main() {
         }
         Some(cli::Command::Clean {
             dry_run,
-            yes,
             committed_only,
             aged_only,
             all,
@@ -85,7 +84,6 @@ fn main() {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,
-                    yes: *yes,
                     committed_only: *committed_only,
                     aged_only: *aged_only,
                     all: *all,

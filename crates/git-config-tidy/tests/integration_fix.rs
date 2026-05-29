@@ -59,10 +59,7 @@ fn fix_removes_orphaned_config() {
         warnings: vec![],
     };
 
-    let options = FixOptions {
-        dry_run: false,
-        yes: true,
-    };
+    let options = FixOptions { dry_run: false };
     let mut buf = Vec::new();
     let result = fix::run_fix(&git_ops, &lint_result, &options, &mut buf).unwrap();
 
@@ -99,10 +96,7 @@ fn fix_dry_run_preserves_config() {
         warnings: vec![],
     };
 
-    let options = FixOptions {
-        dry_run: true,
-        yes: true,
-    };
+    let options = FixOptions { dry_run: true };
     let mut buf = Vec::new();
     let result = fix::run_fix(&git_ops, &lint_result, &options, &mut buf).unwrap();
 

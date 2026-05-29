@@ -50,10 +50,6 @@ pub enum Command {
         #[arg(short = 'n', long)]
         dry_run: bool,
 
-        /// Skip confirmation prompts
-        #[arg(short = 'y', long)]
-        yes: bool,
-
         /// Output results as JSON
         #[arg(long)]
         json: bool,
@@ -116,11 +112,10 @@ mod tests {
 
     #[test]
     fn fix_with_flags() {
-        let cli = Cli::parse_from(["git-config-tidy", "fix", "--dry-run", "--yes"]);
+        let cli = Cli::parse_from(["git-config-tidy", "fix", "--dry-run"]);
         match cli.command {
-            Some(Command::Fix { dry_run, yes, .. }) => {
+            Some(Command::Fix { dry_run, .. }) => {
                 assert!(dry_run);
-                assert!(yes);
             }
             _ => panic!("expected Fix command"),
         }
@@ -128,11 +123,10 @@ mod tests {
 
     #[test]
     fn fix_short_flags() {
-        let cli = Cli::parse_from(["git-config-tidy", "fix", "-n", "-y"]);
+        let cli = Cli::parse_from(["git-config-tidy", "fix", "-n"]);
         match cli.command {
-            Some(Command::Fix { dry_run, yes, .. }) => {
+            Some(Command::Fix { dry_run, .. }) => {
                 assert!(dry_run);
-                assert!(yes);
             }
             _ => panic!("expected Fix command"),
         }

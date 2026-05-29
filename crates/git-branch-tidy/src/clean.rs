@@ -13,9 +13,6 @@ pub struct CleanOptions {
     pub dry_run: bool,
     /// Force-delete branches (git branch -D instead of -d).
     pub force: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Only target structurally-proven landed branches.
     pub strict: bool,
     /// Include all classifications in the interactive flow.
@@ -270,7 +267,6 @@ mod tests {
         CleanOptions {
             dry_run: false,
             force: false,
-            yes: false,
             strict: false,
             all: false,
             include_remote: false,

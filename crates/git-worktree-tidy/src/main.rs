@@ -85,7 +85,6 @@ fn main() {
         Some(cli::Command::Clean {
             dry_run,
             force,
-            yes,
             strict,
             all,
             delete_branches,
@@ -106,7 +105,6 @@ fn main() {
                     let options = clean::CleanOptions {
                         dry_run: *dry_run,
                         force: *force,
-                        yes: *yes,
                         strict: *strict,
                         all: *all,
                         delete_branches: *delete_branches,

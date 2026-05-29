@@ -26,7 +26,6 @@ fn set_up_orphaned_repo(base: &std::path::Path) -> std::path::PathBuf {
 fn default_options() -> CleanOptions {
     CleanOptions {
         dry_run: false,
-        yes: true,
         force: false,
         stale_only: false,
         orphaned_only: false,

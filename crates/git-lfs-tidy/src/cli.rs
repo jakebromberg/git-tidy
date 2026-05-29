@@ -58,10 +58,6 @@ pub enum Command {
         #[arg(short = 'n', long)]
         dry_run: bool,
 
-        /// Skip confirmation prompts
-        #[arg(short = 'y', long)]
-        yes: bool,
-
         /// Enable pruning of orphaned LFS objects
         #[arg(long)]
         prune: bool,
@@ -148,16 +144,10 @@ mod tests {
 
     #[test]
     fn clean_with_flags() {
-        let cli = Cli::parse_from(["git-lfs-tidy", "clean", "--dry-run", "--yes", "--prune"]);
+        let cli = Cli::parse_from(["git-lfs-tidy", "clean", "--dry-run", "--prune"]);
         match cli.command {
-            Some(Command::Clean {
-                dry_run,
-                yes,
-                prune,
-                ..
-            }) => {
+            Some(Command::Clean { dry_run, prune, .. }) => {
                 assert!(dry_run);
-                assert!(yes);
                 assert!(prune);
             }
             _ => panic!("expected Clean command"),

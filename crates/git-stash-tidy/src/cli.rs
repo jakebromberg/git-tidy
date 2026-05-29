@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "git-stash-tidy",
-    about = "Scan, classify, and interactively drop stale Git stashes"
+    about = "Scan, classify, and drop stale Git stashes"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -56,15 +56,11 @@ pub enum Command {
     #[command(flatten)]
     Shared(git_tidy_core::cli::SharedCommands),
 
-    /// Scan and interactively drop stale stashes
+    /// Scan and drop stale stashes
     Clean {
         /// Show what would be dropped without dropping
         #[arg(short = 'n', long)]
         dry_run: bool,
-
-        /// Skip confirmation prompts
-        #[arg(short = 'y', long)]
-        yes: bool,
 
         /// Only target committed stashes
         #[arg(long)]
@@ -116,22 +112,14 @@ mod tests {
 
     #[test]
     fn clean_with_flags() {
-        let cli = Cli::parse_from([
-            "git-stash-tidy",
-            "clean",
-            "--dry-run",
-            "--yes",
-            "--committed-only",
-        ]);
+        let cli = Cli::parse_from(["git-stash-tidy", "clean", "--dry-run", "--committed-only"]);
         match cli.command {
             Some(Command::Clean {
                 dry_run,
-                yes,
                 committed_only,
                 ..
             }) => {
                 assert!(dry_run);
-                assert!(yes);
                 assert!(committed_only);
             }
             _ => panic!("expected Clean command"),

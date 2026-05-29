@@ -12,9 +12,6 @@ use crate::types::{TagClassification, TagScanResult};
 pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Allow deleting synced tags and bypass release tag warnings.
     pub force: bool,
     /// Only delete stale tags.
@@ -242,7 +239,6 @@ mod tests {
     fn default_options() -> CleanOptions {
         CleanOptions {
             dry_run: false,
-            yes: false,
             force: false,
             stale_only: false,
             local_only: false,

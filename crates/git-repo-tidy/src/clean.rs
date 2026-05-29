@@ -10,9 +10,6 @@ use crate::types::{RepoClassification, RepoScanResult};
 pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Allow deleting dirty repos.
     pub force: bool,
     /// Only delete stale repos.
@@ -184,7 +181,6 @@ mod tests {
     fn default_options() -> CleanOptions {
         CleanOptions {
             dry_run: false,
-            yes: true,
             force: false,
             stale_only: false,
             orphaned_only: false,

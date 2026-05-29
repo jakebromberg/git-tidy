@@ -54,7 +54,6 @@ fn clean_removes_remote_in_real_repo() {
 
     let options = git_remote_tidy::clean::CleanOptions {
         dry_run: false,
-        yes: true,
         force: false,
         all: false,
     };
@@ -94,7 +93,6 @@ fn clean_dry_run_does_not_remove() {
 
     let options = git_remote_tidy::clean::CleanOptions {
         dry_run: true,
-        yes: true,
         force: false,
         all: false,
     };
@@ -153,7 +151,6 @@ fn clean_prunes_orphaned_refs() {
 
     let options = git_remote_tidy::clean::CleanOptions {
         dry_run: false,
-        yes: true,
         force: false,
         all: true,
     };

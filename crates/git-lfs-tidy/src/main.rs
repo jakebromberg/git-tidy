@@ -90,12 +90,7 @@ fn main() {
                 Err(e) => error::exit_with_error(&e),
             }
         }
-        Some(cli::Command::Clean {
-            dry_run,
-            yes,
-            prune,
-            ..
-        }) => match scan::run_scan(
+        Some(cli::Command::Clean { dry_run, prune, .. }) => match scan::run_scan(
             &git,
             &directory,
             size_threshold,
@@ -107,7 +102,6 @@ fn main() {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,
-                    yes: *yes,
                     prune: *prune,
                 };
 

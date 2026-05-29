@@ -11,9 +11,6 @@ use crate::types::{RemoteClassification, RemoteScanResult};
 pub struct CleanOptions {
     /// Preview only: print what would be removed.
     pub dry_run: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Allow removing the origin remote.
     pub force: bool,
     /// Include orphaned remotes (default: unreachable only).
@@ -184,7 +181,6 @@ mod tests {
     fn default_options() -> CleanOptions {
         CleanOptions {
             dry_run: false,
-            yes: false,
             force: false,
             all: false,
         }

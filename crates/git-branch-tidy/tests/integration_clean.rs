@@ -60,7 +60,6 @@ fn clean_deletes_merged_branch_in_real_repo() {
     let options = git_branch_tidy::clean::CleanOptions {
         dry_run: false,
         force: false,
-        yes: true,
         strict: false,
         all: false,
         include_remote: false,
@@ -101,7 +100,6 @@ fn clean_dry_run_does_not_delete() {
     let options = git_branch_tidy::clean::CleanOptions {
         dry_run: true,
         force: false,
-        yes: true,
         strict: false,
         all: false,
         include_remote: false,
@@ -151,7 +149,6 @@ fn clean_safe_refuses_unmerged_branch() {
     let options = git_branch_tidy::clean::CleanOptions {
         dry_run: false,
         force: false,
-        yes: true,
         strict: false,
         all: true,
         include_remote: false,
