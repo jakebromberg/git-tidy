@@ -9,7 +9,7 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 which = "8"
 
 # In-process audit dependencies
