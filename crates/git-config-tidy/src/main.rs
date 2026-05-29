@@ -82,7 +82,14 @@ fn main() {
                     yes: *yes,
                 };
 
-                match fix::run_fix(&git, &lint_result, &options, &mut stdout) {
+                // In machine-readable modes the lint JSON / porcelain has already been written to stdout. Fix progress ("removed section X in repo") must NOT corrupt that stream; route it to stderr instead. Without this, `git-config-tidy fix --json` produced a JSON document followed by free-form text — unparseable by anything downstream.
+                let fix_result = if *json || *porcelain {
+                    let mut stderr = io::stderr().lock();
+                    fix::run_fix(&git, &lint_result, &options, &mut stderr)
+                } else {
+                    fix::run_fix(&git, &lint_result, &options, &mut stdout)
+                };
+                match fix_result {
                     Ok(result) => {
                         if !result.failed.is_empty() {
                             process::exit(1);
