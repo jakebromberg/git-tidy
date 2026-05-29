@@ -405,9 +405,10 @@ pub fn classify_worktree(
         default_branch: default_branch.to_string(),
         classification: bc.classification,
         annotations,
-        remote_tracking: bc.remote_tracking,
-        ahead: bc.ahead,
-        behind: bc.behind,
+        // For detached HEAD, branch_ref is a commit SHA. classify_branch computed `remote_tracking` by looking up `refs/remotes/origin/<sha>`, which never resolves — so `bc.remote_tracking` is meaninglessly false. Zero it out explicitly so downstream consumers cannot mistake "no analysis" for "no upstream".
+        remote_tracking: !is_detached && bc.remote_tracking,
+        ahead: if is_detached { 0 } else { bc.ahead },
+        behind: if is_detached { 0 } else { bc.behind },
         dirty_files: dirty_result.all_files,
         meaningful_dirty_files: dirty_result.meaningful_files,
     })

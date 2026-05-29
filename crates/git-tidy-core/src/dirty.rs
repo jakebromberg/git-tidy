@@ -46,11 +46,21 @@ pub fn check_dirty(
             continue;
         }
         let status_code = &line[..2];
-        let file_path = line[3..].trim();
+        let raw_path = line[3..].trim();
 
-        if file_path.is_empty() {
+        if raw_path.is_empty() {
             continue;
         }
+
+        // Rename status (R*) and copy status (C*) use the format `<old> -> <new>` in porcelain v1. The "current" file the working tree contains is the new path; using the raw "old -> new" string breaks noise filtering (the basename match runs against the literal "new" segment fine, but a rename of `.DS_Store -> foo` would also be reported and the file_path stored in the result would contain " -> ").
+        let file_path = if status_code.starts_with('R') || status_code.starts_with('C') {
+            raw_path
+                .rsplit_once(" -> ")
+                .map(|(_, new)| new)
+                .unwrap_or(raw_path)
+        } else {
+            raw_path
+        };
 
         all_files.push(file_path.to_string());
 
@@ -256,6 +266,38 @@ mod tests {
 
         let result = check_dirty(&git, &path, &defaults()).unwrap();
         assert_eq!(result.meaningful_files.len(), 2);
+    }
+
+    #[test]
+    fn check_dirty_rename_extracts_new_path() {
+        // Regression: porcelain v1 reports a rename as `R  old -> new`. Previously file_path stored the literal "old -> new", breaking noise filtering and producing confusing dirty-file output.
+        let path = PathBuf::from("/worktree");
+        let git = MockGitBuilder::new()
+            .with_status_porcelain(
+                &path,
+                vec![
+                    "R  src/old.rs -> src/new.rs".to_string(),
+                    "C  src/orig.rs -> src/copy.rs".to_string(),
+                ],
+            )
+            .build();
+
+        let result = check_dirty(&git, &path, &defaults()).unwrap();
+        assert!(
+            result.all_files.contains(&"src/new.rs".to_string()),
+            "rename should store the new path, got {:?}",
+            result.all_files,
+        );
+        assert!(
+            result.all_files.contains(&"src/copy.rs".to_string()),
+            "copy should store the new path, got {:?}",
+            result.all_files,
+        );
+        assert!(
+            !result.all_files.iter().any(|f| f.contains(" -> ")),
+            "no file_path should contain the arrow separator, got {:?}",
+            result.all_files,
+        );
     }
 
     #[test]
