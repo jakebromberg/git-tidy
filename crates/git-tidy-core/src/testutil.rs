@@ -5,6 +5,15 @@ use std::process::Command;
 use crate::error::Error;
 use crate::git::{GitOps, GitResult};
 
+/// Canonical key for a `files` argument: sorted + deduped. Lets the mock
+/// look up registered responses without depending on caller iteration order.
+fn normalize_file_set(files: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = files.to_vec();
+    v.sort();
+    v.dedup();
+    v
+}
+
 /// Builder for constructing a MockGit with canned responses.
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
@@ -18,6 +27,7 @@ pub struct MockGitBuilder {
     diff_commit: HashMap<(PathBuf, String), String>,
     diff_commit_files: HashMap<(PathBuf, String), Vec<String>>,
     log_touching_files: HashMap<(PathBuf, String), Vec<(String, String)>>,
+    log_touching_files_for_files: HashMap<(PathBuf, String, Vec<String>), Vec<(String, String)>>,
     diff_commit_on_ref: HashMap<(PathBuf, String), String>,
     diff_working_tree_files: HashMap<(PathBuf, String), Vec<String>>,
     diff_working_tree_files_errors: HashMap<(PathBuf, String), String>,
@@ -197,6 +207,9 @@ impl MockGitBuilder {
         self
     }
 
+    /// Register a wildcard response: returned for any `files` argument on the
+    /// matching `(repo, ref_spec)`. Useful for tests that don't care which
+    /// files were passed.
     pub fn with_log_touching_files(
         mut self,
         repo: &Path,
@@ -205,6 +218,24 @@ impl MockGitBuilder {
     ) -> Self {
         self.log_touching_files
             .insert((repo.to_path_buf(), ref_spec.to_string()), results);
+        self
+    }
+
+    /// Register a file-specific response: returned only when `log_touching_files`
+    /// is called with the exact same set of `files` (order-insensitive). Falls
+    /// through to the wildcard registered via `with_log_touching_files` if no
+    /// specific response matches. Tests that need to verify the caller is
+    /// passing the right files must use this variant.
+    pub fn with_log_touching_files_for_files(
+        mut self,
+        repo: &Path,
+        ref_spec: &str,
+        files: &[String],
+        results: Vec<(String, String)>,
+    ) -> Self {
+        let key = normalize_file_set(files);
+        self.log_touching_files_for_files
+            .insert((repo.to_path_buf(), ref_spec.to_string(), key), results);
         self
     }
 
@@ -526,6 +557,7 @@ impl MockGitBuilder {
             diff_commit: self.diff_commit,
             diff_commit_files: self.diff_commit_files,
             log_touching_files: self.log_touching_files,
+            log_touching_files_for_files: self.log_touching_files_for_files,
             diff_commit_on_ref: self.diff_commit_on_ref,
             diff_working_tree_files: self.diff_working_tree_files,
             diff_working_tree_files_errors: self.diff_working_tree_files_errors,
@@ -599,6 +631,7 @@ pub struct MockGit {
     diff_commit: HashMap<(PathBuf, String), String>,
     diff_commit_files: HashMap<(PathBuf, String), Vec<String>>,
     log_touching_files: HashMap<(PathBuf, String), Vec<(String, String)>>,
+    log_touching_files_for_files: HashMap<(PathBuf, String, Vec<String>), Vec<(String, String)>>,
     diff_commit_on_ref: HashMap<(PathBuf, String), String>,
     diff_working_tree_files: HashMap<(PathBuf, String), Vec<String>>,
     diff_working_tree_files_errors: HashMap<(PathBuf, String), String>,
@@ -812,8 +845,16 @@ impl GitOps for MockGit {
         &self,
         repo: &Path,
         ref_spec: &str,
-        _files: &[String],
+        files: &[String],
     ) -> GitResult<Vec<(String, String)>> {
+        let key = (
+            repo.to_path_buf(),
+            ref_spec.to_string(),
+            normalize_file_set(files),
+        );
+        if let Some(specific) = self.log_touching_files_for_files.get(&key) {
+            return Ok(specific.clone());
+        }
         Ok(self
             .log_touching_files
             .get(&(repo.to_path_buf(), ref_spec.to_string()))
@@ -1293,14 +1334,18 @@ impl GitOps for MockGit {
     fn find_large_blobs(
         &self,
         repo: &Path,
-        _threshold: u64,
+        threshold: u64,
         _depth: usize,
     ) -> GitResult<Vec<(String, u64, String)>> {
+        // Mirror RealGit: include blobs whose size is at or above the threshold (RealGit skips with `size < threshold`). Depth is not modelled here — tests register a flat blob list rather than ref trees — but the threshold filter is what catches caller bugs (passing the wrong unit, forgetting to plumb the flag, etc.).
         Ok(self
             .find_large_blobs
             .get(&repo.to_path_buf())
             .cloned()
-            .unwrap_or_default())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, size, _)| *size >= threshold)
+            .collect())
     }
 }
 
@@ -1447,4 +1492,141 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
         panic!("git {:?} failed in {}: {}", args, dir.display(), stderr);
     }
     String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[cfg(test)]
+mod mock_fidelity_tests {
+    use super::*;
+    use crate::git::GitOps;
+
+    fn repo() -> PathBuf {
+        PathBuf::from("/repos/test")
+    }
+
+    #[test]
+    fn log_touching_files_specific_match_returns_registered_results() {
+        let files = vec!["src/a.rs".to_string(), "src/b.rs".to_string()];
+        let expected = vec![("abc1234".to_string(), "Touched a and b".to_string())];
+
+        let git = MockGitBuilder::new()
+            .with_log_touching_files_for_files(&repo(), "origin/main", &files, expected.clone())
+            .build();
+
+        let got = git
+            .log_touching_files(&repo(), "origin/main", &files)
+            .unwrap();
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn log_touching_files_specific_response_is_order_insensitive() {
+        let registered_files = vec!["src/a.rs".to_string(), "src/b.rs".to_string()];
+        let queried_files = vec!["src/b.rs".to_string(), "src/a.rs".to_string()];
+        let expected = vec![("abc1234".to_string(), "Touched a and b".to_string())];
+
+        let git = MockGitBuilder::new()
+            .with_log_touching_files_for_files(
+                &repo(),
+                "origin/main",
+                &registered_files,
+                expected.clone(),
+            )
+            .build();
+
+        let got = git
+            .log_touching_files(&repo(), "origin/main", &queried_files)
+            .unwrap();
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn log_touching_files_specific_response_does_not_match_different_files() {
+        // The mock previously ignored the `files` argument, so a caller passing the wrong files would still get the registered response, hiding plumbing bugs. After the fix, a query with different files must NOT receive the file-specific canned response.
+        let registered_files = vec!["src/a.rs".to_string()];
+        let queried_files = vec!["src/b.rs".to_string()];
+        let canned = vec![("abc1234".to_string(), "Only for a.rs".to_string())];
+
+        let git = MockGitBuilder::new()
+            .with_log_touching_files_for_files(&repo(), "origin/main", &registered_files, canned)
+            .build();
+
+        let got = git
+            .log_touching_files(&repo(), "origin/main", &queried_files)
+            .unwrap();
+        assert!(
+            got.is_empty(),
+            "expected no canned response for non-matching files, got {got:?}",
+        );
+    }
+
+    #[test]
+    fn log_touching_files_specific_takes_priority_over_wildcard() {
+        let files = vec!["src/a.rs".to_string()];
+        let wildcard = vec![("wild".to_string(), "wildcard".to_string())];
+        let specific = vec![("spec".to_string(), "specific".to_string())];
+
+        let git = MockGitBuilder::new()
+            .with_log_touching_files(&repo(), "origin/main", wildcard.clone())
+            .with_log_touching_files_for_files(&repo(), "origin/main", &files, specific.clone())
+            .build();
+
+        // Specific files → specific response.
+        let got_specific = git
+            .log_touching_files(&repo(), "origin/main", &files)
+            .unwrap();
+        assert_eq!(got_specific, specific);
+
+        // Different files → wildcard fallback.
+        let other = vec!["src/other.rs".to_string()];
+        let got_wild = git
+            .log_touching_files(&repo(), "origin/main", &other)
+            .unwrap();
+        assert_eq!(got_wild, wildcard);
+    }
+
+    #[test]
+    fn find_large_blobs_filters_by_threshold() {
+        // The mock previously ignored the threshold argument, so a caller passing 100 MB while the registered blobs were 1 MB would still see them — masking plumbing bugs in the threshold flag.
+        let blobs = vec![
+            ("small".to_string(), 500_000, "small.bin".to_string()),
+            ("large".to_string(), 5_000_000, "large.bin".to_string()),
+        ];
+        let git = MockGitBuilder::new()
+            .with_find_large_blobs(&repo(), blobs)
+            .build();
+
+        let got = git.find_large_blobs(&repo(), 1_000_000, 1000).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].2, "large.bin");
+    }
+
+    #[test]
+    fn find_large_blobs_threshold_is_inclusive_at_boundary() {
+        // RealGit skips with `size < threshold`, so a blob exactly at the threshold MUST be included. Locks the boundary semantics.
+        let blobs = vec![
+            ("exact".to_string(), 1_000_000, "exact.bin".to_string()),
+            ("under".to_string(), 999_999, "under.bin".to_string()),
+        ];
+        let git = MockGitBuilder::new()
+            .with_find_large_blobs(&repo(), blobs)
+            .build();
+
+        let got = git.find_large_blobs(&repo(), 1_000_000, 1000).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].2, "exact.bin");
+    }
+
+    #[test]
+    fn find_large_blobs_threshold_zero_returns_everything() {
+        let blobs = vec![
+            ("a".to_string(), 1, "a".to_string()),
+            ("b".to_string(), 1_000_000, "b".to_string()),
+        ];
+        let git = MockGitBuilder::new()
+            .with_find_large_blobs(&repo(), blobs.clone())
+            .build();
+
+        let got = git.find_large_blobs(&repo(), 0, 1000).unwrap();
+        assert_eq!(got.len(), blobs.len());
+    }
 }
