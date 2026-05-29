@@ -89,10 +89,26 @@ pub fn generate_zsh(out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "}}")?;
     writeln!(out)?;
 
-    // Conditional registration: only if _git-tidy isn't already defined
-    writeln!(out, "(( $+functions[_git-tidy] )) || _git-tidy \"$@\"")?;
+    // Standard zsh completion files only define the completion function and let `compinit` invoke it. The previous `(( $+functions[_git-tidy] )) || _git-tidy "$@"` line both inverted the intent ("call it if NOT defined" — but it was just defined) and invoked the function at source-time with whatever args the user happened to source the file with. Remove it.
 
     Ok(())
+}
+
+/// Escape a string for use inside a zsh `_arguments` spec description `[...]`. The spec syntax treats `]`, `:`, `\`, single quotes, and the dollar sign as special; an unescaped `]` ends the description early, an unescaped `:` introduces an argument expression. Without this every clap help line containing parens, brackets, or quoted examples would produce malformed completion that errors on source.
+fn escape_zsh_help(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' | '\'' | ']' | ':' | '$' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            // Collapse newlines/tabs so the help fits on one line in the spec.
+            '\n' | '\t' => out.push(' '),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 /// Extract audit subcommand flags from the clap `Command` struct.
@@ -108,7 +124,8 @@ fn introspect_audit_flags() -> Vec<String> {
                 }
                 let long = arg.get_long().unwrap_or_default();
                 if !long.is_empty() {
-                    let help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
+                    let raw_help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
+                    let help = escape_zsh_help(&raw_help);
                     flags.push(format!("--{long}[{help}]"));
                 }
             }
@@ -193,9 +210,53 @@ mod tests {
     }
 
     #[test]
-    fn output_contains_conditional_registration() {
+    fn output_does_not_invoke_itself_at_source_time() {
+        // Regression: previously the file ended with `(( $+functions[_git-tidy] )) || _git-tidy "$@"`, which both inverted the intent and ran the completion function the moment the file was sourced. Standard compinit-driven completion files don't do this.
         let output = generated_output();
-        assert!(output.contains("$+functions[_git-tidy]"));
+        assert!(
+            !output.contains("$+functions[_git-tidy]"),
+            "should not gate on $+functions",
+        );
+        assert!(
+            !output.contains("_git-tidy \"$@\""),
+            "should not invoke _git-tidy at source time",
+        );
+    }
+
+    #[test]
+    fn audit_help_with_metacharacters_is_escaped() {
+        // Regression: the audit `--tools` help contains a comma-separated, quoted example. Previously the raw help (including any future `:` or `]` characters) was dropped into a zsh `_arguments` spec verbatim, producing malformed completion strings the first time someone added a colon or bracket to help text. Locking in that escape_zsh_help is actually invoked on the help.
+        let flags = introspect_audit_flags();
+        let tools = flags
+            .iter()
+            .find(|f| f.starts_with("--tools["))
+            .expect("--tools flag must exist");
+        // Sanity check: the helper does not let any unescaped `]` reach output (apart from the terminating bracket).
+        let inner = tools
+            .strip_prefix("--tools[")
+            .and_then(|s| s.strip_suffix(']'))
+            .expect("--tools spec must be [..]-delimited");
+        assert!(
+            !inner.contains(']') || inner.contains("\\]"),
+            "any `]` inside the bracket must be backslash-escaped, got {inner:?}",
+        );
+    }
+
+    #[test]
+    fn escape_zsh_help_escapes_special_chars() {
+        let escaped = escape_zsh_help("describe ]: 'quoted' \\backslash $env");
+        assert!(escaped.contains("\\]"));
+        assert!(escaped.contains("\\:"));
+        assert!(escaped.contains("\\'"));
+        assert!(escaped.contains("\\\\"));
+        assert!(escaped.contains("\\$"));
+    }
+
+    #[test]
+    fn escape_zsh_help_collapses_newlines() {
+        let escaped = escape_zsh_help("line1\nline2\ttabbed");
+        assert!(!escaped.contains('\n'));
+        assert!(!escaped.contains('\t'));
     }
 
     #[test]
