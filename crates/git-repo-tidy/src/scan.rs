@@ -35,7 +35,7 @@ pub fn disk_usage(path: &Path) -> u64 {
     }
 }
 
-/// Classify a single repository.
+/// Classify a single repository. Returns the classified info plus any non-fatal warnings encountered.
 pub fn classify_repo(
     git: &dyn GitOps,
     repo_path: &Path,
@@ -43,7 +43,8 @@ pub fn classify_repo(
     noise_patterns: &[String],
     offline: bool,
     du_fn: &dyn Fn(&Path) -> u64,
-) -> RepoInfo {
+) -> (RepoInfo, Vec<String>) {
+    let mut warnings = Vec::new();
     let name = repo_display_name(repo_path);
 
     // Last commit date and age
@@ -63,17 +64,29 @@ pub fn classify_repo(
         .map(|b| b.len())
         .unwrap_or(0);
 
-    // Remote detection and reachability
-    let remotes = git.list_remotes(repo_path).unwrap_or_default();
-    let has_remote = !remotes.is_empty();
+    // Remote detection. Fail closed: if we cannot read the remote list, assume the repo has one and is reachable so it is not classified as Orphaned and rm -rf'd.
+    let (remotes, remotes_readable) = match git.list_remotes(repo_path) {
+        Ok(r) => (r, true),
+        Err(e) => {
+            warnings.push(format!(
+                "could not list remotes for {}: {e} (treating as having a reachable remote to avoid deletion)",
+                repo_path.display()
+            ));
+            (Vec::new(), false)
+        }
+    };
+    let has_remote = !remotes.is_empty() || !remotes_readable;
 
-    let remote_url = if has_remote {
+    let remote_url = if !remotes.is_empty() {
         git.remote_url(repo_path, &remotes[0]).ok()
     } else {
         None
     };
 
-    let any_reachable = if has_remote && !offline {
+    let any_reachable = if !remotes_readable {
+        // Cannot probe — assume reachable so classification falls through to Active/Stale, not Orphaned.
+        true
+    } else if has_remote && !offline {
         remotes
             .iter()
             .any(|r| git.ls_remote_check(repo_path, r).unwrap_or(false))
@@ -99,7 +112,7 @@ pub fn classify_repo(
         RepoClassification::Active
     };
 
-    RepoInfo {
+    let info = RepoInfo {
         path: repo_path.to_path_buf(),
         name,
         classification,
@@ -111,7 +124,8 @@ pub fn classify_repo(
         has_remote,
         is_dirty,
         dirty_file_count,
-    }
+    };
+    (info, warnings)
 }
 
 /// Scan all repos in `directory` and classify them.
@@ -204,7 +218,8 @@ pub fn run_scan_repos_with_du(
     let (mut repos, warnings) = parallel_classify(
         repo_paths,
         |repo_path| {
-            let info = classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
+            let (info, classify_warnings) =
+                classify_repo(git, repo_path, stale_days, noise_patterns, offline, du_fn);
             if verbose {
                 eprintln!(
                     "{}: {} (age={}d, remote={}, dirty={})",
@@ -216,7 +231,7 @@ pub fn run_scan_repos_with_du(
                     info.is_dirty,
                 );
             }
-            (Some(info), vec![])
+            (Some(info), classify_warnings)
         },
         "Scanning repos",
         progress,
@@ -312,7 +327,7 @@ mod tests {
             .with_ls_remote_check(&r, "origin", true)
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Active);
         assert_eq!(info.name, "my-project");
@@ -333,7 +348,7 @@ mod tests {
             .with_ls_remote_check(&r, "origin", true)
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Stale);
     }
@@ -348,7 +363,7 @@ mod tests {
             .with_list_remotes(&r, vec![])
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Orphaned);
         assert!(!info.has_remote);
@@ -366,7 +381,7 @@ mod tests {
             .with_ls_remote_check(&r, "origin", false)
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Orphaned);
         assert!(info.has_remote); // has remote config, just not reachable
@@ -387,7 +402,7 @@ mod tests {
             .with_ls_remote_check(&r, "origin", true)
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Stale);
         assert!(info.is_dirty);
@@ -404,7 +419,7 @@ mod tests {
             .with_list_remotes(&r, vec![])
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Orphaned);
         assert!(info.is_dirty);
@@ -423,7 +438,7 @@ mod tests {
             .with_ls_remote_check(&r, "origin", true)
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Active);
         assert!(info.is_dirty);
@@ -442,7 +457,7 @@ mod tests {
             .with_remote_url(&r, "origin", "https://github.com/user/repo.git")
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], true, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], true, &no_du);
 
         assert_eq!(info.classification, RepoClassification::Active);
     }
@@ -459,7 +474,7 @@ mod tests {
             .with_ls_remote_check(&r, "origin", true)
             .build();
 
-        let info = classify_repo(&git, &r, 180, &[], false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
 
         // Empty repo with reachable remote -> active (newly cloned)
         assert_eq!(info.classification, RepoClassification::Active);
@@ -479,7 +494,7 @@ mod tests {
             .build();
 
         let du = fixed_du(142 * 1024 * 1024);
-        let info = classify_repo(&git, &r, 180, &[], false, &du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &[], false, &du);
 
         assert_eq!(info.disk_usage_bytes, 142 * 1024 * 1024);
     }
@@ -570,10 +585,35 @@ mod tests {
             .build();
 
         let noise = vec![".DS_Store".to_string()];
-        let info = classify_repo(&git, &r, 180, &noise, false, &no_du);
+        let (info, _warnings) = classify_repo(&git, &r, 180, &noise, false, &no_du);
 
         // .DS_Store is noise, so not dirty
         assert!(!info.is_dirty);
         assert_eq!(info.dirty_file_count, 0);
+    }
+
+    #[test]
+    fn classify_list_remotes_error_does_not_classify_as_orphaned() {
+        // Regression: `list_remotes().unwrap_or_default()` previously made an unreadable .git/config look like "no remotes" → Orphaned → eligible for rm -rf with --all -y -f. Failing closed: classify as Active and surface a warning.
+        let r = repo();
+        let git = MockGitBuilder::new()
+            .with_last_commit_date(&r, Some(&today_iso()))
+            .with_local_branches(&r, vec!["main".to_string()])
+            .with_list_remotes_error(&r, "config unreadable")
+            .build();
+
+        let (info, warnings) = classify_repo(&git, &r, 180, &[], false, &no_du);
+
+        assert_ne!(
+            info.classification,
+            RepoClassification::Orphaned,
+            "repo with unreadable remote config must not be classified Orphaned",
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("list remotes") && w.contains("config unreadable")),
+            "expected warning, got: {warnings:?}",
+        );
     }
 }

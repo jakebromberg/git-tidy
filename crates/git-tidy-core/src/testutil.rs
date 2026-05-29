@@ -25,6 +25,10 @@ pub struct MockGitBuilder {
     worktree_branch: HashMap<PathBuf, Option<String>>,
     rev_parse: HashMap<(PathBuf, String), String>,
     is_branch_checked_out: HashMap<(PathBuf, String), bool>,
+    is_branch_checked_out_errors: HashMap<(PathBuf, String), String>,
+    current_branch_errors: HashMap<PathBuf, String>,
+    list_remotes_errors: HashMap<PathBuf, String>,
+    list_remote_tracking_refs_errors: HashMap<PathBuf, String>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
     fetch_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     remove_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
@@ -182,6 +186,35 @@ impl MockGitBuilder {
     ) -> Self {
         self.is_branch_checked_out
             .insert((repo.to_path_buf(), branch.to_string()), checked_out);
+        self
+    }
+
+    pub fn with_is_branch_checked_out_error(
+        mut self,
+        repo: &Path,
+        branch: &str,
+        error: &str,
+    ) -> Self {
+        self.is_branch_checked_out_errors
+            .insert((repo.to_path_buf(), branch.to_string()), error.to_string());
+        self
+    }
+
+    pub fn with_current_branch_error(mut self, repo: &Path, error: &str) -> Self {
+        self.current_branch_errors
+            .insert(repo.to_path_buf(), error.to_string());
+        self
+    }
+
+    pub fn with_list_remotes_error(mut self, repo: &Path, error: &str) -> Self {
+        self.list_remotes_errors
+            .insert(repo.to_path_buf(), error.to_string());
+        self
+    }
+
+    pub fn with_list_remote_tracking_refs_error(mut self, repo: &Path, error: &str) -> Self {
+        self.list_remote_tracking_refs_errors
+            .insert(repo.to_path_buf(), error.to_string());
         self
     }
 
@@ -533,6 +566,10 @@ impl MockGitBuilder {
             worktree_branch: self.worktree_branch,
             rev_parse: self.rev_parse,
             is_branch_checked_out: self.is_branch_checked_out,
+            is_branch_checked_out_errors: self.is_branch_checked_out_errors,
+            current_branch_errors: self.current_branch_errors,
+            list_remotes_errors: self.list_remotes_errors,
+            list_remote_tracking_refs_errors: self.list_remote_tracking_refs_errors,
             log_file_history: self.log_file_history,
             fetch_prune_calls: self.fetch_prune_calls,
             remove_calls: self.remove_calls,
@@ -606,6 +643,10 @@ pub struct MockGit {
     worktree_branch: HashMap<PathBuf, Option<String>>,
     rev_parse: HashMap<(PathBuf, String), String>,
     is_branch_checked_out: HashMap<(PathBuf, String), bool>,
+    is_branch_checked_out_errors: HashMap<(PathBuf, String), String>,
+    current_branch_errors: HashMap<PathBuf, String>,
+    list_remotes_errors: HashMap<PathBuf, String>,
+    list_remote_tracking_refs_errors: HashMap<PathBuf, String>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
     fetch_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     remove_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
@@ -939,10 +980,14 @@ impl GitOps for MockGit {
     }
 
     fn is_branch_checked_out(&self, repo: &Path, branch: &str) -> GitResult<bool> {
-        Ok(*self
-            .is_branch_checked_out
-            .get(&(repo.to_path_buf(), branch.to_string()))
-            .unwrap_or(&false))
+        let key = (repo.to_path_buf(), branch.to_string());
+        if let Some(err) = self.is_branch_checked_out_errors.get(&key) {
+            return Err(Error::GitCommand {
+                command: format!("worktree list (looking for {branch})"),
+                message: err.clone(),
+            });
+        }
+        Ok(*self.is_branch_checked_out.get(&key).unwrap_or(&false))
     }
 
     fn log_file_history(
@@ -984,6 +1029,12 @@ impl GitOps for MockGit {
     }
 
     fn current_branch(&self, repo: &Path) -> GitResult<Option<String>> {
+        if let Some(err) = self.current_branch_errors.get(&repo.to_path_buf()) {
+            return Err(Error::GitCommand {
+                command: "symbolic-ref HEAD".to_string(),
+                message: err.clone(),
+            });
+        }
         Ok(self
             .current_branch
             .get(&repo.to_path_buf())
@@ -1021,6 +1072,12 @@ impl GitOps for MockGit {
     // --- Remote operations ---
 
     fn list_remotes(&self, repo: &Path) -> GitResult<Vec<String>> {
+        if let Some(err) = self.list_remotes_errors.get(&repo.to_path_buf()) {
+            return Err(Error::GitCommand {
+                command: "remote".to_string(),
+                message: err.clone(),
+            });
+        }
         Ok(self
             .list_remotes
             .get(&repo.to_path_buf())
@@ -1064,6 +1121,15 @@ impl GitOps for MockGit {
     }
 
     fn list_remote_tracking_refs(&self, repo: &Path) -> GitResult<Vec<(String, String)>> {
+        if let Some(err) = self
+            .list_remote_tracking_refs_errors
+            .get(&repo.to_path_buf())
+        {
+            return Err(Error::GitCommand {
+                command: "for-each-ref refs/remotes/".to_string(),
+                message: err.clone(),
+            });
+        }
         Ok(self
             .remote_tracking_refs
             .get(&repo.to_path_buf())
