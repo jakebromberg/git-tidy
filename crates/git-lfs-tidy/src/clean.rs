@@ -32,13 +32,15 @@ pub struct CleanResult {
     pub recommendations: Vec<String>,
 }
 
-/// A repo whose LFS objects were successfully pruned.
+/// A repo whose LFS objects were successfully pruned (or would have been, in dry-run).
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct PrunedRepo {
     pub repo: PathBuf,
     pub objects_pruned: usize,
     pub bytes_freed: u64,
+    /// True for dry-run entries — nothing was actually freed. Downstream JSON consumers can filter on this to distinguish a preview from a real prune.
+    pub dry_run: bool,
 }
 
 /// A repo whose LFS prune failed.
@@ -88,6 +90,7 @@ pub fn run_clean(
                             repo: group.repo_path.clone(),
                             objects_pruned: count,
                             bytes_freed: bytes,
+                            dry_run: true,
                         });
                     } else {
                         match git.lfs_prune(&group.repo_path) {
@@ -103,6 +106,7 @@ pub fn run_clean(
                                     repo: group.repo_path.clone(),
                                     objects_pruned: count,
                                     bytes_freed: bytes,
+                                    dry_run: false,
                                 });
                             }
                             Err(e) => {
@@ -248,9 +252,37 @@ mod tests {
 
         assert_eq!(result.pruned.len(), 1);
         assert_eq!(git.lfs_prune_calls().len(), 0);
+        // Regression: dry-run entries must be distinguishable from real prunes so downstream JSON consumers can filter them out.
+        assert!(
+            result.pruned[0].dry_run,
+            "dry-run PrunedRepo must have dry_run=true",
+        );
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("would prune"));
+    }
+
+    #[test]
+    fn clean_real_prune_marks_dry_run_false() {
+        let git = MockGitBuilder::new().with_lfs_installed(true).build();
+        let scan = make_scan_result(vec![LfsInfo {
+            repo_path: repo(),
+            path: "<3 orphaned LFS objects>".to_string(),
+            classification: LfsClassification::Orphaned,
+            oid: String::new(),
+            size_bytes: Some(2_500_000),
+        }]);
+        let mut buf = Vec::new();
+        let options = CleanOptions {
+            dry_run: false,
+            prune: true,
+            ..default_options()
+        };
+
+        let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
+        assert_eq!(result.pruned.len(), 1);
+        assert!(!result.pruned[0].dry_run);
+        assert_eq!(git.lfs_prune_calls().len(), 1);
     }
 
     #[test]

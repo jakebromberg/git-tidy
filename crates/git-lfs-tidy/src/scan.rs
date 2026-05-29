@@ -29,6 +29,11 @@ pub fn parse_size(s: &str) -> Option<u64> {
 
     let num: f64 = num_str.parse().ok()?;
 
+    // Reject negative and non-finite inputs explicitly. Without this check `--size-threshold -1MB` would compute `-1_000_000.0 as u64 = 0`, silently meaning "flag every blob".
+    if !num.is_finite() || num < 0.0 {
+        return None;
+    }
+
     let multiplier: f64 = match suffix.as_str() {
         "" | "B" => 1.0,
         "K" | "KB" => 1_000.0,
@@ -38,7 +43,12 @@ pub fn parse_size(s: &str) -> Option<u64> {
         _ => return None,
     };
 
-    Some((num * multiplier) as u64)
+    let bytes = num * multiplier;
+    // Reject overflow rather than silently saturating to u64::MAX, so a typo like `99999999999999999999TB` fails parsing instead of pretending to be valid.
+    if !bytes.is_finite() || bytes > u64::MAX as f64 {
+        return None;
+    }
+    Some(bytes as u64)
 }
 
 /// Scan all repos in `directory` for LFS health issues.
@@ -272,6 +282,22 @@ mod tests {
         assert_eq!(parse_size(""), None);
         assert_eq!(parse_size("abc"), None);
         assert_eq!(parse_size("1XB"), None);
+    }
+
+    #[test]
+    fn parse_size_rejects_negative() {
+        // Regression: `--size-threshold -1MB` previously parsed as `-1_000_000.0 as u64 = 0`, silently meaning "flag every blob". Negatives must be rejected so the CLI surfaces an error.
+        assert_eq!(parse_size("-1"), None);
+        assert_eq!(parse_size("-1MB"), None);
+        assert_eq!(parse_size("-0.5GB"), None);
+    }
+
+    #[test]
+    fn parse_size_rejects_overflow() {
+        // Regression: huge values like "9e30 TB" would previously cast to u64 and saturate to u64::MAX without telling the user. Reject so a typo cannot masquerade as a sane threshold.
+        assert!(parse_size("99999999999999999999TB").is_none());
+        // f64 NaN/inf paths via large mantissa-exponent combinations:
+        assert!(parse_size("1e300TB").is_none());
     }
 
     // --- run_scan tests ---
