@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use git_tidy_core::progress::Progress;
 
@@ -36,6 +36,8 @@ impl ToolRunner for RealToolRunner {
         verbose: bool,
     ) -> Result<String, String> {
         let mut cmd = Command::new(path);
+        // Close stdin so a child that ever decides to read from it (a prompt, a future feature) cannot deadlock waiting on input. The audit runs N tools in parallel sharing the parent's tty — without this, one accidental read could hang the entire audit.
+        cmd.stdin(Stdio::null());
         if verbose {
             cmd.arg("--verbose");
         }

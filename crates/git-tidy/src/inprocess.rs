@@ -82,7 +82,16 @@ pub fn run_audit_inprocess(
         })
         .collect();
 
-    let tools_found: Vec<String> = specs.iter().map(|s| s.binary.to_string()).collect();
+    // Mode parity with subprocess: check whether each tool's binary exists on $PATH and populate tools_found/tools_missing identically. In inprocess mode the scan is called as a library function so the binary doesn't strictly need to exist, but the AuditResult schema is shared with subprocess mode — without parity, downstream consumers see different shapes depending on which mode produced the output.
+    let mut tools_found: Vec<String> = Vec::new();
+    let mut tools_missing: Vec<String> = Vec::new();
+    for spec in &specs {
+        if which::which(spec.binary).is_ok() {
+            tools_found.push(spec.binary.to_string());
+        } else {
+            tools_missing.push(spec.binary.to_string());
+        }
+    }
 
     // Create per-tool spinners under a MultiProgress container.
     let mp = progress.multi();
@@ -137,7 +146,27 @@ pub fn run_audit_inprocess(
             })
             .collect();
 
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
+        // Panic isolation: if a single tool scan panics, synthesize an error ToolResult for it rather than crashing the entire audit. The other tools' results are still useful, and the user can see exactly which tool failed.
+        handles
+            .into_iter()
+            .enumerate()
+            .map(|(idx, h)| match h.join() {
+                Ok(r) => r,
+                Err(panic) => {
+                    let msg = panic_message(&panic);
+                    (
+                        idx,
+                        ToolResult {
+                            name: specs[idx].binary.to_string(),
+                            item_noun: specs[idx].item_noun.to_string(),
+                            total: 0,
+                            counts: std::collections::BTreeMap::new(),
+                            error: Some(format!("panicked: {msg}")),
+                        },
+                    )
+                }
+            })
+            .collect()
     });
 
     // Restore original TOOL_SPECS ordering.
@@ -147,8 +176,19 @@ pub fn run_audit_inprocess(
     AuditResult {
         directory: directory.to_path_buf(),
         tools_found,
-        tools_missing: vec![],
+        tools_missing,
         results,
+    }
+}
+
+/// Best-effort extraction of a panic message from `JoinHandle::join`'s `Box<dyn Any + Send>` payload.
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "non-string panic payload".to_string()
     }
 }
 
