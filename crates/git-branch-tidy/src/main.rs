@@ -73,7 +73,6 @@ fn main() {
         Some(cli::Command::Clean {
             dry_run,
             force,
-            yes,
             strict,
             all,
             include_remote,
@@ -95,7 +94,6 @@ fn main() {
                     let options = clean::CleanOptions {
                         dry_run: *dry_run,
                         force: *force,
-                        yes: *yes,
                         strict: *strict,
                         all: *all,
                         include_remote: *include_remote,

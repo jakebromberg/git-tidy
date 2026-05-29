@@ -11,9 +11,6 @@ pub struct CleanOptions {
     pub dry_run: bool,
     /// Remove worktrees with meaningful uncommitted changes.
     pub force: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Only target structurally-proven landed worktrees.
     pub strict: bool,
     /// Include active and local worktrees in the clean flow.
@@ -279,7 +276,6 @@ mod tests {
         CleanOptions {
             dry_run: false,
             force: false,
-            yes: false,
             strict: false,
             all: false,
             delete_branches: false,

@@ -68,7 +68,6 @@ fn main() {
         }
         Some(cli::Command::Clean {
             dry_run,
-            yes,
             force,
             all,
             ..
@@ -84,7 +83,6 @@ fn main() {
             Ok(scan_result) => {
                 let options = clean::CleanOptions {
                     dry_run: *dry_run,
-                    yes: *yes,
                     force: *force,
                     all: *all,
                 };

@@ -61,7 +61,6 @@ fn clean_dry_run_with_untracked_blobs() {
 
     let options = CleanOptions {
         dry_run: true,
-        yes: false,
         prune: true,
     };
 
@@ -98,7 +97,6 @@ fn clean_with_no_orphaned_is_noop() {
 
     let options = CleanOptions {
         dry_run: false,
-        yes: true,
         prune: true,
     };
 

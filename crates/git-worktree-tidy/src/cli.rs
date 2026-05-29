@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "git-worktree-tidy",
-    about = "Scan, classify, and interactively remove stale Git worktrees"
+    about = "Scan, classify, and remove stale Git worktrees"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -64,7 +64,7 @@ pub enum Command {
     #[command(flatten)]
     Shared(git_tidy_core::cli::SharedCommands),
 
-    /// Scan and interactively remove stale worktrees
+    /// Scan and remove stale worktrees
     Clean {
         /// Show what would be removed without removing
         #[arg(short = 'n', long)]
@@ -74,15 +74,11 @@ pub enum Command {
         #[arg(short, long)]
         force: bool,
 
-        /// Skip confirmation prompts (accept all defaults)
-        #[arg(short = 'y', long)]
-        yes: bool,
-
         /// Only target structurally-proven landed worktrees
         #[arg(long)]
         strict: bool,
 
-        /// Include active and local worktrees in the interactive clean flow
+        /// Include active and local worktrees in the clean flow
         #[arg(long)]
         all: bool,
 
@@ -133,7 +129,6 @@ mod tests {
             "clean",
             "--dry-run",
             "--force",
-            "--yes",
             "--strict",
             "--delete-branches",
         ]);
@@ -141,14 +136,12 @@ mod tests {
             Some(Command::Clean {
                 dry_run,
                 force,
-                yes,
                 strict,
                 delete_branches,
                 ..
             }) => {
                 assert!(dry_run);
                 assert!(force);
-                assert!(yes);
                 assert!(strict);
                 assert!(delete_branches);
             }

@@ -49,7 +49,7 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 All tools follow a similar CLI shape:
 - **Global args**: `directory` (positional, default cwd), plus tool-specific thresholds
 - **Scan subcommand** (default): `--json`, `--porcelain`
-- **Clean subcommand**: `--dry-run` / `-n`, `--yes` / `-y`, classification filters, `--all`, `--json`, `--porcelain`
+- **Clean subcommand**: `--dry-run` / `-n`, classification filters, `--all`, `--json`, `--porcelain`. Clean runs non-interactively; there is no confirmation prompt.
 - Worktree-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`, `--match` (repeatable substring filter on worktree basenames, OR semantics, case-insensitive)
 - Branch-tidy global args: `--behind-threshold` (default 100), `--verbose` / `-v`
 - Stash-tidy global arg: `--age-threshold` (default 90) instead of `--behind-threshold`/`--verbose`

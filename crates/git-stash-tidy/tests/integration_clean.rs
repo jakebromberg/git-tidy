@@ -56,7 +56,6 @@ fn clean_drops_stash_in_real_repo() {
 
     let options = git_stash_tidy::clean::CleanOptions {
         dry_run: false,
-        yes: true,
         committed_only: false,
         aged_only: false,
         all: false,
@@ -100,7 +99,6 @@ fn clean_dry_run_does_not_drop() {
 
     let options = git_stash_tidy::clean::CleanOptions {
         dry_run: true,
-        yes: true,
         committed_only: false,
         aged_only: false,
         all: false,

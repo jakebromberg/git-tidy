@@ -56,15 +56,11 @@ pub enum Command {
     #[command(flatten)]
     Shared(git_tidy_core::cli::SharedCommands),
 
-    /// Scan and interactively remove stale tags
+    /// Scan and remove stale tags
     Clean {
         /// Show what would be removed without removing
         #[arg(short = 'n', long)]
         dry_run: bool,
-
-        /// Skip confirmation prompts
-        #[arg(short = 'y', long)]
-        yes: bool,
 
         /// Allow deleting synced tags and bypass release tag warnings
         #[arg(short = 'f', long)]
@@ -137,16 +133,10 @@ mod tests {
 
     #[test]
     fn clean_with_flags() {
-        let cli = Cli::parse_from(["git-tag-tidy", "clean", "--dry-run", "--yes", "--force"]);
+        let cli = Cli::parse_from(["git-tag-tidy", "clean", "--dry-run", "--force"]);
         match cli.command {
-            Some(Command::Clean {
-                dry_run,
-                yes,
-                force,
-                ..
-            }) => {
+            Some(Command::Clean { dry_run, force, .. }) => {
                 assert!(dry_run);
-                assert!(yes);
                 assert!(force);
             }
             _ => panic!("expected Clean command"),

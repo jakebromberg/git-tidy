@@ -11,9 +11,6 @@ use crate::types::{StashClassification, StashScanResult};
 pub struct CleanOptions {
     /// Preview only: print what would be dropped.
     pub dry_run: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
     /// Only target committed stashes.
     pub committed_only: bool,
     /// Only target aged stashes.
@@ -171,7 +168,6 @@ mod tests {
     fn default_options() -> CleanOptions {
         CleanOptions {
             dry_run: false,
-            yes: false,
             committed_only: false,
             aged_only: false,
             all: false,

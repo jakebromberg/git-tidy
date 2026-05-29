@@ -11,9 +11,6 @@ use crate::types::{ConfigLintResult, IssueKind};
 pub struct FixOptions {
     /// Preview only: print what would be fixed.
     pub dry_run: bool,
-    /// Skip confirmation prompts.
-    #[allow(dead_code)]
-    pub yes: bool,
 }
 
 /// A config issue that was successfully fixed.
@@ -174,10 +171,7 @@ mod tests {
     }
 
     fn default_options() -> FixOptions {
-        FixOptions {
-            dry_run: false,
-            yes: false,
-        }
+        FixOptions { dry_run: false }
     }
 
     #[test]
@@ -218,10 +212,7 @@ mod tests {
         let git = MockGitBuilder::new().build();
         let lint = make_lint_result(vec![orphaned_issue("stale-branch")]);
         let mut buf = Vec::new();
-        let options = FixOptions {
-            dry_run: true,
-            yes: false,
-        };
+        let options = FixOptions { dry_run: true };
 
         let result = run_fix(&git, &lint, &options, &mut buf).unwrap();
 

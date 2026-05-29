@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "git-branch-tidy",
-    about = "Scan, classify, and interactively remove stale local Git branches"
+    about = "Scan, classify, and remove stale local Git branches"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -60,7 +60,7 @@ pub enum Command {
     #[command(flatten)]
     Shared(git_tidy_core::cli::SharedCommands),
 
-    /// Scan and interactively remove stale local branches
+    /// Scan and remove stale local branches
     Clean {
         /// Show what would be removed without removing
         #[arg(short = 'n', long)]
@@ -70,15 +70,11 @@ pub enum Command {
         #[arg(short, long)]
         force: bool,
 
-        /// Skip confirmation prompts (accept all defaults)
-        #[arg(short = 'y', long)]
-        yes: bool,
-
         /// Only target structurally-proven landed branches
         #[arg(long)]
         strict: bool,
 
-        /// Include active and local branches in the interactive clean flow
+        /// Include active and local branches in the clean flow
         #[arg(long)]
         all: bool,
 
@@ -129,7 +125,6 @@ mod tests {
             "clean",
             "--dry-run",
             "--force",
-            "--yes",
             "--strict",
             "--include-remote",
         ]);
@@ -137,14 +132,12 @@ mod tests {
             Some(Command::Clean {
                 dry_run,
                 force,
-                yes,
                 strict,
                 include_remote,
                 ..
             }) => {
                 assert!(dry_run);
                 assert!(force);
-                assert!(yes);
                 assert!(strict);
                 assert!(include_remote);
             }
