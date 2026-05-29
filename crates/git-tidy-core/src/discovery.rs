@@ -26,6 +26,7 @@ const MAX_DEPTH: usize = 5;
 /// - Linked worktrees (`.git` is a file)
 /// - Bare repos (`HEAD` file exists but no `.git` subdir)
 /// - Entries where `.git` is a symlink (avoids double-counting shared repos)
+/// - Repos whose canonical path escapes the canonical scan root (via symlinks)
 pub fn discover_repos(directory: &Path) -> Result<Vec<PathBuf>, Error> {
     if !directory.is_dir() {
         return Err(Error::DirectoryNotFound {
@@ -35,7 +36,7 @@ pub fn discover_repos(directory: &Path) -> Result<Vec<PathBuf>, Error> {
 
     let directory = directory.canonicalize().map_err(Error::Io)?;
     let mut repos = Vec::new();
-    discover_repos_recursive(&directory, 0, &mut repos);
+    discover_repos_recursive(&directory, &directory, 0, &mut repos);
 
     // Fallback: if no child repos found, check if directory itself is a repo
     if repos.is_empty() {
@@ -51,7 +52,12 @@ pub fn discover_repos(directory: &Path) -> Result<Vec<PathBuf>, Error> {
     Ok(repos)
 }
 
-fn discover_repos_recursive(directory: &Path, depth: usize, repos: &mut Vec<PathBuf>) {
+fn discover_repos_recursive(
+    directory: &Path,
+    scan_root: &Path,
+    depth: usize,
+    repos: &mut Vec<PathBuf>,
+) {
     if depth >= MAX_DEPTH {
         return;
     }
@@ -83,7 +89,7 @@ fn discover_repos_recursive(directory: &Path, depth: usize, repos: &mut Vec<Path
             Ok(m) => m,
             Err(_) => {
                 // No .git — recurse into this plain directory
-                discover_repos_recursive(&entry_path, depth + 1, repos);
+                discover_repos_recursive(&entry_path, scan_root, depth + 1, repos);
                 continue;
             }
         };
@@ -94,9 +100,18 @@ fn discover_repos_recursive(directory: &Path, depth: usize, repos: &mut Vec<Path
             continue; // .git is a file — linked worktree
         }
 
-        // Confirmed repo — canonicalize and add (do NOT recurse into repos)
-        let entry_path = entry_path.canonicalize().unwrap_or(entry_path);
-        repos.push(entry_path);
+        // Confirmed repo — canonicalize and verify it remains under the scan root.
+        // Skip entries whose canonical path escapes scan_root (via symlinks) so
+        // destructive consumers (e.g. git-repo-tidy) cannot delete repos the
+        // user did not intend to expose.
+        let canonical = match entry_path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => continue, // unreadable symlink target — skip
+        };
+        if !canonical.starts_with(scan_root) {
+            continue;
+        }
+        repos.push(canonical);
     }
 }
 
@@ -267,6 +282,80 @@ mod tests {
         let result = discover_repos(&base).unwrap();
         // Should find parent-repo but NOT recurse into it to find sub
         assert_eq!(result, vec![parent]);
+    }
+
+    #[test]
+    fn discover_repos_skips_repo_escaping_scan_root_via_symlink() {
+        // Scenario: an external repo sits outside the scan root. Inside the
+        // scan root, a subdirectory contains a symlink whose canonical target
+        // is that external repo. discover_repos must not return the external
+        // path — destructive callers must never see paths outside the root.
+        let scan_dir = tempfile::tempdir().unwrap();
+        let external_dir = tempfile::tempdir().unwrap();
+        let scan_root = scan_dir.path().canonicalize().unwrap();
+        let external_root = external_dir.path().canonicalize().unwrap();
+
+        // External repo: <external>/important-repo/.git
+        let external_repo = external_root.join("important-repo");
+        fs::create_dir_all(external_repo.join(".git")).unwrap();
+
+        // Inside scan root: <scan>/projects/ → real dir
+        // Inside projects: <scan>/projects/myrepo → symlink to external_repo
+        let projects = scan_root.join("projects");
+        fs::create_dir_all(&projects).unwrap();
+        std::os::unix::fs::symlink(&external_repo, projects.join("myrepo")).unwrap();
+
+        let result = discover_repos(&scan_root).unwrap();
+
+        for path in &result {
+            assert!(
+                path.starts_with(&scan_root),
+                "discover_repos returned path outside scan root: {} (scan root: {})",
+                path.display(),
+                scan_root.display(),
+            );
+            assert!(
+                !path.starts_with(&external_root),
+                "discover_repos returned external path: {}",
+                path.display(),
+            );
+        }
+    }
+
+    #[test]
+    fn discover_repos_keeps_repo_via_inner_symlink_within_root() {
+        // Symlinks that resolve to a location still inside the scan root are
+        // legitimate and must remain visible.
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+
+        // <base>/real/myrepo/.git
+        let real_repo = base.join("real").join("myrepo");
+        fs::create_dir_all(real_repo.join(".git")).unwrap();
+
+        // <base>/link → symlink to <base>/real (resolves within base)
+        std::os::unix::fs::symlink(base.join("real"), base.join("link")).unwrap();
+
+        let result = discover_repos(&base).unwrap();
+        // The real path of the repo must be present. The symlinked copy is
+        // either filtered (its canonical form matches the real path and
+        // dedup is not enforced) or also present — either is acceptable, but
+        // the real path is mandatory.
+        assert!(
+            result.iter().any(|p| p == &real_repo),
+            "expected to find real repo {} in {:?}",
+            real_repo.display(),
+            result,
+        );
+        // And nothing must escape base.
+        for path in &result {
+            assert!(
+                path.starts_with(&base),
+                "path {} escapes scan root {}",
+                path.display(),
+                base.display(),
+            );
+        }
     }
 
     #[test]
