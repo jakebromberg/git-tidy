@@ -126,6 +126,9 @@ impl From<&StashInfo> for JsonStash {
 /// Stash messages typically look like:
 /// - "WIP on <branch>: <hash> <subject>"
 /// - "On <branch>: <message>"
+/// - "WIP on (no branch): <hash> <subject>" (detached HEAD at stash time)
+///
+/// For detached-HEAD stashes the branch text is the literal `"(no branch)"`. We return `None` for that case so the classifier falls through to the age check rather than treating the stash as Orphaned and dropping it on `clean` — there is no branch to compare against, but the stash may still contain valuable work.
 pub fn parse_stash_branch(message: &str) -> Option<String> {
     // Try "WIP on <branch>: ..." or "On <branch>: ..."
     let rest = message
@@ -134,7 +137,7 @@ pub fn parse_stash_branch(message: &str) -> Option<String> {
 
     let branch = rest.split(':').next()?;
     let branch = branch.trim();
-    if branch.is_empty() {
+    if branch.is_empty() || branch == "(no branch)" {
         None
     } else {
         Some(branch.to_string())

@@ -19,12 +19,14 @@ use crate::types::{
 /// Classify a single stash entry.
 ///
 /// Priority logic:
-/// 1. If the branch exists and `diff_similarity(stash_diff, branch_tip_diff) >= 0.5` -> Committed
+/// 1. If the branch exists and `diff_similarity(stash_diff, branch_tip_diff) >= 0.9` -> Committed
 /// 2. If the branch doesn't exist locally -> Orphaned
 /// 3. If age >= threshold -> Aged
 /// 4. Otherwise -> Active
 ///
-/// When the branch name is unparseable, skip committed/orphaned checks; fall through to age check.
+/// When the branch name is unparseable (or the stash was created from detached HEAD), skip committed/orphaned checks and fall through to the age check — there is no safe baseline to diff against.
+///
+/// The 0.9 threshold is deliberately strict: default `clean` drops Committed stashes, so we want high confidence that the work is already on the branch tip. The previous 0.5 threshold could match half-similar diffs and drop stashes whose content was substantially different from the branch tip.
 ///
 /// Returns `(classification, age_days, branch)` to avoid recomputation by the caller.
 pub fn classify_stash(
@@ -47,7 +49,7 @@ pub fn classify_stash(
             if let Ok(stash_d) = git.stash_diff(repo, stash_ref)
                 && let Ok(tip_hash) = git.rev_parse(repo, branch_name)
                 && let Ok(tip_d) = git.diff_commit(repo, &tip_hash)
-                && diff_similarity(&stash_d, &tip_d) >= 0.5
+                && diff_similarity(&stash_d, &tip_d) >= 0.9
             {
                 return (StashClassification::Committed, age_days, branch);
             }
@@ -231,6 +233,70 @@ mod tests {
             &branches,
         );
         assert_eq!(cls, StashClassification::Committed);
+    }
+
+    #[test]
+    fn classify_half_similar_stash_is_not_committed() {
+        // Regression: the previous 0.5 threshold flagged half-matching diffs as Committed, so the default `clean` would drop a stash whose work was only partly on the branch tip.
+        let stash_diff = "+aaa\n+bbb\n+ccc\n+ddd\n+eee\n+fff\n";
+        let tip_diff = "+aaa\n+bbb\n+ccc\n+xxx\n+yyy\n+zzz\n"; // ~50% overlap
+        let git = MockGitBuilder::new()
+            .with_stash_diff(&repo(), "stash@{0}", stash_diff)
+            .with_rev_parse(&repo(), "feature", "abc123")
+            .with_diff_commit(&repo(), "abc123", tip_diff)
+            .build();
+
+        let branches = vec!["feature".to_string()];
+        let (cls, _, _) = classify_stash(
+            &git,
+            &repo(),
+            "stash@{0}",
+            "WIP on feature: abc1234 Half-done refactor",
+            "2025-01-01T12:00:00+00:00",
+            90,
+            &branches,
+        );
+        assert_ne!(
+            cls,
+            StashClassification::Committed,
+            "a half-similar diff must NOT be classified Committed under the 0.9 threshold",
+        );
+    }
+
+    #[test]
+    fn classify_detached_head_stash_is_not_orphaned() {
+        // Regression: previously `WIP on (no branch): ...` parsed as branch `"(no branch)"`, which fails the local-branch check and was classified Orphaned → dropped by default `clean`. A detached-HEAD stash may still contain valuable work; fall through to age/active instead.
+        let git = MockGitBuilder::new().build();
+        let branches = vec!["main".to_string()];
+
+        // Use today's date so it is not aged.
+        let now = {
+            use std::time::SystemTime;
+            let secs = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let days = secs / 86400;
+            format!(
+                "{}T12:00:00+00:00",
+                format_date_from_epoch_days(days as i64)
+            )
+        };
+
+        let (cls, _, branch) = classify_stash(
+            &git,
+            &repo(),
+            "stash@{0}",
+            "WIP on (no branch): abc1234 detached work",
+            &now,
+            90,
+            &branches,
+        );
+        assert_eq!(cls, StashClassification::Active);
+        assert!(
+            branch.is_none(),
+            "detached-HEAD branch must parse as None, got {branch:?}",
+        );
     }
 
     #[test]
