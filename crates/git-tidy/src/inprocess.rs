@@ -72,8 +72,13 @@ pub fn run_audit_inprocess(
     // Discover repos once and share across all tools.
     let repo_paths = discovery::discover_repos(directory).unwrap_or_default();
 
-    // Collect tools to run.
-    let specs: Vec<_> = TOOL_SPECS
+    // Collect tools whose filter matches, then partition by binary presence on
+    // $PATH so the AuditResult shape matches subprocess mode end-to-end:
+    // tools_missing names tools we did not run, and `results` excludes them.
+    // Without this skip, downstream consumers seeing "git-foo" in
+    // tools_missing would still find a `results` entry for it in inprocess
+    // mode but not in subprocess mode.
+    let matched_specs: Vec<_> = TOOL_SPECS
         .iter()
         .filter(|spec| {
             tool_filter
@@ -82,12 +87,13 @@ pub fn run_audit_inprocess(
         })
         .collect();
 
-    // Mode parity with subprocess: check whether each tool's binary exists on $PATH and populate tools_found/tools_missing identically. In inprocess mode the scan is called as a library function so the binary doesn't strictly need to exist, but the AuditResult schema is shared with subprocess mode — without parity, downstream consumers see different shapes depending on which mode produced the output.
+    let mut specs: Vec<&ToolSpec> = Vec::new();
     let mut tools_found: Vec<String> = Vec::new();
     let mut tools_missing: Vec<String> = Vec::new();
-    for spec in &specs {
+    for spec in matched_specs {
         if which::which(spec.binary).is_ok() {
             tools_found.push(spec.binary.to_string());
+            specs.push(spec);
         } else {
             tools_missing.push(spec.binary.to_string());
         }
@@ -146,21 +152,24 @@ pub fn run_audit_inprocess(
             })
             .collect();
 
-        // Panic isolation: if a single tool scan panics, synthesize an error ToolResult for it rather than crashing the entire audit. The other tools' results are still useful, and the user can see exactly which tool failed.
+        // Panic isolation: if a single tool scan panics, synthesize an error
+        // ToolResult for it rather than crashing the entire audit. The other
+        // tools' results are still useful, and the user can see exactly which
+        // tool failed.
         handles
             .into_iter()
             .enumerate()
             .map(|(idx, h)| match h.join() {
                 Ok(r) => r,
                 Err(panic) => {
-                    let msg = panic_message(&panic);
+                    let msg = panic_message(panic.as_ref());
                     (
                         idx,
                         ToolResult {
                             name: specs[idx].binary.to_string(),
                             item_noun: specs[idx].item_noun.to_string(),
                             total: 0,
-                            counts: std::collections::BTreeMap::new(),
+                            counts: BTreeMap::new(),
                             error: Some(format!("panicked: {msg}")),
                         },
                     )
@@ -181,8 +190,11 @@ pub fn run_audit_inprocess(
     }
 }
 
-/// Best-effort extraction of a panic message from `JoinHandle::join`'s `Box<dyn Any + Send>` payload.
-fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+/// Best-effort extraction of a panic message from `JoinHandle::join`'s
+/// `Box<dyn Any + Send>` payload. `panic!("literal")` produces a `&'static str`
+/// payload; `panic!(format!(...))` produces a `String`. Anything else falls
+/// back to a generic label.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(s) = payload.downcast_ref::<&'static str>() {
         (*s).to_string()
     } else if let Some(s) = payload.downcast_ref::<String>() {
@@ -639,5 +651,28 @@ mod tests {
         let result = run_tool_scan(&unknown, &mock, Path::new("/tmp"), &[], &[], false, &p);
         assert!(result.error.is_some());
         assert!(result.error.as_ref().unwrap().contains("unknown tool"));
+    }
+
+    // -- panic_message tests --
+
+    #[test]
+    fn panic_message_handles_static_str_panic() {
+        let result = std::thread::spawn(|| panic!("boom")).join();
+        let payload = result.unwrap_err();
+        assert_eq!(panic_message(payload.as_ref()), "boom");
+    }
+
+    #[test]
+    fn panic_message_handles_string_panic() {
+        let result = std::thread::spawn(|| panic!("{}", "dynamic".to_string())).join();
+        let payload = result.unwrap_err();
+        assert_eq!(panic_message(payload.as_ref()), "dynamic");
+    }
+
+    #[test]
+    fn panic_message_handles_unknown_payload() {
+        // Construct a non-string panic payload directly.
+        let payload: Box<dyn std::any::Any + Send> = Box::new(42_i32);
+        assert_eq!(panic_message(payload.as_ref()), "non-string panic payload");
     }
 }
