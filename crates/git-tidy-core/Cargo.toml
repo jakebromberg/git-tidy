@@ -10,7 +10,7 @@ testutil = ["dep:tempfile"]
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
-gix = { version = "0.79", features = ["blocking-network-client", "parallel"] }
+gix = { version = "0.84", features = ["blocking-network-client", "parallel"] }
 indicatif = "0.18"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
