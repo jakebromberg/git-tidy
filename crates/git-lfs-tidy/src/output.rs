@@ -1,13 +1,10 @@
+use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
 
-use crate::types::{JsonLfsItem, LfsInfo, LfsScanResult};
-
-const HEADER_STATUS: &str = "STATUS";
-const HEADER_PATH: &str = "PATH";
-const HEADER_SIZE: &str = "SIZE";
-const HEADER_OID: &str = "OID";
+use crate::types::{JsonLfsItem, LfsClassification, LfsInfo, LfsScanResult};
 
 /// Format bytes into a human-readable string.
 pub fn format_bytes(bytes: u64) -> String {
@@ -22,46 +19,58 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-struct ColumnWidths {
-    status: usize,
-    path: usize,
-    size: usize,
-    oid: usize,
-}
-
 fn oid_short(oid: &str) -> &str {
     if oid.len() >= 7 { &oid[..7] } else { oid }
 }
 
-fn compute_column_widths(items: &[LfsInfo]) -> ColumnWidths {
-    let mut max_status = HEADER_STATUS.len();
-    let mut max_path = HEADER_PATH.len();
-    let mut max_size = HEADER_SIZE.len();
-    let mut max_oid = HEADER_OID.len();
+impl TidyItem for LfsInfo {
+    const COLUMNS: &'static [ColumnSpec] = &[
+        ColumnSpec {
+            header: "STATUS",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "PATH",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "SIZE",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "OID",
+            align: Align::Left,
+        },
+    ];
 
-    for i in items {
-        max_status = max_status.max(i.classification.label().len());
-        max_path = max_path.max(i.path.len());
-        max_size = max_size.max(i.size_bytes.map(format_bytes).unwrap_or_default().len());
-        max_oid = max_oid.max(oid_short(&i.oid).len());
+    fn row(&self) -> Vec<Option<Cell>> {
+        // SIZE always visible: Some("") opts out of the auto-hide rule when
+        // every item has an unknown size.
+        let size_cell: Cell = match self.size_bytes {
+            Some(b) => Cow::Owned(format_bytes(b)),
+            None => Cow::Borrowed(""),
+        };
+        vec![
+            Some(Cow::Borrowed(self.classification.label())),
+            Some(Cow::Owned(self.path.clone())),
+            Some(size_cell),
+            Some(Cow::Owned(oid_short(&self.oid).to_string())),
+        ]
     }
 
-    ColumnWidths {
-        status: max_status,
-        path: max_path,
-        size: max_size,
-        oid: max_oid,
+    fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+        // Porcelain SIZE is raw u64 bytes (not human-formatted), and OID is
+        // the full hash (not shortened). These differ from the human row on
+        // purpose so downstream tooling sees stable, parseable values.
+        let size = self.size_bytes.map(|b| b.to_string()).unwrap_or_default();
+        vec![
+            Cow::Owned(self.repo_path.display().to_string()),
+            Cow::Owned(self.path.clone()),
+            Cow::Borrowed(self.classification.label()),
+            Cow::Owned(self.oid.clone()),
+            Cow::Owned(size),
+        ]
     }
-}
-
-fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
-    let sw = widths.status;
-    let pw = widths.path;
-    let szw = widths.size;
-    let line =
-        format!("  {HEADER_STATUS:<sw$} {HEADER_PATH:<pw$} {HEADER_SIZE:<szw$} {HEADER_OID}");
-    let trimmed = line.trim_end();
-    writeln!(out, "{trimmed}")
 }
 
 /// Write human-readable scan output.
@@ -80,31 +89,16 @@ pub fn write_human(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Resu
             writeln!(out, "  LFS patterns: {}", group.track_patterns.join(", "))?;
         }
 
-        let widths = compute_column_widths(&group.items);
-        write_header(out, &widths)?;
+        shared::format_table(out, &group.items)?;
 
-        for item in &group.items {
-            let label = item.classification.label();
-            let size = item.size_bytes.map(format_bytes).unwrap_or_default();
-            let oid_s = oid_short(&item.oid);
-
-            let sw = widths.status;
-            let pw = widths.path;
-            let szw = widths.size;
-            let line = format!("  {label:<sw$} {:<pw$} {size:<szw$} {oid_s}", item.path);
-            let trimmed = line.trim_end();
-            writeln!(out, "{trimmed}")?;
-        }
-
-        // Hints for actionable items
         let has_untracked = group
             .items
             .iter()
-            .any(|i| i.classification == crate::types::LfsClassification::Untracked);
+            .any(|i| i.classification == LfsClassification::Untracked);
         let has_missing = group
             .items
             .iter()
-            .any(|i| i.classification == crate::types::LfsClassification::Missing);
+            .any(|i| i.classification == LfsClassification::Missing);
 
         if has_untracked {
             writeln!(
@@ -151,18 +145,7 @@ pub fn write_json(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Resul
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        for item in &group.items {
-            let repo = item.repo_path.display();
-            let size = item.size_bytes.map(|b| b.to_string()).unwrap_or_default();
-
-            writeln!(
-                out,
-                "{repo}\t{}\t{}\t{}\t{size}",
-                item.path,
-                item.classification.label(),
-                item.oid,
-            )?;
-        }
+        shared::format_porcelain(out, &group.items)?;
     }
     Ok(())
 }
@@ -320,6 +303,39 @@ mod tests {
         assert!(output.contains("test (1 item)"));
     }
 
+    #[test]
+    fn human_output_size_column_visible_when_all_sizes_none() {
+        // The SIZE column must render even when every row has size_bytes = None,
+        // because LfsInfo::row() returns Some(Cow::Borrowed("")) — opting out of
+        // format_table's auto-hide rule for all-None columns.
+        let result = LfsScanResult {
+            repos: vec![LfsRepoGroup {
+                repo_path: PathBuf::from("/repos/r"),
+                name: "r".to_string(),
+                items: vec![LfsInfo {
+                    repo_path: PathBuf::from("/repos/r"),
+                    path: "a.bin".to_string(),
+                    classification: LfsClassification::Missing,
+                    oid: "1234567abc".to_string(),
+                    size_bytes: None,
+                }],
+                lfs_available: true,
+                track_patterns: vec![],
+            }],
+            total_scanned: 1,
+            counts: LfsCounts {
+                missing: 1,
+                ..Default::default()
+            },
+            warnings: vec![],
+            lfs_installed: true,
+        };
+        let mut buf = Vec::new();
+        write_human(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("SIZE"), "SIZE header missing: {output}");
+    }
+
     // --- write_json tests ---
 
     #[test]
@@ -357,5 +373,73 @@ mod tests {
         assert_eq!(fields[2], "untracked");
         assert_eq!(fields[3], "abc1234def5678");
         assert_eq!(fields[4], "52400000");
+    }
+
+    // --- TidyItem data-shape tests ---
+
+    fn lfs_info(
+        path: &str,
+        classification: LfsClassification,
+        oid: &str,
+        size_bytes: Option<u64>,
+    ) -> LfsInfo {
+        LfsInfo {
+            repo_path: PathBuf::from("/repos/backend"),
+            path: path.to_string(),
+            classification,
+            oid: oid.to_string(),
+            size_bytes,
+        }
+    }
+
+    #[test]
+    fn tidyitem_row_shape_lfs() {
+        let row = lfs_info(
+            "video.mp4",
+            LfsClassification::Untracked,
+            "abc1234def5678",
+            Some(52_400_000),
+        )
+        .row();
+        assert_eq!(row.len(), 4);
+        assert!(row.iter().all(|c| c.is_some()));
+        assert_eq!(row[0].as_deref(), Some("untracked"));
+        assert_eq!(row[1].as_deref(), Some("video.mp4"));
+        assert_eq!(row[2].as_deref(), Some("52.4 MB"));
+        assert_eq!(row[3].as_deref(), Some("abc1234"));
+    }
+
+    #[test]
+    fn tidyitem_row_size_none_renders_empty_some_not_none() {
+        // SIZE must stay visible even when size_bytes is None — implemented by
+        // returning Some(Cow::Borrowed("")) rather than None.
+        let row = lfs_info("a.bin", LfsClassification::Missing, "abc1234", None).row();
+        assert_eq!(row[2].as_deref(), Some(""));
+    }
+
+    #[test]
+    fn tidyitem_porcelain_lfs_raw_bytes_and_full_oid() {
+        let fields = lfs_info(
+            "video.mp4",
+            LfsClassification::Untracked,
+            "abc1234def5678",
+            Some(52_400_000),
+        )
+        .porcelain_fields();
+        assert_eq!(fields.len(), 5);
+        assert_eq!(fields[0].as_ref(), "/repos/backend");
+        assert_eq!(fields[1].as_ref(), "video.mp4");
+        assert_eq!(fields[2].as_ref(), "untracked");
+        // Full OID, not shortened.
+        assert_eq!(fields[3].as_ref(), "abc1234def5678");
+        // Raw u64 bytes, not "52.4 MB".
+        assert_eq!(fields[4].as_ref(), "52400000");
+    }
+
+    #[test]
+    fn tidyitem_porcelain_size_none_is_empty_field() {
+        let fields =
+            lfs_info("a.bin", LfsClassification::Missing, "abc1234", None).porcelain_fields();
+        assert_eq!(fields[4].as_ref(), "");
     }
 }
