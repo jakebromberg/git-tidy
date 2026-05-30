@@ -1,51 +1,79 @@
+use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
 
 use crate::types::{JsonRepo, RepoInfo, RepoScanResult, format_disk_size, format_last_commit_age};
 
-const HEADER_STATUS: &str = "STATUS";
-const HEADER_NAME: &str = "NAME";
-const HEADER_AGE: &str = "AGE";
-const HEADER_SIZE: &str = "SIZE";
+impl TidyItem for RepoInfo {
+    const COLUMNS: &'static [ColumnSpec] = &[
+        ColumnSpec {
+            header: "STATUS",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "NAME",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "AGE",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "SIZE",
+            align: Align::Left,
+        },
+    ];
 
-struct ColumnWidths {
-    status: usize,
-    name: usize,
-    age: usize,
-    size: usize,
-}
-
-fn compute_column_widths(repos: &[RepoInfo]) -> ColumnWidths {
-    let mut max_status = HEADER_STATUS.len();
-    let mut max_name = HEADER_NAME.len();
-    let mut max_age = HEADER_AGE.len();
-    let mut max_size = HEADER_SIZE.len();
-
-    for r in repos {
-        max_status = max_status.max(r.classification.label().len());
-        max_name = max_name.max(r.name.len());
-        max_age = max_age.max(format_last_commit_age(r.last_commit_age_days).len());
-        max_size = max_size.max(format_disk_size(r.disk_usage_bytes).len());
+    fn row(&self) -> Vec<Option<Cell>> {
+        vec![
+            Some(Cow::Borrowed(self.classification.label())),
+            Some(Cow::Owned(self.name.clone())),
+            Some(Cow::Owned(format_last_commit_age(
+                self.last_commit_age_days,
+            ))),
+            Some(Cow::Owned(format_disk_size(self.disk_usage_bytes))),
+        ]
     }
 
-    ColumnWidths {
-        status: max_status,
-        name: max_name,
-        age: max_age,
-        size: max_size,
+    fn annotations(&self) -> Vec<Cow<'static, str>> {
+        if self.is_dirty {
+            let noun = if self.dirty_file_count == 1 {
+                "file"
+            } else {
+                "files"
+            };
+            vec![Cow::Owned(format!(
+                "dirty ({} {noun})",
+                self.dirty_file_count
+            ))]
+        } else {
+            Vec::new()
+        }
     }
-}
 
-fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
-    let sw = widths.status;
-    let nw = widths.name;
-    let aw = widths.age;
-    let szw = widths.size;
-    let line =
-        format!("  {HEADER_STATUS:<sw$} {HEADER_NAME:<nw$} {HEADER_AGE:<aw$} {HEADER_SIZE:<szw$}");
-    let trimmed = line.trim_end();
-    writeln!(out, "{trimmed}")
+    fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+        let date = self.last_commit_date.clone().unwrap_or_default();
+        let age = self
+            .last_commit_age_days
+            .map(|d| d.to_string())
+            .unwrap_or_default();
+        let url = self.remote_url.clone().unwrap_or_default();
+        vec![
+            Cow::Owned(self.path.display().to_string()),
+            Cow::Owned(self.name.clone()),
+            Cow::Borrowed(self.classification.label()),
+            Cow::Owned(date),
+            Cow::Owned(age),
+            Cow::Owned(self.disk_usage_bytes.to_string()),
+            Cow::Owned(url),
+            Cow::Owned(self.branch_count.to_string()),
+            Cow::Owned(self.has_remote.to_string()),
+            Cow::Owned(self.is_dirty.to_string()),
+            Cow::Owned(self.dirty_file_count.to_string()),
+        ]
+    }
 }
 
 /// Write human-readable scan output.
@@ -54,36 +82,7 @@ pub fn write_human(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Res
 
     if !result.repos.is_empty() {
         writeln!(out)?;
-        let widths = compute_column_widths(&result.repos);
-        write_header(out, &widths)?;
-
-        for repo in &result.repos {
-            let label = repo.classification.label();
-            let age = format_last_commit_age(repo.last_commit_age_days);
-            let size = format_disk_size(repo.disk_usage_bytes);
-
-            let dirty_note = if repo.is_dirty {
-                let noun = if repo.dirty_file_count == 1 {
-                    "file"
-                } else {
-                    "files"
-                };
-                format!("  dirty ({} {noun})", repo.dirty_file_count)
-            } else {
-                String::new()
-            };
-
-            let sw = widths.status;
-            let nw = widths.name;
-            let aw = widths.age;
-            let szw = widths.size;
-            let line = format!(
-                "  {label:<sw$} {:<nw$} {age:<aw$} {size:<szw$}{dirty_note}",
-                repo.name,
-            );
-            let trimmed = line.trim_end();
-            writeln!(out, "{trimmed}")?;
-        }
+        shared::format_table(out, &result.repos)?;
     }
 
     write_summary(out, result)?;
@@ -123,28 +122,7 @@ pub fn write_json(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Resu
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Result<()> {
-    for repo in &result.repos {
-        let date = repo.last_commit_date.as_deref().unwrap_or("");
-        let age = repo
-            .last_commit_age_days
-            .map(|d| d.to_string())
-            .unwrap_or_default();
-        let url = repo.remote_url.as_deref().unwrap_or("");
-
-        writeln!(
-            out,
-            "{}\t{}\t{}\t{date}\t{age}\t{}\t{url}\t{}\t{}\t{}\t{}",
-            repo.path.display(),
-            repo.name,
-            repo.classification.label(),
-            repo.disk_usage_bytes,
-            repo.branch_count,
-            repo.has_remote,
-            repo.is_dirty,
-            repo.dirty_file_count,
-        )?;
-    }
-    Ok(())
+    shared::format_porcelain(out, &result.repos)
 }
 
 #[cfg(test)]
@@ -207,6 +185,38 @@ mod tests {
             warnings: vec![],
             total_disk_usage_bytes: (142 + 89 + 256) * 1024 * 1024,
             reclaimable_bytes: (142 + 89) * 1024 * 1024,
+        }
+    }
+
+    fn clean_repo(name: &str, classification: RepoClassification) -> RepoInfo {
+        RepoInfo {
+            path: PathBuf::from(format!("/repos/{name}")),
+            name: name.to_string(),
+            classification,
+            last_commit_date: Some("2025-02-17T12:00:00+00:00".to_string()),
+            last_commit_age_days: Some(0),
+            disk_usage_bytes: 1024 * 1024,
+            remote_url: Some("https://github.com/user/x.git".to_string()),
+            branch_count: 1,
+            has_remote: true,
+            is_dirty: false,
+            dirty_file_count: 0,
+        }
+    }
+
+    fn dirty_repo(name: &str, dirty_file_count: usize) -> RepoInfo {
+        RepoInfo {
+            path: PathBuf::from(format!("/repos/{name}")),
+            name: name.to_string(),
+            classification: RepoClassification::Active,
+            last_commit_date: Some("2025-02-17T12:00:00+00:00".to_string()),
+            last_commit_age_days: Some(0),
+            disk_usage_bytes: 1024 * 1024,
+            remote_url: Some("https://github.com/user/x.git".to_string()),
+            branch_count: 1,
+            has_remote: true,
+            is_dirty: true,
+            dirty_file_count,
         }
     }
 
@@ -309,19 +319,7 @@ mod tests {
     #[test]
     fn human_output_no_dirty_note_in_summary() {
         let result = RepoScanResult {
-            repos: vec![RepoInfo {
-                path: PathBuf::from("/repos/clean"),
-                name: "clean".to_string(),
-                classification: RepoClassification::Active,
-                last_commit_date: Some("2025-02-17T12:00:00+00:00".to_string()),
-                last_commit_age_days: Some(0),
-                disk_usage_bytes: 100 * 1024 * 1024,
-                remote_url: Some("https://github.com/user/clean.git".to_string()),
-                branch_count: 1,
-                has_remote: true,
-                is_dirty: false,
-                dirty_file_count: 0,
-            }],
+            repos: vec![clean_repo("clean", RepoClassification::Active)],
             total_scanned: 1,
             counts: RepoCounts {
                 active: 1,
@@ -338,5 +336,33 @@ mod tests {
         // No "(X dirty)" when there are no dirty repos
         assert!(output.contains("1 repos scanned: 0 stale, 0 orphaned, 1 active\n"));
         assert!(!output.contains("dirty"));
+    }
+
+    #[test]
+    fn dirty_annotation_singular() {
+        let repo = dirty_repo("one", 1);
+        let anns: Vec<String> = repo
+            .annotations()
+            .into_iter()
+            .map(|a| a.into_owned())
+            .collect();
+        assert_eq!(anns, vec!["dirty (1 file)"]);
+    }
+
+    #[test]
+    fn dirty_annotation_plural() {
+        let repo = dirty_repo("two", 2);
+        let anns: Vec<String> = repo
+            .annotations()
+            .into_iter()
+            .map(|a| a.into_owned())
+            .collect();
+        assert_eq!(anns, vec!["dirty (2 files)"]);
+    }
+
+    #[test]
+    fn clean_repo_has_no_annotation() {
+        let repo = clean_repo("clean", RepoClassification::Active);
+        assert!(repo.annotations().is_empty());
     }
 }
