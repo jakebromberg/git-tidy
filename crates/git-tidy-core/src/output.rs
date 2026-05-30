@@ -113,6 +113,26 @@ pub struct ColumnSpec {
     pub align: Align,
 }
 
+impl ColumnSpec {
+    /// Left-aligned column. Most table columns use this — short helper to keep
+    /// `const COLUMNS` declarations compact.
+    pub const fn left(header: &'static str) -> Self {
+        Self {
+            header,
+            align: Align::Left,
+        }
+    }
+
+    /// Right-aligned column. Used for numeric cells where the digit columns
+    /// should line up.
+    pub const fn right(header: &'static str) -> Self {
+        Self {
+            header,
+            align: Align::Right,
+        }
+    }
+}
+
 /// A single cell value.
 ///
 /// `Cell = Cow<'static, str>`. The `'static` lifetime only constrains the
@@ -326,26 +346,11 @@ fn append_padded(buf: &mut String, cell: &str, width: usize, align: Align) {
 // place their `TidyItem` impl in the tool's own `output.rs`.
 impl TidyItem for WorktreeInfo {
     const COLUMNS: &'static [ColumnSpec] = &[
-        ColumnSpec {
-            header: "STATUS",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "DIRECTORY",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "BRANCH",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "RATIO",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "AHEAD/BEHIND",
-            align: Align::Left,
-        },
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("DIRECTORY"),
+        ColumnSpec::left("BRANCH"),
+        ColumnSpec::left("RATIO"),
+        ColumnSpec::left("AHEAD/BEHIND"),
     ];
 
     fn row(&self) -> Vec<Option<Cell>> {
@@ -629,18 +634,9 @@ mod tests {
 
     impl TidyItem for Demo {
         const COLUMNS: &'static [ColumnSpec] = &[
-            ColumnSpec {
-                header: "AAA",
-                align: Align::Left,
-            },
-            ColumnSpec {
-                header: "BBB",
-                align: Align::Right,
-            },
-            ColumnSpec {
-                header: "CCC",
-                align: Align::Left,
-            },
+            ColumnSpec::left("AAA"),
+            ColumnSpec::right("BBB"),
+            ColumnSpec::left("CCC"),
         ];
 
         fn row(&self) -> Vec<Option<Cell>> {
@@ -700,16 +696,35 @@ mod tests {
     }
 
     #[test]
+    fn column_spec_left_constructor() {
+        let c = ColumnSpec::left("NAME");
+        assert_eq!(c.header, "NAME");
+        assert_eq!(c.align, Align::Left);
+    }
+
+    #[test]
+    fn column_spec_right_constructor() {
+        let c = ColumnSpec::right("SIZE");
+        assert_eq!(c.header, "SIZE");
+        assert_eq!(c.align, Align::Right);
+    }
+
+    #[test]
+    fn column_spec_constructors_are_const() {
+        // Both constructors must be usable in a `const COLUMNS` initializer.
+        const COLS: &[ColumnSpec] = &[ColumnSpec::left("A"), ColumnSpec::right("B")];
+        assert_eq!(COLS[0].align, Align::Left);
+        assert_eq!(COLS[1].align, Align::Right);
+    }
+
+    #[test]
     fn format_table_renders_cow_owned_cells_end_to_end() {
         // Validates that a Cow::Owned String built at runtime flows correctly
         // through format_table — width, padding, and the trim_end step all
         // need to handle owned cells the same as borrowed ones.
         struct Owned(String);
         impl TidyItem for Owned {
-            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
-                header: "MSG",
-                align: Align::Left,
-            }];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("MSG")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![Some(Cow::Owned(self.0.clone()))]
             }
@@ -985,10 +1000,7 @@ mod tests {
     fn format_table_skips_empty_annotation_tokens() {
         struct Item;
         impl TidyItem for Item {
-            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
-                header: "X",
-                align: Align::Left,
-            }];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("X")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![Some(Cow::Borrowed("v"))]
             }
@@ -1011,10 +1023,7 @@ mod tests {
     fn format_table_all_empty_annotations_emit_no_suffix() {
         struct Item;
         impl TidyItem for Item {
-            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
-                header: "X",
-                align: Align::Left,
-            }];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("X")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![Some(Cow::Borrowed("v"))]
             }
@@ -1036,16 +1045,7 @@ mod tests {
     fn format_table_writes_nothing_when_all_columns_hidden() {
         struct HiddenItem;
         impl TidyItem for HiddenItem {
-            const COLUMNS: &'static [ColumnSpec] = &[
-                ColumnSpec {
-                    header: "A",
-                    align: Align::Left,
-                },
-                ColumnSpec {
-                    header: "B",
-                    align: Align::Left,
-                },
-            ];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("A"), ColumnSpec::left("B")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![None, None]
             }
@@ -1086,16 +1086,7 @@ mod tests {
         //   "  " + "X   " + " " + "Y" => "  X    Y" (trim_end keeps 4 spaces because Y is non-empty)
         struct Wide;
         impl TidyItem for Wide {
-            const COLUMNS: &'static [ColumnSpec] = &[
-                ColumnSpec {
-                    header: "X",
-                    align: Align::Left,
-                },
-                ColumnSpec {
-                    header: "Y",
-                    align: Align::Left,
-                },
-            ];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("X"), ColumnSpec::left("Y")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![Some(Cow::Borrowed("中文")), Some(Cow::Borrowed("y"))]
             }
@@ -1119,10 +1110,7 @@ mod tests {
         // git subject leaks into our output.
         struct Item;
         impl TidyItem for Item {
-            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
-                header: "X",
-                align: Align::Left,
-            }];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("X")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![Some(Cow::Borrowed("v"))]
             }
@@ -1158,16 +1146,7 @@ mod tests {
     fn format_table_panics_in_debug_when_row_length_mismatches_columns() {
         struct Bad;
         impl TidyItem for Bad {
-            const COLUMNS: &'static [ColumnSpec] = &[
-                ColumnSpec {
-                    header: "A",
-                    align: Align::Left,
-                },
-                ColumnSpec {
-                    header: "B",
-                    align: Align::Left,
-                },
-            ];
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec::left("A"), ColumnSpec::left("B")];
             fn row(&self) -> Vec<Option<Cell>> {
                 vec![Some(Cow::Borrowed("only-one"))]
             }
