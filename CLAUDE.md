@@ -72,7 +72,7 @@ All tools follow a similar CLI shape:
 - `classify_branch` is the core classification function shared by both tools. `classify_worktree` is a thin wrapper that adds dirty detection. `classify_remote_branch` classifies remote-only branches (on origin but no local counterpart), using `origin/<branch>` as the git ref.
 - Discovery is inverted between tools: worktree discovery finds `.git` files (linked worktrees), branch discovery finds `.git` directories (repos).
 - `delete_fn` pattern: `run_clean` takes `&dyn Fn(&Path) -> io::Result<()>` so tests can verify deletion logic without `rm -rf`. Used in repo-tidy.
-- Injectable `du_fn`: `run_scan_with_du` takes a disk-usage function parameter so unit tests can provide canned sizes without hitting the filesystem. Used in repo-tidy.
+- Injectable `du_fn`: `run_scan_repos_with_du` takes a disk-usage function parameter so unit tests can provide canned sizes without hitting the filesystem. Used in repo-tidy.
 
 ## Project Layout
 

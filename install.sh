@@ -23,9 +23,10 @@ COMP_DIR="/usr/local/share/zsh/site-functions"
 if [ -d "$COMP_DIR" ] || mkdir -p "$COMP_DIR" 2>/dev/null; then
   echo "Installing zsh completions to $COMP_DIR..."
 
-  # Sub-tool completions
+  # Sub-tool completions (git-tidy uses a custom dispatcher generator below)
   for crate in crates/*/; do
     [ -f "$crate/src/main.rs" ] || continue
+    [[ "$crate" == crates/git-tidy/ ]] && continue
     name=$(basename "$crate")
     echo "  Generating _${name}..."
     "$name" completions zsh > "$COMP_DIR/_${name}"
