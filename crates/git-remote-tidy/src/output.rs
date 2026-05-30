@@ -1,73 +1,55 @@
+use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{RemoteInfo, RemoteScanResult};
 
-const HEADER_STATUS: &str = "STATUS";
-const HEADER_NAME: &str = "NAME";
-const HEADER_URL: &str = "URL";
-const HEADER_TRACKING: &str = "TRACKING";
+impl TidyItem for RemoteInfo {
+    const COLUMNS: &'static [ColumnSpec] = &[
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("NAME"),
+        ColumnSpec::left("URL"),
+        ColumnSpec::left("TRACKING"),
+    ];
 
-struct ColumnWidths {
-    status: usize,
-    name: usize,
-    url: usize,
-    tracking: usize,
-    has_tracking: bool,
-}
-
-fn format_tracking(remote: &RemoteInfo) -> String {
-    if remote.tracking_count > 0 {
-        let branch_noun = if remote.tracking_count == 1 {
-            "tracking branch"
+    fn row(&self) -> Vec<Option<Cell>> {
+        // Conditional TRACKING column: None when this remote has no tracking
+        // refs, so format_table hides the column iff every row's TRACKING cell
+        // is None — matching the legacy `has_tracking` auto-hide.
+        let tracking: Option<Cell> = if self.tracking_count > 0 {
+            let branch_noun = if self.tracking_count == 1 {
+                "tracking branch"
+            } else {
+                "tracking branches"
+            };
+            Some(Cow::Owned(format!(
+                "({} {branch_noun})",
+                self.tracking_count
+            )))
         } else {
-            "tracking branches"
+            None
         };
-        format!("({} {branch_noun})", remote.tracking_count)
-    } else {
-        String::new()
-    }
-}
-
-fn compute_column_widths(remotes: &[RemoteInfo]) -> ColumnWidths {
-    let mut max_status = HEADER_STATUS.len();
-    let mut max_name = HEADER_NAME.len();
-    let mut max_url = HEADER_URL.len();
-    let mut max_tracking = HEADER_TRACKING.len();
-    let mut has_tracking = false;
-
-    for r in remotes {
-        max_status = max_status.max(r.classification.label().len());
-        max_name = max_name.max(r.name.len());
-        max_url = max_url.max(r.url.as_deref().unwrap_or("").len());
-        let tracking = format_tracking(r);
-        if !tracking.is_empty() {
-            has_tracking = true;
-            max_tracking = max_tracking.max(tracking.len());
-        }
+        vec![
+            Some(Cow::Borrowed(self.classification.label())),
+            Some(Cow::Owned(self.name.clone())),
+            Some(Cow::Owned(self.url.clone().unwrap_or_default())),
+            tracking,
+        ]
     }
 
-    ColumnWidths {
-        status: max_status,
-        name: max_name,
-        url: max_url,
-        tracking: max_tracking,
-        has_tracking,
+    fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+        vec![
+            Cow::Owned(self.repo_path.display().to_string()),
+            Cow::Owned(self.name.clone()),
+            Cow::Borrowed(self.classification.label()),
+            Cow::Owned(self.url.clone().unwrap_or_default()),
+            Cow::Owned(self.tracking_count.to_string()),
+            Cow::Owned(self.is_origin.to_string()),
+        ]
     }
-}
-
-fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
-    let sw = widths.status;
-    let nw = widths.name;
-    let uw = widths.url;
-    let mut line = format!("  {HEADER_STATUS:<sw$} {HEADER_NAME:<nw$} {HEADER_URL:<uw$}");
-    if widths.has_tracking {
-        line.push_str(&format!(" {HEADER_TRACKING}"));
-    }
-    let trimmed = line.trim_end();
-    writeln!(out, "{trimmed}")
 }
 
 /// Write human-readable scan output.
@@ -81,26 +63,7 @@ pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::R
             "remotes"
         };
         writeln!(out, "\n{} ({} {noun})", group.name, group.remotes.len())?;
-
-        let widths = compute_column_widths(&group.remotes);
-        write_header(out, &widths)?;
-
-        for remote in &group.remotes {
-            let label = remote.classification.label();
-            let url = remote.url.as_deref().unwrap_or("");
-            let tracking = format_tracking(remote);
-
-            let sw = widths.status;
-            let nw = widths.name;
-            let uw = widths.url;
-            let mut line = format!("  {label:<sw$} {:<nw$} {url:<uw$}", remote.name);
-            if widths.has_tracking {
-                let tw = widths.tracking;
-                line.push_str(&format!(" {tracking:<tw$}"));
-            }
-            let trimmed = line.trim_end();
-            writeln!(out, "{trimmed}")?;
-        }
+        shared::format_table(out, &group.remotes)?;
     }
 
     write_remote_summary(out, result)?;
@@ -127,19 +90,7 @@ pub fn write_json(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Re
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        for remote in &group.remotes {
-            let repo = remote.repo_path.display();
-            let url = remote.url.as_deref().unwrap_or("");
-
-            writeln!(
-                out,
-                "{repo}\t{}\t{}\t{url}\t{}\t{}",
-                remote.name,
-                remote.classification.label(),
-                remote.tracking_count,
-                remote.is_origin,
-            )?;
-        }
+        shared::format_porcelain(out, &group.remotes)?;
     }
     Ok(())
 }
@@ -292,5 +243,165 @@ mod tests {
         assert_eq!(fields[3], "https://github.com/old-org/backend.git");
         assert_eq!(fields[4], "12");
         assert_eq!(fields[5], "true");
+    }
+
+    // --- TidyItem data-shape tests ---
+
+    fn remote_info(
+        name: &str,
+        classification: RemoteClassification,
+        url: Option<&str>,
+        tracking_count: usize,
+        is_origin: bool,
+    ) -> RemoteInfo {
+        RemoteInfo {
+            repo_path: PathBuf::from("/repos/backend"),
+            name: name.to_string(),
+            classification,
+            url: url.map(|s| s.to_string()),
+            tracking_count,
+            is_origin,
+        }
+    }
+
+    #[test]
+    fn tidyitem_row_shape_remote() {
+        let row = remote_info(
+            "origin",
+            RemoteClassification::Active,
+            Some("https://github.com/o/r.git"),
+            5,
+            true,
+        )
+        .row();
+        assert_eq!(row.len(), 4);
+        assert_eq!(row[0].as_deref(), Some("active"));
+        assert_eq!(row[1].as_deref(), Some("origin"));
+        assert_eq!(row[2].as_deref(), Some("https://github.com/o/r.git"));
+        assert_eq!(row[3].as_deref(), Some("(5 tracking branches)"));
+    }
+
+    #[test]
+    fn tidyitem_row_tracking_singular_noun() {
+        let row = remote_info(
+            "upstream",
+            RemoteClassification::Active,
+            Some("u"),
+            1,
+            false,
+        )
+        .row();
+        assert_eq!(row[3].as_deref(), Some("(1 tracking branch)"));
+    }
+
+    #[test]
+    fn tidyitem_row_tracking_zero_is_none() {
+        // tracking_count: 0 must yield a literal None cell so format_table's
+        // all-None auto-hide rule can drop the TRACKING column.
+        let row = remote_info("a", RemoteClassification::Active, Some("u"), 0, false).row();
+        assert!(row[3].is_none());
+    }
+
+    #[test]
+    fn tidyitem_row_orphaned_null_url_renders_empty() {
+        let row = remote_info("stale", RemoteClassification::Orphaned, None, 3, false).row();
+        assert_eq!(row[2].as_deref(), Some(""));
+    }
+
+    #[test]
+    fn human_output_hides_tracking_column_when_all_zero() {
+        let result = RemoteScanResult {
+            repos: vec![RemoteRepoGroup {
+                repo_path: PathBuf::from("/repos/r"),
+                name: "r".to_string(),
+                remotes: vec![
+                    RemoteInfo {
+                        repo_path: PathBuf::from("/repos/r"),
+                        name: "a".to_string(),
+                        classification: RemoteClassification::Active,
+                        url: Some("ua".to_string()),
+                        tracking_count: 0,
+                        is_origin: false,
+                    },
+                    RemoteInfo {
+                        repo_path: PathBuf::from("/repos/r"),
+                        name: "b".to_string(),
+                        classification: RemoteClassification::Active,
+                        url: Some("ub".to_string()),
+                        tracking_count: 0,
+                        is_origin: false,
+                    },
+                ],
+            }],
+            total_scanned: 2,
+            counts: RemoteCounts {
+                active: 2,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_human(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            !output.contains("TRACKING"),
+            "TRACKING column should be hidden when no row has tracking refs: {output}"
+        );
+    }
+
+    #[test]
+    fn tidyitem_porcelain_remote_field_order() {
+        let fields = remote_info(
+            "origin",
+            RemoteClassification::Active,
+            Some("https://github.com/o/r.git"),
+            5,
+            true,
+        )
+        .porcelain_fields();
+        assert_eq!(fields.len(), 6);
+        assert_eq!(fields[0].as_ref(), "/repos/backend");
+        assert_eq!(fields[1].as_ref(), "origin");
+        assert_eq!(fields[2].as_ref(), "active");
+        assert_eq!(fields[3].as_ref(), "https://github.com/o/r.git");
+        assert_eq!(fields[4].as_ref(), "5");
+        assert_eq!(fields[5].as_ref(), "true");
+    }
+
+    #[test]
+    fn tidyitem_porcelain_null_url_is_empty_field() {
+        let fields =
+            remote_info("stale", RemoteClassification::Orphaned, None, 3, false).porcelain_fields();
+        assert_eq!(fields[3].as_ref(), "");
+    }
+
+    #[test]
+    fn human_output_single_remote_noun() {
+        let result = RemoteScanResult {
+            repos: vec![RemoteRepoGroup {
+                repo_path: PathBuf::from("/repos/test"),
+                name: "test".to_string(),
+                remotes: vec![RemoteInfo {
+                    repo_path: PathBuf::from("/repos/test"),
+                    name: "origin".to_string(),
+                    classification: RemoteClassification::Active,
+                    url: Some("u".to_string()),
+                    tracking_count: 1,
+                    is_origin: true,
+                }],
+            }],
+            total_scanned: 1,
+            counts: RemoteCounts {
+                active: 1,
+                ..Default::default()
+            },
+            warnings: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_human(&mut buf, &result).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("test (1 remote)"));
     }
 }
