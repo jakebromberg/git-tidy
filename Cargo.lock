@@ -609,7 +609,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "predicates",
@@ -624,7 +624,7 @@ name = "git-config-tidy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "serde",
@@ -637,7 +637,7 @@ name = "git-lfs-tidy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "serde",
@@ -650,7 +650,7 @@ name = "git-remote-tidy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "serde",
@@ -663,7 +663,7 @@ name = "git-repo-tidy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "serde",
@@ -676,7 +676,7 @@ name = "git-stash-tidy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "serde",
@@ -689,7 +689,7 @@ name = "git-tag-tidy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "serde",
@@ -746,7 +746,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
- "console 0.15.11",
+ "console 0.16.3",
  "dialoguer",
  "git-tidy-core",
  "predicates",
