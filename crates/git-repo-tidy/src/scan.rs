@@ -140,42 +140,15 @@ pub fn run_scan(
     repo_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RepoScanResult, Error> {
-    run_scan_with_du(
-        git,
-        directory,
-        stale_days,
-        noise_patterns,
-        offline,
-        verbose,
-        repo_filter,
-        &disk_usage,
-        progress,
-    )
-}
-
-/// Scan with an injectable disk-usage function (for testing).
-#[allow(clippy::too_many_arguments)]
-pub fn run_scan_with_du(
-    git: &dyn GitOps,
-    directory: &Path,
-    stale_days: u64,
-    noise_patterns: &[String],
-    offline: bool,
-    verbose: bool,
-    repo_filter: &NameFilter,
-    du_fn: &(dyn Fn(&Path) -> u64 + Sync),
-    progress: &Progress,
-) -> Result<RepoScanResult, Error> {
     let repo_paths = discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
-    run_scan_repos_with_du(
+    run_scan_repos(
         git,
         &repo_paths,
         stale_days,
         noise_patterns,
         offline,
         verbose,
-        du_fn,
         progress,
     )
 }

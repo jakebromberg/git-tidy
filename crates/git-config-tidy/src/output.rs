@@ -13,28 +13,24 @@ struct ColumnWidths {
     severity: usize,
     kind: usize,
     setting: usize,
-    message: usize,
 }
 
 fn compute_column_widths(issues: &[ConfigIssue]) -> ColumnWidths {
     let mut max_severity = HEADER_SEVERITY.len();
     let mut max_kind = HEADER_KIND.len();
     let mut max_setting = HEADER_SETTING.len();
-    let mut max_message = HEADER_MESSAGE.len();
 
     for i in issues {
         max_severity = max_severity.max(i.severity.label().len());
         max_kind = max_kind.max(i.kind.label().len());
         // key=value combined
         max_setting = max_setting.max(i.key.len() + 1 + i.value.len());
-        max_message = max_message.max(i.message.len());
     }
 
     ColumnWidths {
         severity: max_severity,
         kind: max_kind,
         setting: max_setting,
-        message: max_message,
     }
 }
 
