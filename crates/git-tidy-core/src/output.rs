@@ -188,7 +188,8 @@ pub trait TidyItem {
 ///   gains a suffix `"  " + annotations.join(", ")`. Empty tokens are skipped
 ///   so they cannot produce stray `","` artifacts.
 /// - Each entry in `row_extras()` is written as `"    {extra}\n"` (four-space
-///   indent) underneath the row, in order.
+///   indent) underneath the row, in order. Extras are trimmed of trailing
+///   whitespace so they obey the same rule as table rows.
 /// - Trailing whitespace is trimmed from every rendered line before writing.
 ///
 /// # Panics
@@ -290,7 +291,7 @@ pub fn format_table<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::R
         writeln!(out, "{}", line.trim_end())?;
 
         for extra in item.row_extras() {
-            writeln!(out, "    {extra}")?;
+            writeln!(out, "    {}", extra.trim_end())?;
         }
     }
 
@@ -441,7 +442,9 @@ impl TidyItem for WorktreeInfo {
 /// - Each item produces one line: `porcelain_fields().join("\t")` followed by `\n`.
 /// - No header, no column hiding, no padding. Empty fields are preserved as
 ///   adjacent `\t`s.
-/// - Per `TidyItem::porcelain_fields()`, field `[0]` is the repo path.
+/// - Per `TidyItem::porcelain_fields()`, field `[0]` is the row's primary path
+///   identifier — `repo_path` for most tools, the worktree directory for
+///   `WorktreeInfo` (see the trait doc for the full convention).
 pub fn format_porcelain<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::Result<()> {
     for item in items {
         let fields = item.porcelain_fields();
@@ -1106,6 +1109,48 @@ mod tests {
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines[0], "  X    Y");
         assert_eq!(lines[1], "  中文 y");
+    }
+
+    #[test]
+    fn format_table_trims_trailing_whitespace_from_row_extras() {
+        // The format_table contract promises trailing whitespace is trimmed from
+        // every rendered line. Row extras are rendered lines too — they must
+        // obey the same rule, otherwise stale " " trailing on an upstream
+        // git subject leaks into our output.
+        struct Item;
+        impl TidyItem for Item {
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
+                header: "X",
+                align: Align::Left,
+            }];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![Some(Cow::Borrowed("v"))]
+            }
+            fn row_extras(&self) -> Vec<Cow<'static, str>> {
+                vec![
+                    Cow::Borrowed("note   "),
+                    Cow::Borrowed("clean"),
+                    Cow::Borrowed("trailing-tab\t"),
+                ]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        format_table(&mut buf, &[Item]).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        for line in out.lines() {
+            assert_eq!(
+                line.trim_end(),
+                line,
+                "trailing ws on extras line: {line:?}"
+            );
+        }
+        // And confirm the indent is preserved (just the trailing ws is gone).
+        assert!(out.contains("\n    note\n"));
+        assert!(out.contains("\n    clean\n"));
+        assert!(out.contains("\n    trailing-tab\n"));
     }
 
     #[test]
