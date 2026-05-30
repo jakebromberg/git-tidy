@@ -2,29 +2,17 @@ use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
+use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 use git_tidy_core::types::{Classification, ClassificationLabel};
 
 use crate::types::{BranchInfo, BranchScanResult};
 
 impl TidyItem for BranchInfo {
     const COLUMNS: &'static [ColumnSpec] = &[
-        ColumnSpec {
-            header: "STATUS",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "BRANCH",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "RATIO",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "AHEAD/BEHIND",
-            align: Align::Left,
-        },
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("BRANCH"),
+        ColumnSpec::left("RATIO"),
+        ColumnSpec::left("AHEAD/BEHIND"),
     ];
 
     fn row(&self) -> Vec<Option<Cell>> {

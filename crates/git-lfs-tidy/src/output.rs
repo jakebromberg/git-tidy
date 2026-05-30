@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
+use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 
 use crate::types::{JsonLfsItem, LfsClassification, LfsInfo, LfsScanResult};
 
@@ -25,22 +25,10 @@ fn oid_short(oid: &str) -> &str {
 
 impl TidyItem for LfsInfo {
     const COLUMNS: &'static [ColumnSpec] = &[
-        ColumnSpec {
-            header: "STATUS",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "PATH",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "SIZE",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "OID",
-            align: Align::Left,
-        },
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("PATH"),
+        ColumnSpec::left("SIZE"),
+        ColumnSpec::left("OID"),
     ];
 
     fn row(&self) -> Vec<Option<Cell>> {

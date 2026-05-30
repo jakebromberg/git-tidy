@@ -2,28 +2,16 @@ use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
+use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 
 use crate::types::{JsonRepo, RepoInfo, RepoScanResult, format_disk_size, format_last_commit_age};
 
 impl TidyItem for RepoInfo {
     const COLUMNS: &'static [ColumnSpec] = &[
-        ColumnSpec {
-            header: "STATUS",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "NAME",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "AGE",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "SIZE",
-            align: Align::Left,
-        },
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("NAME"),
+        ColumnSpec::left("AGE"),
+        ColumnSpec::left("SIZE"),
     ];
 
     fn row(&self) -> Vec<Option<Cell>> {

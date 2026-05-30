@@ -2,33 +2,18 @@ use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
+use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{TagInfo, TagScanResult, commit_short};
 
 impl TidyItem for TagInfo {
     const COLUMNS: &'static [ColumnSpec] = &[
-        ColumnSpec {
-            header: "STATUS",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "NAME",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "COMMIT",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "KIND",
-            align: Align::Left,
-        },
-        ColumnSpec {
-            header: "DATE",
-            align: Align::Left,
-        },
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("NAME"),
+        ColumnSpec::left("COMMIT"),
+        ColumnSpec::left("KIND"),
+        ColumnSpec::left("DATE"),
     ];
 
     fn row(&self) -> Vec<Option<Cell>> {
