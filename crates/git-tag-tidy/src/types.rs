@@ -129,6 +129,15 @@ impl From<&TagInfo> for JsonTag {
     }
 }
 
+/// Return the first 7 characters of a commit SHA, or the whole string if shorter.
+pub(crate) fn commit_short(commit: &str) -> &str {
+    if commit.len() >= 7 {
+        &commit[..7]
+    } else {
+        commit
+    }
+}
+
 /// Check if a tag name looks like a release version.
 ///
 /// Matches: `v1.0`, `v1.0.0`, `V1.0`, `1.2.3`, `v1.0.0-rc1`.
