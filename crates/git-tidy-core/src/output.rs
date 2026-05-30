@@ -1,13 +1,19 @@
 //! Shared output helpers used by all git-tidy binary crates.
 
 use std::borrow::Cow;
-use std::fmt::Write as _;
 use std::io::Write;
 use std::path::Path;
 
 use serde::Serialize;
+use unicode_width::UnicodeWidthStr;
 
 use crate::types::{Classification, ClassificationLabel, ScanCounts, WorktreeInfo};
+
+/// Terminal display width in cells (codepoint width per Unicode UAX-11).
+/// Used by `format_table` so multi-byte / wide-character cells stay aligned.
+fn display_width(s: &str) -> usize {
+    UnicodeWidthStr::width(s)
+}
 
 /// Write the summary line: "N {item_noun} scanned: X landed, Y content, ..."
 pub fn write_summary_line(
@@ -152,12 +158,15 @@ pub trait TidyItem {
 
     /// Ordered porcelain fields. `format_porcelain` joins them with `\t`.
     ///
-    /// **Contract**: field `[0]` MUST be the repo path
-    /// (`repo_path.display().to_string()`). All existing tools prefix their
-    /// porcelain rows with the repo path; downstream consumers split on `\t` and
-    /// read field `[0]` as the repo. The field count and the order of fields
-    /// beyond `[0]` are part of each tool's public porcelain interface and must
-    /// remain stable across releases.
+    /// **Contract**: field `[0]` is the **primary path identifier** for the row.
+    /// For most tools this is the repo path. The lone exception is
+    /// `WorktreeInfo`: its `[0]` is the worktree directory and the parent repo
+    /// is at `[1]`, preserving the long-standing `worktree-tidy --porcelain`
+    /// shape. New tools should put `repo_path.display().to_string()` at `[0]`
+    /// unless they have a comparable historical reason to differ.
+    ///
+    /// The field count and the order of fields are part of each tool's public
+    /// porcelain interface and must remain stable across releases.
     fn porcelain_fields(&self) -> Vec<Cow<'static, str>>;
 }
 
@@ -165,25 +174,51 @@ pub trait TidyItem {
 ///
 /// # Contract
 /// - Empty input writes nothing (no header, no blank line).
-/// - Per-column widths are computed from `T::COLUMNS` headers + visible cells.
+/// - Empty `T::COLUMNS` writes nothing.
+/// - Per-column widths are computed from `T::COLUMNS` headers + visible cells,
+///   measured by Unicode display width (UAX-11), not byte length.
 /// - A column at index `i` is omitted (both header and every row's cell) iff every
-///   row supplies `None` at that index.
+///   row supplies `None` at that index. If every column ends up hidden, nothing
+///   is written.
 /// - The header row and every row are prefixed with a two-space gutter (`"  "`).
-/// - Cells are padded to the column width per `Align::Left` (`{:<w$}`) or
-///   `Align::Right` (`{:>w$}`).
+/// - Cells are padded to the column display width per `Align::Left` (trailing
+///   spaces) or `Align::Right` (leading spaces).
 /// - Visible columns are separated by a single space.
-/// - When `annotations()` is non-empty, the row gains a suffix
-///   `"  " + annotations.join(", ")`.
+/// - When `annotations()` is non-empty after filtering empty tokens, the row
+///   gains a suffix `"  " + annotations.join(", ")`. Empty tokens are skipped
+///   so they cannot produce stray `","` artifacts.
 /// - Each entry in `row_extras()` is written as `"    {extra}\n"` (four-space
 ///   indent) underneath the row, in order.
 /// - Trailing whitespace is trimmed from every rendered line before writing.
+///
+/// # Panics
+/// In debug builds, panics if any `row()` returns a `Vec` whose length differs
+/// from `T::COLUMNS.len()`. In release builds, missing cells are treated as
+/// `None` and trailing extras are silently dropped.
 pub fn format_table<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::Result<()> {
     if items.is_empty() {
         return Ok(());
     }
 
-    let rows: Vec<Vec<Option<Cell>>> = items.iter().map(|i| i.row()).collect();
     let columns = T::COLUMNS;
+    if columns.is_empty() {
+        return Ok(());
+    }
+
+    let rows: Vec<Vec<Option<Cell>>> = items.iter().map(|i| i.row()).collect();
+
+    if cfg!(debug_assertions) {
+        for (row_idx, row) in rows.iter().enumerate() {
+            debug_assert_eq!(
+                row.len(),
+                columns.len(),
+                "TidyItem::row() length {} != COLUMNS.len() {} at item {}",
+                row.len(),
+                columns.len(),
+                row_idx,
+            );
+        }
+    }
 
     // A column is visible iff at least one row supplies Some(_) for that index.
     let visible: Vec<bool> = (0..columns.len())
@@ -193,16 +228,20 @@ pub fn format_table<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::R
         })
         .collect();
 
-    // Width = max(header.len(), longest Some cell length).
+    if !visible.iter().any(|v| *v) {
+        return Ok(());
+    }
+
+    // Width = max(display_width(header), longest visible-cell display width).
     let widths: Vec<usize> = (0..columns.len())
         .map(|i| {
             if !visible[i] {
                 return 0;
             }
-            let mut w = columns[i].header.len();
+            let mut w = display_width(columns[i].header);
             for r in &rows {
                 if let Some(Some(cell)) = r.get(i) {
-                    w = w.max(cell.len());
+                    w = w.max(display_width(cell));
                 }
             }
             w
@@ -219,11 +258,7 @@ pub fn format_table<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::R
             header.push(' ');
         }
         first = false;
-        let w = widths[i];
-        match col.align {
-            Align::Left => write!(header, "{:<w$}", col.header, w = w).unwrap(),
-            Align::Right => write!(header, "{:>w$}", col.header, w = w).unwrap(),
-        }
+        append_padded(&mut header, col.header, widths[i], col.align);
     }
     writeln!(out, "{}", header.trim_end())?;
 
@@ -239,17 +274,17 @@ pub fn format_table<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::R
                 line.push(' ');
             }
             first = false;
-            let w = widths[i];
             let cell = row.get(i).and_then(|c| c.as_deref()).unwrap_or("");
-            match col.align {
-                Align::Left => write!(line, "{:<w$}", cell, w = w).unwrap(),
-                Align::Right => write!(line, "{:>w$}", cell, w = w).unwrap(),
-            }
+            append_padded(&mut line, cell, widths[i], col.align);
         }
         let anns = item.annotations();
-        if !anns.is_empty() {
+        let joined: Vec<&str> = anns
+            .iter()
+            .map(|a| a.as_ref())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !joined.is_empty() {
             line.push_str("  ");
-            let joined: Vec<&str> = anns.iter().map(|a| a.as_ref()).collect();
             line.push_str(&joined.join(", "));
         }
         writeln!(out, "{}", line.trim_end())?;
@@ -260,6 +295,28 @@ pub fn format_table<T: TidyItem>(out: &mut dyn Write, items: &[T]) -> std::io::R
     }
 
     Ok(())
+}
+
+/// Append `cell` to `buf` padded to `width` display columns per `align`.
+/// Padding is added as ASCII spaces; both width inputs are measured in
+/// Unicode UAX-11 cell width so wide characters (CJK, emoji) align correctly.
+fn append_padded(buf: &mut String, cell: &str, width: usize, align: Align) {
+    let cw = display_width(cell);
+    let pad = width.saturating_sub(cw);
+    match align {
+        Align::Left => {
+            buf.push_str(cell);
+            for _ in 0..pad {
+                buf.push(' ');
+            }
+        }
+        Align::Right => {
+            for _ in 0..pad {
+                buf.push(' ');
+            }
+            buf.push_str(cell);
+        }
+    }
 }
 
 // `WorktreeInfo` lives in this crate (`crates/git-tidy-core/src/types.rs`), so its
@@ -338,10 +395,9 @@ impl TidyItem for WorktreeInfo {
     fn annotations(&self) -> Vec<Cow<'static, str>> {
         let mut anns: Vec<Cow<'static, str>> = Vec::new();
         if self.annotations.dirty {
-            anns.push(Cow::Owned(format!(
-                "dirty ({} files)",
-                self.annotations.dirty_file_count
-            )));
+            let n = self.annotations.dirty_file_count;
+            let noun = if n == 1 { "file" } else { "files" };
+            anns.push(Cow::Owned(format!("dirty ({n} {noun})")));
         }
         if self.annotations.diverged {
             anns.push(Cow::Borrowed("diverged"));
@@ -641,11 +697,33 @@ mod tests {
     }
 
     #[test]
-    fn cell_accepts_owned_string() {
-        // Demonstrates that Cow<'static, str>::Owned works for runtime-built strings.
+    fn format_table_renders_cow_owned_cells_end_to_end() {
+        // Validates that a Cow::Owned String built at runtime flows correctly
+        // through format_table — width, padding, and the trim_end step all
+        // need to handle owned cells the same as borrowed ones.
+        struct Owned(String);
+        impl TidyItem for Owned {
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
+                header: "MSG",
+                align: Align::Left,
+            }];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![Some(Cow::Owned(self.0.clone()))]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo"), Cow::Owned(self.0.clone())]
+            }
+        }
         let n = 5usize;
-        let owned: Cell = format!("dirty ({n} files)").into();
-        assert_eq!(owned, "dirty (5 files)");
+        let items = vec![Owned(format!("dirty ({n} files)"))];
+        let mut buf = Vec::new();
+        format_table(&mut buf, &items).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2);
+        // trim_end strips the column-padding spaces from the header.
+        assert_eq!(lines[0], "  MSG");
+        assert_eq!(lines[1], "  dirty (5 files)");
     }
 
     #[test]
@@ -898,6 +976,164 @@ mod tests {
         assert!(out.ends_with('\n'));
     }
 
+    // --- regression tests for /review-loop findings ---
+
+    #[test]
+    fn format_table_skips_empty_annotation_tokens() {
+        struct Item;
+        impl TidyItem for Item {
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
+                header: "X",
+                align: Align::Left,
+            }];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![Some(Cow::Borrowed("v"))]
+            }
+            fn annotations(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed(""), Cow::Borrowed("note"), Cow::Borrowed("")]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        format_table(&mut buf, &[Item]).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        // No stray "," from empty tokens; only the non-empty "note" remains.
+        assert_eq!(lines[1], "  v  note");
+    }
+
+    #[test]
+    fn format_table_all_empty_annotations_emit_no_suffix() {
+        struct Item;
+        impl TidyItem for Item {
+            const COLUMNS: &'static [ColumnSpec] = &[ColumnSpec {
+                header: "X",
+                align: Align::Left,
+            }];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![Some(Cow::Borrowed("v"))]
+            }
+            fn annotations(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed(""), Cow::Borrowed("")]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        format_table(&mut buf, &[Item]).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[1], "  v");
+    }
+
+    #[test]
+    fn format_table_writes_nothing_when_all_columns_hidden() {
+        struct HiddenItem;
+        impl TidyItem for HiddenItem {
+            const COLUMNS: &'static [ColumnSpec] = &[
+                ColumnSpec {
+                    header: "A",
+                    align: Align::Left,
+                },
+                ColumnSpec {
+                    header: "B",
+                    align: Align::Left,
+                },
+            ];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![None, None]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        format_table(&mut buf, &[HiddenItem, HiddenItem]).unwrap();
+        assert!(buf.is_empty(), "expected no output, got {buf:?}");
+    }
+
+    #[test]
+    fn format_table_writes_nothing_when_columns_const_is_empty() {
+        struct ZeroCols;
+        impl TidyItem for ZeroCols {
+            const COLUMNS: &'static [ColumnSpec] = &[];
+            fn row(&self) -> Vec<Option<Cell>> {
+                Vec::new()
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        format_table(&mut buf, &[ZeroCols]).unwrap();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn format_table_aligns_wide_unicode_cells_by_display_width() {
+        // "中文" is two CJK chars; UAX-11 width = 4 cells, byte length = 6.
+        // Header "X" (width 1) padded to width 4 must produce "X   " (3 trailing
+        // spaces), and the cell "中文" itself occupies 4 visual cells. With a
+        // trailing single-column cell "y", the row line is:
+        //   "  " + "中文" + " " + "y" => "  中文 y"
+        // and the header line is:
+        //   "  " + "X   " + " " + "Y" => "  X    Y" (trim_end keeps 4 spaces because Y is non-empty)
+        struct Wide;
+        impl TidyItem for Wide {
+            const COLUMNS: &'static [ColumnSpec] = &[
+                ColumnSpec {
+                    header: "X",
+                    align: Align::Left,
+                },
+                ColumnSpec {
+                    header: "Y",
+                    align: Align::Left,
+                },
+            ];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![Some(Cow::Borrowed("中文")), Some(Cow::Borrowed("y"))]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        format_table(&mut buf, &[Wide]).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "  X    Y");
+        assert_eq!(lines[1], "  中文 y");
+    }
+
+    #[test]
+    #[should_panic(expected = "TidyItem::row() length")]
+    fn format_table_panics_in_debug_when_row_length_mismatches_columns() {
+        struct Bad;
+        impl TidyItem for Bad {
+            const COLUMNS: &'static [ColumnSpec] = &[
+                ColumnSpec {
+                    header: "A",
+                    align: Align::Left,
+                },
+                ColumnSpec {
+                    header: "B",
+                    align: Align::Left,
+                },
+            ];
+            fn row(&self) -> Vec<Option<Cell>> {
+                vec![Some(Cow::Borrowed("only-one"))]
+            }
+            fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+                vec![Cow::Borrowed("/repo")]
+            }
+        }
+        let mut buf = Vec::new();
+        let _ = format_table(&mut buf, &[Bad]);
+    }
+
     // --- TidyItem for WorktreeInfo tests ---
 
     mod worktree_impl {
@@ -966,7 +1202,10 @@ mod tests {
                 remote_tracking: true,
                 ahead: 6,
                 behind: 324,
-                dirty_files: vec![],
+                // Production invariant: meaningful_dirty_files is dirty_files
+                // after noise filtering, so |meaningful| <= |dirty|. Keep both
+                // at 5 here so the fixture matches what the scanner can emit.
+                dirty_files: vec!["a".into(); 5],
                 meaningful_dirty_files: vec!["a".into(); 5],
             }
         }
@@ -1041,12 +1280,18 @@ mod tests {
         }
 
         #[test]
-        fn annotations_dirty_phrasing_includes_file_count() {
+        fn annotations_dirty_pluralizes_count() {
             let mut wt = landed_worktree();
             wt.annotations.dirty = true;
+
             wt.annotations.dirty_file_count = 1;
-            let anns = wt.annotations();
-            assert_eq!(anns[0].as_ref(), "dirty (1 files)");
+            assert_eq!(wt.annotations()[0].as_ref(), "dirty (1 file)");
+
+            wt.annotations.dirty_file_count = 2;
+            assert_eq!(wt.annotations()[0].as_ref(), "dirty (2 files)");
+
+            wt.annotations.dirty_file_count = 0;
+            assert_eq!(wt.annotations()[0].as_ref(), "dirty (0 files)");
         }
 
         #[test]
@@ -1079,9 +1324,14 @@ mod tests {
         }
 
         #[test]
-        fn porcelain_fields_repo_path_first() {
+        fn porcelain_field_zero_is_worktree_dir_and_field_one_is_parent_repo() {
+            // worktree-tidy preserves its historical porcelain shape:
+            // field [0] is the worktree directory, field [1] is the parent repo.
+            // The trait doc calls this out as the exception to the otherwise
+            // repo-path-first convention.
             let fields = landed_worktree().porcelain_fields();
             assert_eq!(fields[0].as_ref(), "/dev/Backend-parallel");
+            assert_eq!(fields[1].as_ref(), "/repos/Backend");
         }
 
         #[test]
