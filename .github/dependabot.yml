@@ -20,3 +20,8 @@ updates:
         update-types:
           - minor
           - patch
+    # The dtolnay/rust-toolchain pin in the msrv job is intentional —
+    # bumping it would defeat the MSRV check. Bump it manually when MSRV
+    # is officially raised.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
