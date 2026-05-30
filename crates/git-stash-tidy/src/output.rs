@@ -1,60 +1,48 @@
+use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{StashInfo, StashScanResult};
 
-const HEADER_STATUS: &str = "STATUS";
-const HEADER_REF: &str = "REF";
-const HEADER_MESSAGE: &str = "MESSAGE";
-const HEADER_AGE: &str = "AGE";
+impl TidyItem for StashInfo {
+    const COLUMNS: &'static [ColumnSpec] = &[
+        ColumnSpec::left("STATUS"),
+        ColumnSpec::left("REF"),
+        ColumnSpec::left("MESSAGE"),
+        ColumnSpec::left("AGE"),
+    ];
 
-struct ColumnWidths {
-    status: usize,
-    stash_ref: usize,
-    message: usize,
-    age: usize,
-}
-
-fn format_age(age_days: Option<u64>) -> String {
-    match age_days {
-        Some(0) => "today".to_string(),
-        Some(1) => "1 day ago".to_string(),
-        Some(d) => format!("{d} days ago"),
-        None => String::new(),
-    }
-}
-
-fn compute_column_widths(stashes: &[StashInfo]) -> ColumnWidths {
-    let mut max_status = HEADER_STATUS.len();
-    let mut max_ref = HEADER_REF.len();
-    let mut max_msg = HEADER_MESSAGE.len();
-    let mut max_age = HEADER_AGE.len();
-
-    for s in stashes {
-        max_status = max_status.max(s.classification.label().len());
-        max_ref = max_ref.max(s.stash_ref.len());
-        max_msg = max_msg.max(s.message.len());
-        max_age = max_age.max(format_age(s.age_days).len());
+    fn row(&self) -> Vec<Option<Cell>> {
+        // AGE cell is always Some (possibly empty string) so the column stays
+        // visible — matching pre-migration behavior. Stash entries with no
+        // recorded age render a blank AGE cell rather than hiding the column.
+        let age: Cell = Cow::Owned(match self.age_days {
+            Some(0) => "today".to_string(),
+            Some(1) => "1 day ago".to_string(),
+            Some(d) => format!("{d} days ago"),
+            None => String::new(),
+        });
+        vec![
+            Some(Cow::Borrowed(self.classification.label())),
+            Some(Cow::Owned(self.stash_ref.clone())),
+            Some(Cow::Owned(self.message.clone())),
+            Some(age),
+        ]
     }
 
-    ColumnWidths {
-        status: max_status,
-        stash_ref: max_ref,
-        message: max_msg,
-        age: max_age,
+    fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+        vec![
+            Cow::Owned(self.repo_path.display().to_string()),
+            Cow::Owned(self.stash_ref.clone()),
+            Cow::Borrowed(self.classification.label()),
+            Cow::Owned(self.branch.clone().unwrap_or_default()),
+            Cow::Owned(self.age_days.map(|d| d.to_string()).unwrap_or_default()),
+            Cow::Owned(self.message.clone()),
+        ]
     }
-}
-
-fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
-    let sw = widths.status;
-    let rw = widths.stash_ref;
-    let mw = widths.message;
-    let line =
-        format!("  {HEADER_STATUS:<sw$} {HEADER_REF:<rw$} {HEADER_MESSAGE:<mw$} {HEADER_AGE}");
-    let trimmed = line.trim_end();
-    writeln!(out, "{trimmed}")
 }
 
 /// Write human-readable scan output.
@@ -63,24 +51,7 @@ pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Re
 
     for group in &result.repos {
         writeln!(out, "\n{} ({} stashes)", group.name, group.stashes.len())?;
-
-        let widths = compute_column_widths(&group.stashes);
-        write_header(out, &widths)?;
-
-        for stash in &group.stashes {
-            let label = stash.classification.label();
-            let age = format_age(stash.age_days);
-
-            let sw = widths.status;
-            let rw = widths.stash_ref;
-            let mw = widths.message;
-            let line = format!(
-                "  {label:<sw$} {:<rw$} {:<mw$} {age}",
-                stash.stash_ref, stash.message,
-            );
-            let trimmed = line.trim_end();
-            writeln!(out, "{trimmed}")?;
-        }
+        shared::format_table(out, &group.stashes)?;
     }
 
     write_stash_summary(out, result)?;
@@ -107,19 +78,7 @@ pub fn write_json(out: &mut dyn Write, result: &StashScanResult) -> std::io::Res
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &StashScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        for stash in &group.stashes {
-            let repo = stash.repo_path.display();
-            let branch = stash.branch.as_deref().unwrap_or("");
-            let age = stash.age_days.map(|d| d.to_string()).unwrap_or_default();
-
-            writeln!(
-                out,
-                "{repo}\t{}\t{}\t{branch}\t{age}\t{}",
-                stash.stash_ref,
-                stash.classification.label(),
-                stash.message,
-            )?;
-        }
+        shared::format_porcelain(out, &group.stashes)?;
     }
     Ok(())
 }
@@ -248,5 +207,91 @@ mod tests {
         assert_eq!(fields[3], "feature-x");
         assert_eq!(fields[4], "23");
         assert_eq!(fields[5], "WIP on feature-x: abc1234 Add login");
+    }
+
+    // --- TidyItem data-shape tests ---
+
+    fn stash_info(
+        stash_ref: &str,
+        classification: StashClassification,
+        branch: Option<&str>,
+        age_days: Option<u64>,
+        message: &str,
+    ) -> StashInfo {
+        StashInfo {
+            repo_path: PathBuf::from("/repos/my-repo"),
+            stash_ref: stash_ref.to_string(),
+            classification,
+            branch: branch.map(|s| s.to_string()),
+            age_days,
+            message: message.to_string(),
+        }
+    }
+
+    #[test]
+    fn tidyitem_row_shape_stash() {
+        let row = stash_info(
+            "stash@{0}",
+            StashClassification::Committed,
+            Some("feature-x"),
+            Some(23),
+            "WIP on feature-x: abc1234 Add login",
+        )
+        .row();
+        assert_eq!(row.len(), 4);
+        assert_eq!(row[0].as_deref(), Some("committed"));
+        assert_eq!(row[1].as_deref(), Some("stash@{0}"));
+        assert_eq!(
+            row[2].as_deref(),
+            Some("WIP on feature-x: abc1234 Add login")
+        );
+        assert_eq!(row[3].as_deref(), Some("23 days ago"));
+    }
+
+    #[test]
+    fn tidyitem_row_age_today_and_one_day() {
+        let row_today =
+            stash_info("stash@{0}", StashClassification::Active, None, Some(0), "m").row();
+        assert_eq!(row_today[3].as_deref(), Some("today"));
+
+        let row_yesterday =
+            stash_info("stash@{0}", StashClassification::Active, None, Some(1), "m").row();
+        assert_eq!(row_yesterday[3].as_deref(), Some("1 day ago"));
+    }
+
+    #[test]
+    fn tidyitem_row_age_none_renders_empty_cell() {
+        // age_days: None must yield Some("") so the AGE column stays visible
+        // even when no stash has a recorded age — matching pre-migration
+        // behavior.
+        let row = stash_info("stash@{0}", StashClassification::Active, None, None, "m").row();
+        assert_eq!(row[3].as_deref(), Some(""));
+    }
+
+    #[test]
+    fn tidyitem_porcelain_stash_field_order() {
+        let fields = stash_info(
+            "stash@{0}",
+            StashClassification::Committed,
+            Some("feature-x"),
+            Some(23),
+            "WIP on feature-x: abc1234 Add login",
+        )
+        .porcelain_fields();
+        assert_eq!(fields.len(), 6);
+        assert_eq!(fields[0].as_ref(), "/repos/my-repo");
+        assert_eq!(fields[1].as_ref(), "stash@{0}");
+        assert_eq!(fields[2].as_ref(), "committed");
+        assert_eq!(fields[3].as_ref(), "feature-x");
+        assert_eq!(fields[4].as_ref(), "23");
+        assert_eq!(fields[5].as_ref(), "WIP on feature-x: abc1234 Add login");
+    }
+
+    #[test]
+    fn tidyitem_porcelain_null_branch_and_age_are_empty_fields() {
+        let fields = stash_info("stash@{0}", StashClassification::Active, None, None, "m")
+            .porcelain_fields();
+        assert_eq!(fields[3].as_ref(), "");
+        assert_eq!(fields[4].as_ref(), "");
     }
 }
