@@ -1,151 +1,122 @@
+use std::borrow::Cow;
 use std::io::Write;
 
 use git_tidy_core::output as shared;
+use git_tidy_core::output::{Align, Cell, ColumnSpec, TidyItem};
 use git_tidy_core::types::{Classification, ClassificationLabel};
 
 use crate::types::{BranchInfo, BranchScanResult};
 
-const HEADER_STATUS: &str = "STATUS";
-const HEADER_BRANCH: &str = "BRANCH";
-const HEADER_RATIO: &str = "RATIO";
-const HEADER_AHEAD_BEHIND: &str = "AHEAD/BEHIND";
+impl TidyItem for BranchInfo {
+    const COLUMNS: &'static [ColumnSpec] = &[
+        ColumnSpec {
+            header: "STATUS",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "BRANCH",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "RATIO",
+            align: Align::Left,
+        },
+        ColumnSpec {
+            header: "AHEAD/BEHIND",
+            align: Align::Left,
+        },
+    ];
 
-struct ColumnWidths {
-    status: usize,
-    name: usize,
-    ratio: usize,
-    ahead_behind: usize,
-    has_ratio: bool,
-    has_ahead_behind: bool,
-}
+    fn row(&self) -> Vec<Option<Cell>> {
+        let status: Cell = Cow::Borrowed(self.classification.label());
+        // Bake the current-branch marker into the BRANCH cell so both starred
+        // and unstarred rows occupy the same column width.
+        let branch: Cell = if self.is_current {
+            Cow::Owned(format!("* {}", self.name))
+        } else {
+            Cow::Owned(format!("  {}", self.name))
+        };
 
-fn compute_column_widths(branches: &[BranchInfo]) -> ColumnWidths {
-    let mut max_status = HEADER_STATUS.len();
-    let mut max_name = HEADER_BRANCH.len();
-    let mut max_ratio = HEADER_RATIO.len();
-    let mut max_ab = HEADER_AHEAD_BEHIND.len();
-    let mut has_ratio = false;
-    let mut has_ahead_behind = false;
+        let ratio = shared::format_landed_ratio(&self.classification);
+        let ratio_cell: Option<Cell> = if ratio.is_empty() {
+            None
+        } else {
+            Some(Cow::Owned(ratio))
+        };
 
-    for b in branches {
-        max_status = max_status.max(b.classification.label().len());
-        // +2 for "* " or "  " prefix
-        max_name = max_name.max(b.name.len() + 2);
-        let ratio = shared::format_landed_ratio(&b.classification);
-        let ab = shared::format_ahead_behind(b.ahead, b.behind);
-        if !ratio.is_empty() {
-            has_ratio = true;
-            max_ratio = max_ratio.max(ratio.len());
+        let ab = shared::format_ahead_behind(self.ahead, self.behind);
+        let ab_cell: Option<Cell> = if ab.is_empty() {
+            None
+        } else {
+            Some(Cow::Owned(ab))
+        };
+
+        vec![Some(status), Some(branch), ratio_cell, ab_cell]
+    }
+
+    fn row_extras(&self) -> Vec<Cow<'static, str>> {
+        match &self.classification {
+            Classification::LandedPartial { unmatched, .. } => unmatched
+                .iter()
+                .map(|c| Cow::Owned(format!("unmatched: {} {}", c.short_hash, c.subject)))
+                .collect(),
+            _ => Vec::new(),
         }
-        if !ab.is_empty() {
-            has_ahead_behind = true;
-            max_ab = max_ab.max(ab.len());
+    }
+
+    fn annotations(&self) -> Vec<Cow<'static, str>> {
+        let mut anns: Vec<Cow<'static, str>> = Vec::new();
+        if self.remote_only {
+            anns.push(Cow::Borrowed("remote"));
         }
+        if self.diverged {
+            anns.push(Cow::Borrowed("diverged"));
+        }
+        if self.remote_deleted {
+            anns.push(Cow::Borrowed("remote deleted"));
+        }
+        anns
     }
 
-    ColumnWidths {
-        status: max_status,
-        name: max_name,
-        ratio: max_ratio,
-        ahead_behind: max_ab,
-        has_ratio,
-        has_ahead_behind,
-    }
-}
+    fn porcelain_fields(&self) -> Vec<Cow<'static, str>> {
+        let mut porcelain_anns: Vec<&str> = Vec::new();
+        if self.remote_only {
+            porcelain_anns.push("remote_only");
+        }
+        if self.remote_deleted {
+            porcelain_anns.push("remote_deleted");
+        }
+        if self.diverged {
+            porcelain_anns.push("diverged");
+        }
 
-fn write_header(out: &mut dyn Write, widths: &ColumnWidths) -> std::io::Result<()> {
-    let sw = widths.status;
-    let nw = widths.name;
-    let mut line = format!("  {HEADER_STATUS:<sw$} {HEADER_BRANCH:<nw$}");
-    if widths.has_ratio {
-        let rw = widths.ratio;
-        line.push_str(&format!(" {HEADER_RATIO:<rw$}"));
+        vec![
+            Cow::Owned(self.repo_path.display().to_string()),
+            Cow::Owned(self.name.clone()),
+            Cow::Borrowed(self.classification.label()),
+            Cow::Owned(shared::format_landed_ratio(&self.classification)),
+            Cow::Owned(self.ahead.to_string()),
+            Cow::Owned(self.behind.to_string()),
+            Cow::Owned(self.is_current.to_string()),
+            Cow::Owned(porcelain_anns.join(",")),
+        ]
     }
-    if widths.has_ahead_behind {
-        let aw = widths.ahead_behind;
-        line.push_str(&format!(" {HEADER_AHEAD_BEHIND:<aw$}"));
-    }
-    let trimmed = line.trim_end();
-    writeln!(out, "{trimmed}")
 }
 
 /// Write human-readable scan output.
+///
+/// Per-group: heading + `format_table` over the group's `BranchInfo`s, which
+/// reads `TidyItem for BranchInfo` defined above.
 pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
     shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
         writeln!(out, "\n{} ({} branches)", group.name, group.branches.len())?;
-
-        let widths = compute_column_widths(&group.branches);
-        write_header(out, &widths)?;
-
-        for branch in &group.branches {
-            write_branch_line(out, branch, &widths)?;
-
-            // For partial landings, list unmatched commits
-            if let Classification::LandedPartial { unmatched, .. } = &branch.classification {
-                for commit in unmatched {
-                    writeln!(
-                        out,
-                        "    unmatched: {} {}",
-                        commit.short_hash, commit.subject
-                    )?;
-                }
-            }
-        }
+        shared::format_table(out, &group.branches)?;
     }
 
     shared::write_summary_line(out, result.total_scanned, &result.counts, "branches")?;
     shared::write_explain_hint(out)?;
-
-    Ok(())
-}
-
-fn write_branch_line(
-    out: &mut dyn Write,
-    branch: &BranchInfo,
-    widths: &ColumnWidths,
-) -> std::io::Result<()> {
-    let label = branch.classification.label();
-
-    let name = if branch.is_current {
-        format!("* {}", branch.name)
-    } else {
-        format!("  {}", branch.name)
-    };
-
-    let ratio = shared::format_landed_ratio(&branch.classification);
-    let ahead_behind = shared::format_ahead_behind(branch.ahead, branch.behind);
-
-    // Annotations
-    let mut ann_strs = Vec::new();
-    if branch.remote_only {
-        ann_strs.push("remote");
-    }
-    if branch.diverged {
-        ann_strs.push("diverged");
-    }
-    if branch.remote_deleted {
-        ann_strs.push("remote deleted");
-    }
-    let annotations = shared::format_annotations(&ann_strs);
-
-    let sw = widths.status;
-    let nw = widths.name;
-    let mut line = format!("  {label:<sw$} {name:<nw$}");
-    if widths.has_ratio {
-        let rw = widths.ratio;
-        line.push_str(&format!(" {ratio:<rw$}"));
-    }
-    if widths.has_ahead_behind {
-        let aw = widths.ahead_behind;
-        line.push_str(&format!(" {ahead_behind:<aw$}"));
-    }
-    if !annotations.is_empty() {
-        line.push_str(&format!("  {annotations}"));
-    }
-    let trimmed = line.trim_end();
-    writeln!(out, "{trimmed}")?;
 
     Ok(())
 }
@@ -158,30 +129,7 @@ pub fn write_json(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Re
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        for branch in &group.branches {
-            let repo = branch.repo_path.display();
-            let name = &branch.name;
-            let class = branch.classification.label();
-            let ratio = shared::format_landed_ratio(&branch.classification);
-
-            let mut anns = Vec::new();
-            if branch.remote_only {
-                anns.push("remote_only");
-            }
-            if branch.remote_deleted {
-                anns.push("remote_deleted");
-            }
-            if branch.diverged {
-                anns.push("diverged");
-            }
-            let annotations = anns.join(",");
-
-            writeln!(
-                out,
-                "{repo}\t{name}\t{class}\t{ratio}\t{}\t{}\t{}\t{annotations}",
-                branch.ahead, branch.behind, branch.is_current,
-            )?;
-        }
+        shared::format_porcelain(out, &group.branches)?;
     }
     Ok(())
 }
@@ -237,6 +185,24 @@ mod tests {
             warnings: vec![],
         }
     }
+
+    fn make_branch(name: &str) -> BranchInfo {
+        BranchInfo {
+            repo_path: PathBuf::from("/repos/Demo"),
+            name: name.to_string(),
+            default_branch: "main".to_string(),
+            classification: Classification::Active,
+            remote_tracking: true,
+            remote_deleted: false,
+            ahead: 0,
+            behind: 0,
+            diverged: false,
+            is_current: false,
+            remote_only: false,
+        }
+    }
+
+    // --- Smoke tests on the public formatters (preserved across migration) ---
 
     #[test]
     fn human_output_basic() {
@@ -357,7 +323,7 @@ mod tests {
                 name: "App".to_string(),
                 branches: vec![BranchInfo {
                     repo_path: PathBuf::from("/repos/App"),
-                    name: "feature/stale-remote".to_string(),
+                    name: "feature/stale".to_string(),
                     default_branch: "main".to_string(),
                     classification: Classification::Landed,
                     remote_tracking: true,
@@ -381,7 +347,7 @@ mod tests {
         write_human(&mut buf, &result).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("remote"));
-        assert!(output.contains("feature/stale-remote"));
+        assert!(output.contains("feature/stale"));
     }
 
     #[test]
@@ -469,5 +435,154 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("warning: could not determine default branch"));
+    }
+
+    // --- TidyItem data-shape tests on BranchInfo ---
+
+    #[test]
+    fn row_has_one_cell_per_column() {
+        let b = make_branch("feature/x");
+        assert_eq!(b.row().len(), BranchInfo::COLUMNS.len());
+    }
+
+    #[test]
+    fn row_status_and_branch_always_present() {
+        let b = make_branch("feature/x");
+        let row = b.row();
+        assert!(row[0].is_some(), "STATUS must be present");
+        assert!(row[1].is_some(), "BRANCH must be present");
+    }
+
+    #[test]
+    fn row_ratio_and_ab_hidden_when_empty() {
+        let mut b = make_branch("feature/x");
+        b.ahead = 0;
+        b.behind = 0;
+        let row = b.row();
+        assert!(row[2].is_none(), "RATIO must hide when no ratio applies");
+        assert!(row[3].is_none(), "AHEAD/BEHIND must hide when 0/0");
+    }
+
+    #[test]
+    fn row_ratio_present_for_landed_partial() {
+        let mut b = make_branch("feature/x");
+        b.classification = Classification::LandedPartial {
+            matched: 4,
+            total: 6,
+            unmatched: vec![],
+        };
+        let row = b.row();
+        assert_eq!(row[2].as_deref(), Some("4/6"));
+    }
+
+    #[test]
+    fn row_ab_present_when_ahead_or_behind_nonzero() {
+        let mut b = make_branch("feature/x");
+        b.ahead = 3;
+        b.behind = 7;
+        let row = b.row();
+        assert!(row[3].is_some());
+    }
+
+    #[test]
+    fn row_branch_cell_carries_current_marker() {
+        let mut b = make_branch("feature/x");
+        b.is_current = true;
+        let row = b.row();
+        let cell = row[1].as_deref().unwrap();
+        assert!(cell.starts_with("* "), "got: {cell:?}");
+        assert!(cell.ends_with("feature/x"));
+    }
+
+    #[test]
+    fn row_branch_cell_pads_unstarred_for_alignment() {
+        let mut b = make_branch("feature/x");
+        b.is_current = false;
+        let row = b.row();
+        let cell = row[1].as_deref().unwrap();
+        assert!(cell.starts_with("  "), "got: {cell:?}");
+        assert!(cell.ends_with("feature/x"));
+    }
+
+    #[test]
+    fn row_extras_empty_for_non_partial() {
+        let b = make_branch("feature/x");
+        assert!(b.row_extras().is_empty());
+    }
+
+    #[test]
+    fn row_extras_lists_unmatched_for_landed_partial() {
+        let mut b = make_branch("feature/x");
+        b.classification = Classification::LandedPartial {
+            matched: 1,
+            total: 2,
+            unmatched: vec![UnmatchedCommit {
+                short_hash: "abc123".to_string(),
+                subject: "Drop tracing".to_string(),
+            }],
+        };
+        let extras = b.row_extras();
+        assert_eq!(extras.len(), 1);
+        assert_eq!(extras[0].as_ref(), "unmatched: abc123 Drop tracing");
+    }
+
+    #[test]
+    fn annotations_empty_when_no_flags() {
+        let b = make_branch("feature/x");
+        assert!(b.annotations().is_empty());
+    }
+
+    #[test]
+    fn annotations_human_order_remote_diverged_remote_deleted() {
+        let mut b = make_branch("feature/x");
+        b.remote_only = true;
+        b.diverged = true;
+        b.remote_deleted = true;
+        let tokens: Vec<String> = b
+            .annotations()
+            .into_iter()
+            .map(|c| c.into_owned())
+            .collect();
+        assert_eq!(tokens, vec!["remote", "diverged", "remote deleted"]);
+    }
+
+    #[test]
+    fn porcelain_fields_count_is_eight() {
+        let b = make_branch("feature/x");
+        assert_eq!(b.porcelain_fields().len(), 8);
+    }
+
+    #[test]
+    fn porcelain_fields_path_first() {
+        let b = make_branch("feature/x");
+        let fields = b.porcelain_fields();
+        assert_eq!(fields[0].as_ref(), "/repos/Demo");
+    }
+
+    #[test]
+    fn porcelain_fields_order_and_types() {
+        let mut b = make_branch("feature/x");
+        b.classification = Classification::Active;
+        b.ahead = 3;
+        b.behind = 7;
+        b.is_current = true;
+        let fields = b.porcelain_fields();
+        assert_eq!(fields[1].as_ref(), "feature/x");
+        assert_eq!(fields[2].as_ref(), "active");
+        assert_eq!(fields[3].as_ref(), ""); // ratio empty for Active
+        assert_eq!(fields[4].as_ref(), "3");
+        assert_eq!(fields[5].as_ref(), "7");
+        assert_eq!(fields[6].as_ref(), "true");
+        assert_eq!(fields[7].as_ref(), "");
+    }
+
+    #[test]
+    fn porcelain_annotations_order_remote_only_remote_deleted_diverged() {
+        let mut b = make_branch("feature/x");
+        b.remote_only = true;
+        b.remote_deleted = true;
+        b.diverged = true;
+        let fields = b.porcelain_fields();
+        assert_eq!(fields[7].as_ref(), "remote_only,remote_deleted,diverged");
     }
 }
