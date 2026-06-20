@@ -103,7 +103,13 @@ pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::R
         shared::format_table(out, &group.branches)?;
     }
 
-    shared::write_summary_line(out, result.total_scanned, &result.counts, "branches")?;
+    shared::write_summary_line(
+        out,
+        result.total_scanned,
+        &result.counts,
+        "branches",
+        shared::LANDED_SUMMARY,
+    )?;
     shared::write_explain_hint(out)?;
 
     Ok(())

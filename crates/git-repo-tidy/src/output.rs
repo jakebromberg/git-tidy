@@ -79,9 +79,16 @@ pub fn write_human(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Res
     Ok(())
 }
 
+/// Ordered `(display, count key)` pairs for the repo summary breakdown. The
+/// cross-cutting `dirty` count is appended separately (see `dirty_note`).
+const REPO_SUMMARY: &[(&str, &str)] = &[
+    ("stale", "stale"),
+    ("orphaned", "orphaned"),
+    ("active", "active"),
+];
+
 /// Write the repo-specific summary lines.
 fn write_summary(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Result<()> {
-    let c = &result.counts;
     let dirty_note = if result.dirty > 0 {
         format!(" ({} dirty)", result.dirty)
     } else {
@@ -90,11 +97,9 @@ fn write_summary(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Resul
 
     writeln!(
         out,
-        "\n{} repos scanned: {} stale, {} orphaned, {} active{dirty_note}",
+        "\n{} repos scanned: {}{dirty_note}",
         result.total_scanned,
-        c.get("stale"),
-        c.get("orphaned"),
-        c.get("active"),
+        shared::format_summary_buckets(&result.counts, REPO_SUMMARY),
     )?;
 
     writeln!(
