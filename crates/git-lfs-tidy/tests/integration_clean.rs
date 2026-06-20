@@ -3,13 +3,13 @@ mod common;
 use common::{git, set_up_repo};
 use git_tidy_core::git::RealGit;
 
-use git_lfs_tidy::clean::{CleanOptions, CleanResult};
+use git_lfs_tidy::clean::{CleanOptions, LfsCleanResult};
 use git_lfs_tidy::types::LfsClassification;
 
 fn run_scan_and_clean(
     scan_dir: &std::path::Path,
     options: &CleanOptions,
-) -> (git_lfs_tidy::types::LfsScanResult, CleanResult) {
+) -> (git_lfs_tidy::types::LfsScanResult, LfsCleanResult) {
     let git_ops = RealGit;
     let scan_result = git_lfs_tidy::scan::run_scan(
         &git_ops,
@@ -54,7 +54,7 @@ fn clean_dry_run_with_untracked_blobs() {
             .any(|i| i.classification == LfsClassification::Untracked),
         "expected untracked items"
     );
-    assert_eq!(clean_result.pruned.len(), 0);
+    assert_eq!(clean_result.succeeded.len(), 0);
     assert!(
         clean_result
             .recommendations
@@ -82,6 +82,6 @@ fn clean_with_no_orphaned_is_noop() {
     let (_scan_result, clean_result) = run_scan_and_clean(&scan_dir, &options);
 
     // No LFS objects to prune, so nothing pruned
-    assert_eq!(clean_result.pruned.len(), 0);
+    assert_eq!(clean_result.succeeded.len(), 0);
     assert_eq!(clean_result.failed.len(), 0);
 }

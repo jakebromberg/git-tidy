@@ -1,8 +1,10 @@
 use std::io::Write;
+use std::ops::Deref;
 use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
+use git_tidy_core::types::{CleanResult, FailedItem};
 
 use crate::output::format_bytes;
 use crate::types::{LfsClassification, LfsScanResult};
@@ -15,18 +17,28 @@ pub struct CleanOptions {
     pub prune: bool,
 }
 
-/// Result of a clean operation.
+/// Result of an LFS clean operation: the shared [`CleanResult`] plus the
+/// LFS-specific health recommendations surfaced during the pass.
+///
+/// Derefs to the inner [`CleanResult`] so callers read `succeeded` / `failed` /
+/// `skipped` without going through `.result`.
 #[derive(Debug)]
-#[allow(dead_code)]
-pub struct CleanResult {
-    /// Repos that were pruned (or would be in dry-run).
-    pub pruned: Vec<PrunedRepo>,
-    /// Repos that failed to prune.
-    pub failed: Vec<FailedRepo>,
-    /// Items that were skipped (not actionable).
-    pub skipped: usize,
-    /// Recommendations printed to the user.
+pub struct LfsCleanResult {
+    /// Shared succeeded / failed / skipped aggregation.
+    pub result: CleanResult<PrunedRepo>,
+    /// Recommendations printed to the user (e.g. `git lfs migrate`). Already
+    /// emitted inline during the pass; retained here for tests and future JSON
+    /// output. A candidate to drop once lfs moves onto the shared CleanPipeline.
+    #[allow(dead_code)]
     pub recommendations: Vec<String>,
+}
+
+impl Deref for LfsCleanResult {
+    type Target = CleanResult<PrunedRepo>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.result
+    }
 }
 
 /// A repo whose LFS objects were successfully pruned (or would have been, in dry-run).
@@ -40,21 +52,13 @@ pub struct PrunedRepo {
     pub dry_run: bool,
 }
 
-/// A repo whose LFS prune failed.
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct FailedRepo {
-    pub repo: PathBuf,
-    pub reason: String,
-}
-
 /// Run the clean operation on a scan result.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &LfsScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult, Error> {
+) -> Result<LfsCleanResult, Error> {
     let mut pruned = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
@@ -112,8 +116,9 @@ pub fn run_clean(
                                     "error: could not prune LFS objects in {}: {e}",
                                     group.name,
                                 )?;
-                                failed.push(FailedRepo {
+                                failed.push(FailedItem {
                                     repo: group.repo_path.clone(),
+                                    name: group.name.clone(),
                                     reason: e.to_string(),
                                 });
                             }
@@ -152,10 +157,12 @@ pub fn run_clean(
         }
     }
 
-    Ok(CleanResult {
-        pruned,
-        failed,
-        skipped,
+    Ok(LfsCleanResult {
+        result: CleanResult {
+            succeeded: pruned,
+            failed,
+            skipped,
+        },
         recommendations,
     })
 }
@@ -218,9 +225,9 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.pruned.len(), 1);
-        assert_eq!(result.pruned[0].objects_pruned, 3);
-        assert_eq!(result.pruned[0].bytes_freed, 2_500_000);
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].objects_pruned, 3);
+        assert_eq!(result.succeeded[0].bytes_freed, 2_500_000);
         assert_eq!(git.lfs_prune_calls().len(), 1);
 
         let output = String::from_utf8(buf).unwrap();
@@ -245,11 +252,11 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.pruned.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         assert_eq!(git.lfs_prune_calls().len(), 0);
         // Regression: dry-run entries must be distinguishable from real prunes so downstream JSON consumers can filter them out.
         assert!(
-            result.pruned[0].dry_run,
+            result.succeeded[0].dry_run,
             "dry-run PrunedRepo must have dry_run=true",
         );
 
@@ -274,8 +281,8 @@ mod tests {
         };
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
-        assert_eq!(result.pruned.len(), 1);
-        assert!(!result.pruned[0].dry_run);
+        assert_eq!(result.succeeded.len(), 1);
+        assert!(!result.succeeded[0].dry_run);
         assert_eq!(git.lfs_prune_calls().len(), 1);
     }
 
@@ -293,7 +300,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.pruned.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.lfs_prune_calls().len(), 0);
     }
@@ -316,7 +323,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.pruned.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(git.lfs_prune_calls().len(), 0);
 
@@ -346,7 +353,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &options, &mut buf).unwrap();
 
-        assert_eq!(result.pruned.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
 
         let output = String::from_utf8(buf).unwrap();
@@ -385,7 +392,7 @@ mod tests {
 
         let result = run_clean(&git, &scan, &default_options(), &mut buf).unwrap();
 
-        assert_eq!(result.pruned.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert_eq!(result.recommendations.len(), 0);
     }

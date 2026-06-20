@@ -60,7 +60,7 @@ fn clean_removes_orphaned_repo() {
 
     let result = run_clean(&scan_result, &default_options(), &delete_fn, &mut buf).unwrap();
 
-    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
     assert!(!repo.exists(), "repo should have been deleted");
 }
 
@@ -93,7 +93,7 @@ fn clean_dry_run_preserves_repo() {
 
     let result = run_clean(&scan_result, &options, &delete_fn, &mut buf).unwrap();
 
-    assert_eq!(result.deleted.len(), 1); // reported as "would delete"
+    assert_eq!(result.succeeded.len(), 1); // reported as "would delete"
     assert!(repo.exists(), "repo should still exist after dry-run");
 
     let output = String::from_utf8(buf).unwrap();
@@ -128,7 +128,7 @@ fn clean_skips_dirty_repo() {
 
     let result = run_clean(&scan_result, &default_options(), &delete_fn, &mut buf).unwrap();
 
-    assert_eq!(result.deleted.len(), 0);
+    assert_eq!(result.succeeded.len(), 0);
     assert!(result.dirty_blocked);
     assert!(repo.exists(), "dirty repo should not be deleted");
 }
@@ -165,6 +165,6 @@ fn clean_force_deletes_dirty_repo() {
 
     let result = run_clean(&scan_result, &options, &delete_fn, &mut buf).unwrap();
 
-    assert_eq!(result.deleted.len(), 1);
+    assert_eq!(result.succeeded.len(), 1);
     assert!(!repo.exists(), "dirty repo should be deleted with --force");
 }
