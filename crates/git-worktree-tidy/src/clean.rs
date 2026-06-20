@@ -229,8 +229,9 @@ fn remove_worktree(
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::testutil::MockGitBuilder;
-    use git_tidy_core::types::{Annotations, RepoGroup, ScanCounts, WorktreeInfo};
+    use git_tidy_core::types::{Annotations, ClassificationLabel, RepoGroup, WorktreeInfo};
 
     use super::*;
 
@@ -255,9 +256,9 @@ mod tests {
     }
 
     fn make_scan(worktrees: Vec<WorktreeInfo>) -> ScanResult {
-        let mut counts = ScanCounts::default();
+        let mut counts = Counts::default();
         for wt in &worktrees {
-            counts.increment(&wt.classification);
+            counts.increment(wt.classification.label());
         }
         let total = worktrees.len();
         ScanResult {

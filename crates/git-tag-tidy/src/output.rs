@@ -69,7 +69,11 @@ fn write_tag_summary(out: &mut dyn Write, result: &TagScanResult) -> std::io::Re
     writeln!(
         out,
         "\n{} tags scanned: {} stale, {} local_only, {} remote_only, {} synced",
-        result.total_scanned, c.stale, c.local_only, c.remote_only, c.synced,
+        result.total_scanned,
+        c.get("stale"),
+        c.get("local_only"),
+        c.get("remote_only"),
+        c.get("synced"),
     )
 }
 
@@ -92,6 +96,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn make_scan_result() -> TagScanResult {
         TagScanResult {
@@ -132,12 +137,7 @@ mod tests {
                 ],
             }],
             total_scanned: 3,
-            counts: TagCounts {
-                stale: 1,
-                local_only: 1,
-                remote_only: 0,
-                synced: 1,
-            },
+            counts: Counts::from_pairs(&[("stale", 1), ("local_only", 1), ("synced", 1)]),
             warnings: vec![],
         }
     }
@@ -172,7 +172,7 @@ mod tests {
         let result = TagScanResult {
             repos: vec![],
             total_scanned: 0,
-            counts: TagCounts::default(),
+            counts: Counts::default(),
             warnings: vec!["could not list tags for /repo/Foo".to_string()],
         };
 
@@ -242,10 +242,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: TagCounts {
-                synced: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("synced", 1)]),
             warnings: vec![],
         };
 
@@ -287,11 +284,7 @@ mod tests {
                 ],
             }],
             total_scanned: 2,
-            counts: TagCounts {
-                stale: 1,
-                synced: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("stale", 1), ("synced", 1)]),
             warnings: vec![],
         };
 
@@ -336,11 +329,7 @@ mod tests {
                 ],
             }],
             total_scanned: 2,
-            counts: TagCounts {
-                stale: 1,
-                synced: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("stale", 1), ("synced", 1)]),
             warnings: vec![],
         };
 

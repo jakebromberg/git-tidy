@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
@@ -10,8 +11,7 @@ use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
 
 use crate::types::{
-    ConfigIssue, ConfigLintResult, ConfigRepoGroup, IssueCounts, IssueKind,
-    parse_branch_from_config_key,
+    ConfigIssue, ConfigLintResult, ConfigRepoGroup, IssueKind, parse_branch_from_config_key,
 };
 
 /// Lint a single repo for config issues.
@@ -150,10 +150,10 @@ pub fn run_lint_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = IssueCounts::default();
+    let mut counts = Counts::default();
     for g in &repos {
         for issue in &g.issues {
-            counts.increment(issue.kind);
+            counts.increment(issue.kind.label());
         }
     }
 
@@ -323,7 +323,7 @@ mod tests {
         let p = Progress::disabled();
         let result = run_lint_repos(&git, &[repo()], false, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.orphaned_branch_config, 1);
+        assert_eq!(result.counts.get("orphaned_branch_config"), 1);
     }
 
     #[test]

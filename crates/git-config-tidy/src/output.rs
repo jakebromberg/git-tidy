@@ -89,7 +89,9 @@ fn write_lint_summary(out: &mut dyn Write, result: &ConfigLintResult) -> std::io
     writeln!(
         out,
         "\n{} repos scanned: {} orphaned branch config, {} alias shadows builtin",
-        result.total_scanned, c.orphaned_branch_config, c.alias_shadows_builtin,
+        result.total_scanned,
+        c.get("orphaned_branch_config"),
+        c.get("alias_shadows_builtin"),
     )
 }
 
@@ -130,6 +132,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn make_lint_result() -> ConfigLintResult {
         ConfigLintResult {
@@ -158,10 +161,10 @@ mod tests {
                 ],
             }],
             total_scanned: 3,
-            counts: IssueCounts {
-                orphaned_branch_config: 1,
-                alias_shadows_builtin: 1,
-            },
+            counts: Counts::from_pairs(&[
+                ("orphaned_branch_config", 1),
+                ("alias_shadows_builtin", 1),
+            ]),
             warnings: vec![],
         }
     }
@@ -195,7 +198,7 @@ mod tests {
         let result = ConfigLintResult {
             repos: vec![],
             total_scanned: 0,
-            counts: IssueCounts::default(),
+            counts: Counts::default(),
             warnings: vec!["could not read config for /repo/bad".to_string()],
         };
 
@@ -223,10 +226,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: IssueCounts {
-                orphaned_branch_config: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("orphaned_branch_config", 1)]),
             warnings: vec![],
         };
 

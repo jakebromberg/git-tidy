@@ -195,8 +195,9 @@ fn derive_remote_name(git: &dyn GitOps, repo: &std::path::Path, branch: &str) ->
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::testutil::MockGitBuilder;
-    use git_tidy_core::types::ScanCounts;
+    use git_tidy_core::types::ClassificationLabel;
 
     use super::*;
     use crate::types::{BranchInfo, BranchRepoGroup, BranchScanResult};
@@ -206,9 +207,9 @@ mod tests {
     }
 
     fn make_scan_result(branches: Vec<BranchInfo>) -> BranchScanResult {
-        let mut counts = ScanCounts::default();
+        let mut counts = Counts::default();
         for b in &branches {
-            counts.increment(&b.classification);
+            counts.increment(b.classification.label());
         }
         BranchScanResult {
             repos: vec![BranchRepoGroup {

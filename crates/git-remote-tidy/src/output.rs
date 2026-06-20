@@ -78,7 +78,10 @@ fn write_remote_summary(out: &mut dyn Write, result: &RemoteScanResult) -> std::
     writeln!(
         out,
         "\n{} remotes scanned: {} unreachable, {} orphaned, {} active",
-        result.total_scanned, c.unreachable, c.orphaned, c.active,
+        result.total_scanned,
+        c.get("unreachable"),
+        c.get("orphaned"),
+        c.get("active"),
     )
 }
 
@@ -101,6 +104,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn make_scan_result() -> RemoteScanResult {
         RemoteScanResult {
@@ -127,11 +131,7 @@ mod tests {
                 ],
             }],
             total_scanned: 2,
-            counts: RemoteCounts {
-                unreachable: 1,
-                orphaned: 0,
-                active: 1,
-            },
+            counts: Counts::from_pairs(&[("unreachable", 1), ("active", 1)]),
             warnings: vec![],
         }
     }
@@ -163,7 +163,7 @@ mod tests {
         let result = RemoteScanResult {
             repos: vec![],
             total_scanned: 0,
-            counts: RemoteCounts::default(),
+            counts: Counts::default(),
             warnings: vec!["could not list remotes for /repo/Foo".to_string()],
         };
 
@@ -208,10 +208,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: RemoteCounts {
-                orphaned: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("orphaned", 1)]),
             warnings: vec![],
         };
 
@@ -334,10 +331,7 @@ mod tests {
                 ],
             }],
             total_scanned: 2,
-            counts: RemoteCounts {
-                active: 2,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("active", 2)]),
             warnings: vec![],
         };
 
@@ -392,10 +386,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: RemoteCounts {
-                active: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("active", 1)]),
             warnings: vec![],
         };
 

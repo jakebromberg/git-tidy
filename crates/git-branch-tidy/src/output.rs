@@ -128,6 +128,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::types::*;
 
     fn make_scan_result() -> BranchScanResult {
@@ -165,11 +166,7 @@ mod tests {
                 ],
             }],
             total_scanned: 2,
-            counts: ScanCounts {
-                landed: 1,
-                active: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("landed", 1), ("active", 1)]),
             warnings: vec![],
         }
     }
@@ -247,10 +244,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: ScanCounts {
-                partial: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("partial", 1)]),
             warnings: vec![],
         };
 
@@ -324,10 +318,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: ScanCounts {
-                landed: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("landed", 1)]),
             warnings: vec![],
         };
 
@@ -359,10 +350,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: ScanCounts {
-                landed: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("landed", 1)]),
             warnings: vec![],
         };
 
@@ -394,10 +382,7 @@ mod tests {
                 }],
             }],
             total_scanned: 1,
-            counts: ScanCounts {
-                landed: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("landed", 1)]),
             warnings: vec![],
         };
 
@@ -414,7 +399,7 @@ mod tests {
         let result = BranchScanResult {
             repos: vec![],
             total_scanned: 0,
-            counts: ScanCounts::default(),
+            counts: Counts::default(),
             warnings: vec!["could not determine default branch for /repo/Foo".to_string()],
         };
 

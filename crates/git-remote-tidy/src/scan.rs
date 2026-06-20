@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
@@ -10,9 +11,7 @@ use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{
-    RemoteClassification, RemoteCounts, RemoteInfo, RemoteRepoGroup, RemoteScanResult,
-};
+use crate::types::{RemoteClassification, RemoteInfo, RemoteRepoGroup, RemoteScanResult};
 
 /// Classify a single remote.
 ///
@@ -185,11 +184,11 @@ pub fn run_scan_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = RemoteCounts::default();
+    let mut counts = Counts::default();
     let mut total_scanned = 0;
     for g in &repos {
         for r in &g.remotes {
-            counts.increment(&r.classification);
+            counts.increment(r.classification.label());
         }
         total_scanned += g.remotes.len();
     }
@@ -279,7 +278,7 @@ mod tests {
         let filter = NameFilter::default();
         let result = run_scan_repos(&git, &[repo()], false, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.active, 1);
+        assert_eq!(result.counts.get("active"), 1);
     }
 
     #[test]

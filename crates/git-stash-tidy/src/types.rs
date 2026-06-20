@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
@@ -65,13 +66,6 @@ pub struct StashRepoGroup {
     pub stashes: Vec<StashInfo>,
 }
 
-git_tidy_core::define_counts!(StashCounts, StashClassification, {
-    StashClassification::Committed => committed,
-    StashClassification::Orphaned => orphaned,
-    StashClassification::Aged => aged,
-    StashClassification::Active => active,
-});
-
 /// Result of a full stash scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct StashScanResult {
@@ -80,7 +74,7 @@ pub struct StashScanResult {
     /// Total stashes scanned.
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: StashCounts,
+    pub counts: Counts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
 }
@@ -185,13 +179,17 @@ mod tests {
 
     #[test]
     fn counts_increment_and_total() {
-        let mut counts = StashCounts::default();
-        counts.increment(&StashClassification::Committed);
-        counts.increment(&StashClassification::Orphaned);
-        counts.increment(&StashClassification::Active);
-        assert_eq!(counts.committed, 1);
-        assert_eq!(counts.orphaned, 1);
-        assert_eq!(counts.active, 1);
+        let mut counts = Counts::default();
+        for c in [
+            StashClassification::Committed,
+            StashClassification::Orphaned,
+            StashClassification::Active,
+        ] {
+            counts.increment(c.label());
+        }
+        assert_eq!(counts.get("committed"), 1);
+        assert_eq!(counts.get("orphaned"), 1);
+        assert_eq!(counts.get("active"), 1);
         assert_eq!(counts.total(), 3);
     }
 }

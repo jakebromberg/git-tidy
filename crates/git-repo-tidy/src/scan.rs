@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::date::days_since_iso_date;
 use git_tidy_core::dirty::check_dirty;
 use git_tidy_core::discovery::discover_repos;
@@ -11,7 +12,7 @@ use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
 
-use crate::types::{RepoClassification, RepoCounts, RepoInfo, RepoScanResult};
+use crate::types::{RepoClassification, RepoInfo, RepoScanResult};
 
 /// Get disk usage in bytes for a directory using `du -sk`.
 ///
@@ -211,11 +212,17 @@ pub fn run_scan_repos_with_du(
     );
 
     // Post-processing: compute counts and disk usage totals.
-    let mut counts = RepoCounts::default();
+    let mut counts = Counts::default();
+    // `dirty` is a cross-cutting count (repos with meaningful uncommitted changes),
+    // not a classification bucket, so it lives on the result rather than in `Counts`.
+    let mut dirty = 0usize;
     let mut total_disk_usage_bytes = 0u64;
     let mut reclaimable_bytes = 0u64;
     for info in &repos {
-        counts.increment(info.classification, info.is_dirty);
+        counts.increment(info.classification.label());
+        if info.is_dirty {
+            dirty += 1;
+        }
         total_disk_usage_bytes += info.disk_usage_bytes;
         if matches!(
             info.classification,
@@ -239,6 +246,7 @@ pub fn run_scan_repos_with_du(
         repos,
         total_scanned,
         counts,
+        dirty,
         warnings,
         total_disk_usage_bytes,
         reclaimable_bytes,
@@ -482,7 +490,7 @@ mod tests {
         let result =
             run_scan_repos_with_du(&git, &[r], 180, &[], false, false, &no_du, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.active, 1);
+        assert_eq!(result.counts.get("active"), 1);
     }
 
     #[test]
@@ -530,9 +538,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.total_scanned, 3);
-        assert_eq!(result.counts.active, 1);
-        assert_eq!(result.counts.stale, 1);
-        assert_eq!(result.counts.orphaned, 1);
+        assert_eq!(result.counts.get("active"), 1);
+        assert_eq!(result.counts.get("stale"), 1);
+        assert_eq!(result.counts.get("orphaned"), 1);
         assert_eq!(result.total_disk_usage_bytes, 3 * 1024);
         assert_eq!(result.reclaimable_bytes, 2 * 1024); // stale + orphaned
     }

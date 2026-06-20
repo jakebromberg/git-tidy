@@ -82,8 +82,8 @@ pub fn write_human(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Res
 /// Write the repo-specific summary lines.
 fn write_summary(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Result<()> {
     let c = &result.counts;
-    let dirty_note = if c.dirty > 0 {
-        format!(" ({} dirty)", c.dirty)
+    let dirty_note = if result.dirty > 0 {
+        format!(" ({} dirty)", result.dirty)
     } else {
         String::new()
     };
@@ -91,7 +91,10 @@ fn write_summary(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Resul
     writeln!(
         out,
         "\n{} repos scanned: {} stale, {} orphaned, {} active{dirty_note}",
-        result.total_scanned, c.stale, c.orphaned, c.active,
+        result.total_scanned,
+        c.get("stale"),
+        c.get("orphaned"),
+        c.get("active"),
     )?;
 
     writeln!(
@@ -119,6 +122,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn make_scan_result() -> RepoScanResult {
         RepoScanResult {
@@ -164,12 +168,8 @@ mod tests {
                 },
             ],
             total_scanned: 3,
-            counts: RepoCounts {
-                stale: 1,
-                orphaned: 1,
-                active: 1,
-                dirty: 1,
-            },
+            counts: Counts::from_pairs(&[("stale", 1), ("orphaned", 1), ("active", 1)]),
+            dirty: 1,
             warnings: vec![],
             total_disk_usage_bytes: (142 + 89 + 256) * 1024 * 1024,
             reclaimable_bytes: (142 + 89) * 1024 * 1024,
@@ -251,7 +251,8 @@ mod tests {
         let result = RepoScanResult {
             repos: vec![],
             total_scanned: 0,
-            counts: RepoCounts::default(),
+            counts: Counts::default(),
+            dirty: 0,
             warnings: vec!["could not scan /bad/path".to_string()],
             total_disk_usage_bytes: 0,
             reclaimable_bytes: 0,
@@ -309,10 +310,8 @@ mod tests {
         let result = RepoScanResult {
             repos: vec![clean_repo("clean", RepoClassification::Active)],
             total_scanned: 1,
-            counts: RepoCounts {
-                active: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("active", 1)]),
+            dirty: 0,
             warnings: vec![],
             total_disk_usage_bytes: 100 * 1024 * 1024,
             reclaimable_bytes: 0,

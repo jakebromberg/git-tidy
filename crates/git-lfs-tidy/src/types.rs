@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use serde::Serialize;
 
 /// Classification of an LFS item.
@@ -69,30 +70,6 @@ pub struct LfsRepoGroup {
 }
 
 /// Summary counts for an LFS scan.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct LfsCounts {
-    pub untracked: usize,
-    pub missing: usize,
-    pub orphaned: usize,
-    pub healthy: usize,
-}
-
-impl LfsCounts {
-    pub fn increment(&mut self, classification: LfsClassification) {
-        match classification {
-            LfsClassification::Untracked => self.untracked += 1,
-            LfsClassification::Missing => self.missing += 1,
-            LfsClassification::Orphaned => self.orphaned += 1,
-            LfsClassification::Healthy => self.healthy += 1,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn total(&self) -> usize {
-        self.untracked + self.missing + self.orphaned + self.healthy
-    }
-}
-
 /// Result of a full LFS scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct LfsScanResult {
@@ -101,7 +78,7 @@ pub struct LfsScanResult {
     /// Total items scanned.
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: LfsCounts,
+    pub counts: Counts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
     /// Whether git-lfs is installed globally.
@@ -151,16 +128,21 @@ mod tests {
 
     #[test]
     fn counts_increment_and_total() {
-        let mut counts = LfsCounts::default();
-        counts.increment(LfsClassification::Untracked);
-        counts.increment(LfsClassification::Missing);
-        counts.increment(LfsClassification::Orphaned);
-        counts.increment(LfsClassification::Healthy);
-        counts.increment(LfsClassification::Healthy);
-        assert_eq!(counts.untracked, 1);
-        assert_eq!(counts.missing, 1);
-        assert_eq!(counts.orphaned, 1);
-        assert_eq!(counts.healthy, 2);
+        // Also guards against label drift: increments via `classification.label()`.
+        let mut counts = Counts::default();
+        for c in [
+            LfsClassification::Untracked,
+            LfsClassification::Missing,
+            LfsClassification::Orphaned,
+            LfsClassification::Healthy,
+            LfsClassification::Healthy,
+        ] {
+            counts.increment(c.label());
+        }
+        assert_eq!(counts.get("untracked"), 1);
+        assert_eq!(counts.get("missing"), 1);
+        assert_eq!(counts.get("orphaned"), 1);
+        assert_eq!(counts.get("healthy"), 2);
         assert_eq!(counts.total(), 5);
     }
 

@@ -2,6 +2,7 @@ pub mod caching;
 pub mod classification;
 pub mod cli;
 pub mod config;
+pub mod counts;
 pub mod date;
 pub mod dirty;
 pub mod discovery;

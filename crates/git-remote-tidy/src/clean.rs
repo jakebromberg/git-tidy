@@ -141,7 +141,9 @@ fn should_clean(classification: &RemoteClassification, options: &CleanOptions) -
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::testutil::MockGitBuilder;
+    use git_tidy_core::types::ClassificationLabel;
 
     use super::*;
     use crate::types::*;
@@ -151,9 +153,9 @@ mod tests {
     }
 
     fn make_scan_result(remotes: Vec<RemoteInfo>) -> RemoteScanResult {
-        let mut counts = RemoteCounts::default();
+        let mut counts = Counts::default();
         for r in &remotes {
-            counts.increment(&r.classification);
+            counts.increment(r.classification.label());
         }
         RemoteScanResult {
             repos: vec![RemoteRepoGroup {

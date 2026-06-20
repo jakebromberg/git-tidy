@@ -124,15 +124,16 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn repo() -> PathBuf {
         PathBuf::from("/repo")
     }
 
     fn make_lint_result(issues: Vec<ConfigIssue>) -> ConfigLintResult {
-        let mut counts = IssueCounts::default();
+        let mut counts = Counts::default();
         for issue in &issues {
-            counts.increment(issue.kind);
+            counts.increment(issue.kind.label());
         }
         ConfigLintResult {
             repos: vec![ConfigRepoGroup {

@@ -83,10 +83,7 @@ fn fix_removes_orphaned_config() {
             issues,
         }],
         total_scanned: 1,
-        counts: git_config_tidy::types::IssueCounts {
-            orphaned_branch_config: 1,
-            ..Default::default()
-        },
+        counts: git_tidy_core::counts::Counts::from_pairs(&[("orphaned_branch_config", 1)]),
         warnings: vec![],
     };
 
@@ -120,10 +117,7 @@ fn fix_dry_run_preserves_config() {
             issues,
         }],
         total_scanned: 1,
-        counts: git_config_tidy::types::IssueCounts {
-            orphaned_branch_config: 1,
-            ..Default::default()
-        },
+        counts: git_tidy_core::counts::Counts::from_pairs(&[("orphaned_branch_config", 1)]),
         warnings: vec![],
     };
 

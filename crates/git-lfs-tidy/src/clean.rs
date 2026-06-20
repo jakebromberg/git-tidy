@@ -171,6 +171,7 @@ pub fn run_clean(
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::testutil::MockGitBuilder;
 
     use super::*;
@@ -181,9 +182,9 @@ mod tests {
     }
 
     fn make_scan_result(items: Vec<LfsInfo>) -> LfsScanResult {
-        let mut counts = LfsCounts::default();
+        let mut counts = Counts::default();
         for item in &items {
-            counts.increment(item.classification);
+            counts.increment(item.classification.label());
         }
         LfsScanResult {
             repos: vec![LfsRepoGroup {

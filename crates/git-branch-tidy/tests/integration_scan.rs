@@ -61,8 +61,8 @@ fn scan_real_repo_with_mixed_branches() {
 
     // Counts
     assert_eq!(result.total_scanned, 2);
-    assert_eq!(result.counts.landed, 1);
-    assert_eq!(result.counts.local, 1);
+    assert_eq!(result.counts.get("landed"), 1);
+    assert_eq!(result.counts.get("local"), 1);
 }
 
 #[test]

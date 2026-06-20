@@ -139,6 +139,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn make_repo(name: &str, classification: RepoClassification, is_dirty: bool) -> RepoInfo {
         RepoInfo {
@@ -157,11 +158,15 @@ mod tests {
     }
 
     fn make_scan_result(repos: Vec<RepoInfo>) -> RepoScanResult {
-        let mut counts = RepoCounts::default();
+        let mut counts = Counts::default();
+        let mut dirty = 0usize;
         let mut reclaimable = 0u64;
         let mut total_disk = 0u64;
         for r in &repos {
-            counts.increment(r.classification, r.is_dirty);
+            counts.increment(r.classification.label());
+            if r.is_dirty {
+                dirty += 1;
+            }
             total_disk += r.disk_usage_bytes;
             if matches!(
                 r.classification,
@@ -174,6 +179,7 @@ mod tests {
             total_scanned: repos.len(),
             repos,
             counts,
+            dirty,
             warnings: vec![],
             total_disk_usage_bytes: total_disk,
             reclaimable_bytes: reclaimable,
