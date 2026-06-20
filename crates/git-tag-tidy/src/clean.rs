@@ -1,10 +1,9 @@
 use std::fmt::Write as _;
 use std::io::Write;
-use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
-use git_tidy_core::types::{CleanResult, FailedItem};
+use git_tidy_core::types::{CleanResult, FailedItem, RemovedRef};
 
 use crate::types::{TagClassification, TagScanResult};
 
@@ -24,23 +23,13 @@ pub struct CleanOptions {
     pub all: bool,
 }
 
-/// A tag that was successfully removed.
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct RemovedTag {
-    pub repo: PathBuf,
-    pub name: String,
-    /// Whether remote copies were also deleted.
-    pub remote_deleted: bool,
-}
-
 /// Run the clean operation on a scan result.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &TagScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult<RemovedTag>, Error> {
+) -> Result<CleanResult<RemovedRef>, Error> {
     let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
@@ -74,7 +63,7 @@ pub fn run_clean(
                     .unwrap();
                 }
                 writeln!(out, "{action}")?;
-                succeeded.push(RemovedTag {
+                succeeded.push(RemovedRef {
                     repo: group.repo_path.clone(),
                     name: tag.name.clone(),
                     remote_deleted: false,
@@ -152,7 +141,7 @@ pub fn run_clean(
                 }
             }
 
-            succeeded.push(RemovedTag {
+            succeeded.push(RemovedRef {
                 repo: group.repo_path.clone(),
                 name: tag.name.clone(),
                 remote_deleted,

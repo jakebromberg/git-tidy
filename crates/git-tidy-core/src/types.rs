@@ -44,6 +44,17 @@ pub struct FailedItem {
     pub reason: String,
 }
 
+/// Generic record for a named ref (branch, tag, …) removed during a clean
+/// operation, optionally also deleted on the remote.
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct RemovedRef {
+    pub repo: PathBuf,
+    pub name: String,
+    /// Whether remote copies were also deleted.
+    pub remote_deleted: bool,
+}
+
 /// Generic result of a clean operation.
 #[derive(Debug)]
 pub struct CleanResult<S> {
