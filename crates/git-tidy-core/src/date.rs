@@ -50,6 +50,12 @@ fn now_date() -> (i64, i64, i64) {
     civil_from_days(secs / 86400)
 }
 
+/// Format a day count (days since Unix epoch) as an ISO 8601 `YYYY-MM-DD` date.
+pub fn format_iso_date(days: i64) -> String {
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Convert a day count (days since Unix epoch) to a civil date.
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719468;
@@ -89,6 +95,12 @@ mod tests {
 
         let (y2, m2, d2) = civil_from_days(365);
         assert_eq!((y2, m2, d2), (1971, 1, 1));
+    }
+
+    #[test]
+    fn format_iso_date_matches_civil() {
+        assert_eq!(format_iso_date(0), "1970-01-01");
+        assert_eq!(format_iso_date(365), "1971-01-01");
     }
 
     #[test]
