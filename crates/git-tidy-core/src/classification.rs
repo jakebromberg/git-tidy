@@ -854,17 +854,14 @@ mod tests {
         assert_eq!(result, "master");
     }
 
-    #[test]
-    fn detect_default_branch_prefers_origin_over_local() {
-        // Both origin/main and local main exist — origin check wins (step 2 before step 4)
-        let git = MockGitBuilder::new()
-            .with_symbolic_ref(&repo(), None)
-            .with_rev_parse_verify(&repo(), "refs/remotes/origin/main", true)
-            // local main also exists, but we never reach step 4
-            .build();
-        let result = detect_default_branch(&git, &repo()).unwrap();
-        assert_eq!(result, "main");
-    }
+    // Origin-over-local precedence is unobservable at this seam: when
+    // `refs/remotes/origin/main` exists, `detect_default_branch` returns at method 2
+    // before ever calling `rev_parse_verify` on `refs/heads/main` (method 4). No mock
+    // configuration of the local ref can change the outcome — the local lookup never
+    // happens — so a "prefers origin over local" test would exercise the identical path
+    // as `detect_default_branch_probe_main` and could not fail if precedence regressed.
+    // The precedence is implied structurally by the method ordering; the local-fallback
+    // path is covered by `detect_default_branch_local_main` / `_local_master`.
 
     // --- classify_branch local-only repo tests ---
 
