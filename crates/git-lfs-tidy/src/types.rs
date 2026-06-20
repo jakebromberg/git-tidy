@@ -69,7 +69,6 @@ pub struct LfsRepoGroup {
     pub track_patterns: Vec<String>,
 }
 
-/// Summary counts for an LFS scan.
 /// Result of a full LFS scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct LfsScanResult {

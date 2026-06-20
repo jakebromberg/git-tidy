@@ -60,17 +60,22 @@ pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Re
     Ok(())
 }
 
+/// Ordered `(display, count key)` pairs for the stash summary breakdown.
+const STASH_SUMMARY: &[(&str, &str)] = &[
+    ("committed", "committed"),
+    ("orphaned", "orphaned"),
+    ("aged", "aged"),
+    ("active", "active"),
+];
+
 /// Write the stash-specific summary line.
 fn write_stash_summary(out: &mut dyn Write, result: &StashScanResult) -> std::io::Result<()> {
-    let c = &result.counts;
-    writeln!(
+    shared::write_summary_line(
         out,
-        "\n{} stashes scanned: {} committed, {} orphaned, {} aged, {} active",
         result.total_scanned,
-        c.get("committed"),
-        c.get("orphaned"),
-        c.get("aged"),
-        c.get("active"),
+        &result.counts,
+        "stashes",
+        STASH_SUMMARY,
     )
 }
 

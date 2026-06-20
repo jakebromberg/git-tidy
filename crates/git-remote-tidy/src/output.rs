@@ -72,16 +72,21 @@ pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::R
     Ok(())
 }
 
+/// Ordered `(display, count key)` pairs for the remote summary breakdown.
+const REMOTE_SUMMARY: &[(&str, &str)] = &[
+    ("unreachable", "unreachable"),
+    ("orphaned", "orphaned"),
+    ("active", "active"),
+];
+
 /// Write the remote-specific summary line.
 fn write_remote_summary(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Result<()> {
-    let c = &result.counts;
-    writeln!(
+    shared::write_summary_line(
         out,
-        "\n{} remotes scanned: {} unreachable, {} orphaned, {} active",
         result.total_scanned,
-        c.get("unreachable"),
-        c.get("orphaned"),
-        c.get("active"),
+        &result.counts,
+        "remotes",
+        REMOTE_SUMMARY,
     )
 }
 

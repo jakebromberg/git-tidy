@@ -83,15 +83,20 @@ pub fn write_human(out: &mut dyn Write, result: &ConfigLintResult) -> std::io::R
     Ok(())
 }
 
+/// Ordered `(display, count key)` pairs for the config lint summary breakdown.
+const CONFIG_SUMMARY: &[(&str, &str)] = &[
+    ("orphaned branch config", "orphaned_branch_config"),
+    ("alias shadows builtin", "alias_shadows_builtin"),
+];
+
 /// Write the lint-specific summary line.
 fn write_lint_summary(out: &mut dyn Write, result: &ConfigLintResult) -> std::io::Result<()> {
-    let c = &result.counts;
-    writeln!(
+    shared::write_summary_line(
         out,
-        "\n{} repos scanned: {} orphaned branch config, {} alias shadows builtin",
         result.total_scanned,
-        c.get("orphaned_branch_config"),
-        c.get("alias_shadows_builtin"),
+        &result.counts,
+        "repos",
+        CONFIG_SUMMARY,
     )
 }
 

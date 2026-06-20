@@ -108,17 +108,22 @@ pub fn write_human(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Resu
     Ok(())
 }
 
+/// Ordered `(display, count key)` pairs for the LFS summary breakdown.
+const LFS_SUMMARY: &[(&str, &str)] = &[
+    ("untracked", "untracked"),
+    ("missing", "missing"),
+    ("orphaned", "orphaned"),
+    ("healthy", "healthy"),
+];
+
 /// Write the LFS-specific summary line.
 fn write_lfs_summary(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Result<()> {
-    let c = &result.counts;
-    writeln!(
+    shared::write_summary_line(
         out,
-        "\n{} items scanned: {} untracked, {} missing, {} orphaned, {} healthy",
         result.total_scanned,
-        c.get("untracked"),
-        c.get("missing"),
-        c.get("orphaned"),
-        c.get("healthy"),
+        &result.counts,
+        "items",
+        LFS_SUMMARY,
     )
 }
 

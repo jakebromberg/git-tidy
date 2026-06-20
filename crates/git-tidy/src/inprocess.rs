@@ -378,9 +378,10 @@ mod tests {
 
     #[test]
     fn scan_to_result_omits_zero_counts() {
-        // `Counts` only ever holds non-zero buckets, so a never-incremented label
-        // (e.g. "landed") is simply absent from the audit's counts map.
-        let counts = Counts::from_pairs(&[("active", 5), ("stale", 2)]);
+        // The `("landed", 0)` pair is dropped by `from_pairs` (it never increments),
+        // so the bucket is absent from `Counts` and therefore from the audit map —
+        // exercising the zero-omission contract end to end through `scan_to_result`.
+        let counts = Counts::from_pairs(&[("active", 5), ("landed", 0), ("stale", 2)]);
         let ok: Result<Counts, git_tidy_core::error::Error> = Ok(counts);
         let spec = spec_for("git-branch-tidy");
         let result = scan_to_result(ok, spec, |c| c);

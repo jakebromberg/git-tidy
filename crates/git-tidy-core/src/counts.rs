@@ -38,11 +38,6 @@ impl Counts {
         self.0.values().sum()
     }
 
-    /// Whether no labels have been counted.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     /// Iterate `(label, count)` pairs in sorted key order. Only non-zero buckets
     /// are present.
     pub fn iter(&self) -> impl Iterator<Item = (&str, usize)> {
@@ -54,6 +49,11 @@ impl Counts {
 impl Counts {
     /// Build a `Counts` from `(label, count)` pairs. Test helper for terse setup
     /// in place of the former `XCounts { field: n, .. }` struct literals.
+    ///
+    /// Routes through `increment` rather than inserting directly so it honors the
+    /// "only non-zero buckets" invariant (a `("x", 0)` pair inserts nothing, just
+    /// as the production scan path never counts an absent classification) and so a
+    /// repeated label accumulates exactly as a real scan would.
     pub fn from_pairs(pairs: &[(&str, usize)]) -> Self {
         let mut c = Self::default();
         for (label, n) in pairs {
@@ -105,11 +105,14 @@ mod tests {
     }
 
     #[test]
-    fn is_empty_tracks_presence() {
-        let mut c = Counts::default();
-        assert!(c.is_empty());
-        c.increment("x");
-        assert!(!c.is_empty());
+    fn from_pairs_drops_zero_and_accumulates_duplicates() {
+        // A zero-count pair must not create a bucket (preserves the non-zero
+        // invariant), and a repeated label accumulates like the scan path would.
+        let c = Counts::from_pairs(&[("kept", 2), ("zero", 0), ("kept", 3)]);
+        assert_eq!(c.get("kept"), 5);
+        assert_eq!(c.get("zero"), 0);
+        let labels: Vec<&str> = c.iter().map(|(k, _)| k).collect();
+        assert_eq!(labels, vec!["kept"]); // "zero" absent, not present-with-0
     }
 
     #[test]

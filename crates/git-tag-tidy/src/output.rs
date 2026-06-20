@@ -63,17 +63,22 @@ pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Resu
     Ok(())
 }
 
+/// Ordered `(display, count key)` pairs for the tag summary breakdown.
+const TAG_SUMMARY: &[(&str, &str)] = &[
+    ("stale", "stale"),
+    ("local_only", "local_only"),
+    ("remote_only", "remote_only"),
+    ("synced", "synced"),
+];
+
 /// Write the tag-specific summary line.
 fn write_tag_summary(out: &mut dyn Write, result: &TagScanResult) -> std::io::Result<()> {
-    let c = &result.counts;
-    writeln!(
+    shared::write_summary_line(
         out,
-        "\n{} tags scanned: {} stale, {} local_only, {} remote_only, {} synced",
         result.total_scanned,
-        c.get("stale"),
-        c.get("local_only"),
-        c.get("remote_only"),
-        c.get("synced"),
+        &result.counts,
+        "tags",
+        TAG_SUMMARY,
     )
 }
 

@@ -16,22 +16,47 @@ fn display_width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
 }
 
-/// Write the summary line: "N {item_noun} scanned: X landed, Y content, ..."
+/// Ordered `(display word, count key)` pairs for the landed-classification summary
+/// shared by worktree-tidy and branch-tidy. The display word is what the human sees
+/// (`content`); the key is the classification label the count is stored under
+/// (`landed-content`).
+pub const LANDED_SUMMARY: &[(&str, &str)] = &[
+    ("landed", "landed"),
+    ("stale", "landed-stale"),
+    ("content", "landed-content"),
+    ("partial", "partial"),
+    ("active", "active"),
+    ("local", "local"),
+];
+
+/// Format a summary breakdown — `"{n0} {disp0}, {n1} {disp1}, …"` — from a `Counts`
+/// and an ordered `(display, key)` spec. Each entry reads `counts.get(key)` (0 when
+/// absent, so explicit zeros still print) and pairs it with the human display word.
+///
+/// Centralizes the breakdown so the scan tools don't each hand-roll the same
+/// `writeln!`. Tools whose summary is a single standard line call
+/// [`write_summary_line`]; repo-tidy, which appends a dirty note and a second line,
+/// calls this directly.
+pub fn format_summary_buckets(counts: &Counts, spec: &[(&str, &str)]) -> String {
+    spec.iter()
+        .map(|(display, key)| format!("{} {display}", counts.get(key)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Write a standard summary line: `"\n{total} {item_noun} scanned: {breakdown}"`,
+/// where the breakdown is built from `spec` (see [`format_summary_buckets`]).
 pub fn write_summary_line(
     out: &mut dyn Write,
     total: usize,
     counts: &Counts,
     item_noun: &str,
+    spec: &[(&str, &str)],
 ) -> std::io::Result<()> {
     writeln!(
         out,
-        "\n{total} {item_noun} scanned: {} landed, {} stale, {} content, {} partial, {} active, {} local",
-        counts.get("landed"),
-        counts.get("landed-stale"),
-        counts.get("landed-content"),
-        counts.get("partial"),
-        counts.get("active"),
-        counts.get("local"),
+        "\n{total} {item_noun} scanned: {}",
+        format_summary_buckets(counts, spec)
     )
 }
 
@@ -473,7 +498,7 @@ mod tests {
             ("local", 1),
         ]);
         let mut buf = Vec::new();
-        write_summary_line(&mut buf, 7, &counts, "branches").unwrap();
+        write_summary_line(&mut buf, 7, &counts, "branches", LANDED_SUMMARY).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
@@ -485,7 +510,7 @@ mod tests {
     fn summary_line_worktrees() {
         let counts = Counts::from_pairs(&[("landed", 1)]);
         let mut buf = Vec::new();
-        write_summary_line(&mut buf, 1, &counts, "worktrees").unwrap();
+        write_summary_line(&mut buf, 1, &counts, "worktrees", LANDED_SUMMARY).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("1 worktrees scanned"));
     }
