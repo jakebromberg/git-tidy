@@ -1,9 +1,8 @@
 use std::io::Write;
-use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
-use git_tidy_core::types::{Classification, CleanResult, FailedItem};
+use git_tidy_core::types::{Classification, CleanResult, FailedItem, RemovedRef};
 
 use crate::types::BranchScanResult;
 
@@ -21,21 +20,13 @@ pub struct CleanOptions {
     pub include_remote: bool,
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct DeletedBranch {
-    pub repo: PathBuf,
-    pub name: String,
-    pub remote_deleted: bool,
-}
-
 /// Run the clean operation on a scan result.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &BranchScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
-) -> Result<CleanResult<DeletedBranch>, Error> {
+) -> Result<CleanResult<RemovedRef>, Error> {
     let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
@@ -58,7 +49,7 @@ pub fn run_clean(
             if branch.remote_only {
                 if options.dry_run {
                     writeln!(out, "would delete remote {} in {}", branch.name, group.name)?;
-                    succeeded.push(DeletedBranch {
+                    succeeded.push(RemovedRef {
                         repo: branch.repo_path.clone(),
                         name: branch.name.clone(),
                         remote_deleted: true,
@@ -69,7 +60,7 @@ pub fn run_clean(
                 match git.delete_remote_branch(&branch.repo_path, "origin", &branch.name) {
                     Ok(()) => {
                         writeln!(out, "deleted remote {}", branch.name)?;
-                        succeeded.push(DeletedBranch {
+                        succeeded.push(RemovedRef {
                             repo: branch.repo_path.clone(),
                             name: branch.name.clone(),
                             remote_deleted: true,
@@ -93,7 +84,7 @@ pub fn run_clean(
                     write!(out, " (and remote)")?;
                 }
                 writeln!(out, " in {}", group.name)?;
-                succeeded.push(DeletedBranch {
+                succeeded.push(RemovedRef {
                     repo: branch.repo_path.clone(),
                     name: branch.name.clone(),
                     remote_deleted: false,
@@ -148,7 +139,7 @@ pub fn run_clean(
                         branch.name,
                         if remote_deleted { " (and remote)" } else { "" }
                     )?;
-                    succeeded.push(DeletedBranch {
+                    succeeded.push(RemovedRef {
                         repo: branch.repo_path.clone(),
                         name: branch.name.clone(),
                         remote_deleted,
