@@ -1,8 +1,10 @@
 use std::io;
 use std::io::Write;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use git_tidy_core::error::Error;
+use git_tidy_core::types::{CleanResult, FailedItem};
 
 use crate::types::{RepoClassification, RepoScanResult};
 
@@ -21,18 +23,25 @@ pub struct CleanOptions {
     pub all: bool,
 }
 
-/// Result of a clean operation.
+/// Result of a repo clean operation: the shared [`CleanResult`] plus the
+/// repo-specific `dirty_blocked` flag that drives the dirty-blocked exit code.
+///
+/// Derefs to the inner [`CleanResult`] so callers read `succeeded` / `failed` /
+/// `skipped` without going through `.result`.
 #[derive(Debug)]
-#[allow(dead_code)]
-pub struct CleanResult {
-    /// Repos that were deleted (or would be in dry-run).
-    pub deleted: Vec<DeletedRepo>,
-    /// Repos that failed to delete.
-    pub failed: Vec<FailedRepo>,
-    /// Repos that were skipped.
-    pub skipped: usize,
-    /// Whether any dirty repos blocked deletion.
+pub struct RepoCleanResult {
+    /// Shared succeeded / failed / skipped aggregation.
+    pub result: CleanResult<DeletedRepo>,
+    /// Whether any dirty repos blocked deletion (drives exit code 2).
     pub dirty_blocked: bool,
+}
+
+impl Deref for RepoCleanResult {
+    type Target = CleanResult<DeletedRepo>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.result
+    }
 }
 
 /// A repo that was successfully deleted.
@@ -41,15 +50,6 @@ pub struct CleanResult {
 pub struct DeletedRepo {
     pub path: PathBuf,
     pub name: String,
-}
-
-/// A repo that failed to be deleted.
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct FailedRepo {
-    pub path: PathBuf,
-    pub name: String,
-    pub reason: String,
 }
 
 /// Determine if a repo should be cleaned based on its classification and options.
@@ -70,7 +70,7 @@ pub fn run_clean(
     options: &CleanOptions,
     delete_fn: &dyn Fn(&Path) -> io::Result<()>,
     out: &mut dyn Write,
-) -> Result<CleanResult, Error> {
+) -> Result<RepoCleanResult, Error> {
     let mut deleted = Vec::new();
     let mut failed = Vec::new();
     let mut skipped = 0;
@@ -113,8 +113,8 @@ pub fn run_clean(
             }
             Err(e) => {
                 writeln!(out, "error: could not delete {}: {e}", repo.name)?;
-                failed.push(FailedRepo {
-                    path: repo.path.clone(),
+                failed.push(FailedItem {
+                    repo: repo.path.clone(),
                     name: repo.name.clone(),
                     reason: e.to_string(),
                 });
@@ -122,10 +122,12 @@ pub fn run_clean(
         }
     }
 
-    Ok(CleanResult {
-        deleted,
-        failed,
-        skipped,
+    Ok(RepoCleanResult {
+        result: CleanResult {
+            succeeded: deleted,
+            failed,
+            skipped,
+        },
         dirty_blocked,
     })
 }
@@ -211,8 +213,8 @@ mod tests {
 
         let result = run_clean(&scan, &default_options(), &delete_fn, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert_eq!(result.deleted[0].name, "old");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "old");
         assert_eq!(deleted_paths.borrow().len(), 1);
     }
 
@@ -227,8 +229,8 @@ mod tests {
 
         let result = run_clean(&scan, &default_options(), &noop_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert_eq!(result.deleted[0].name, "orphan");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "orphan");
     }
 
     #[test]
@@ -238,7 +240,7 @@ mod tests {
 
         let result = run_clean(&scan, &default_options(), &noop_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
     }
 
@@ -249,7 +251,7 @@ mod tests {
 
         let result = run_clean(&scan, &default_options(), &noop_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.skipped, 1);
         assert!(result.dirty_blocked);
 
@@ -269,7 +271,7 @@ mod tests {
 
         let result = run_clean(&scan, &options, &noop_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
+        assert_eq!(result.succeeded.len(), 1);
         assert!(!result.dirty_blocked);
     }
 
@@ -287,8 +289,8 @@ mod tests {
 
         let result = run_clean(&scan, &options, &noop_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert_eq!(result.deleted[0].name, "old");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "old");
         assert_eq!(result.skipped, 1);
     }
 
@@ -306,8 +308,8 @@ mod tests {
 
         let result = run_clean(&scan, &options, &noop_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 1);
-        assert_eq!(result.deleted[0].name, "orphan");
+        assert_eq!(result.succeeded.len(), 1);
+        assert_eq!(result.succeeded[0].name, "orphan");
         assert_eq!(result.skipped, 1);
     }
 
@@ -330,7 +332,7 @@ mod tests {
 
         let result = run_clean(&scan, &options, &delete_fn, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         // Dry run: no actual deletes
         assert_eq!(deleted_paths.borrow().len(), 0);
 
@@ -346,7 +348,7 @@ mod tests {
 
         let result = run_clean(&scan, &default_options(), &failing_delete, &mut buf).unwrap();
 
-        assert_eq!(result.deleted.len(), 0);
+        assert_eq!(result.succeeded.len(), 0);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].name, "old");
 
@@ -367,7 +369,7 @@ mod tests {
         let result = run_clean(&scan, &default_options(), &noop_delete, &mut buf).unwrap();
 
         // stale-clean + orphan-clean deleted; stale-dirty skipped (dirty); active skipped
-        assert_eq!(result.deleted.len(), 2);
+        assert_eq!(result.succeeded.len(), 2);
         assert_eq!(result.skipped, 2);
         assert!(result.dirty_blocked);
     }
