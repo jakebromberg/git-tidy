@@ -1,28 +1,7 @@
 mod common;
 
-use common::git;
+use common::{git, set_up_repo};
 use git_tidy_core::git::{GitOps, RealGit};
-
-/// Set up a repo inside a scan directory so `discover_repos` finds it.
-fn set_up_repo() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
-
-    let scan_dir = base.join("projects");
-    std::fs::create_dir_all(&scan_dir).unwrap();
-
-    let repo = scan_dir.join("my-repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-b", "main"]);
-    git(&repo, &["config", "user.email", "test@test.com"]);
-    git(&repo, &["config", "user.name", "Test"]);
-
-    std::fs::write(repo.join("README.md"), "# Test\n").unwrap();
-    git(&repo, &["add", "README.md"]);
-    git(&repo, &["commit", "-m", "Initial commit"]);
-
-    (dir, repo)
-}
 
 #[test]
 fn clean_drops_stash_in_real_repo() {
