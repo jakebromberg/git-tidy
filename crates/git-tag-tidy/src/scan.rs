@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
@@ -10,9 +11,7 @@ use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{
-    TagClassification, TagCounts, TagInfo, TagRepoGroup, TagScanResult, is_release_tag_name,
-};
+use crate::types::{TagClassification, TagInfo, TagRepoGroup, TagScanResult, is_release_tag_name};
 
 /// Classify a single tag.
 ///
@@ -207,11 +206,11 @@ pub fn run_scan_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = TagCounts::default();
+    let mut counts = Counts::default();
     let mut total_scanned = 0;
     for g in &repos {
         for t in &g.tags {
-            counts.increment(&t.classification);
+            counts.increment(t.classification.label());
         }
         total_scanned += g.tags.len();
     }
@@ -381,6 +380,6 @@ mod tests {
         let filter = NameFilter::default();
         let result = run_scan_repos(&git, &[repo()], true, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.synced, 1);
+        assert_eq!(result.counts.get("synced"), 1);
     }
 }

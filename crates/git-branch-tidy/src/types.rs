@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::types::{
-    Classification, ClassificationLabel, ScanCounts, UnmatchedCommit, extract_landed_fields,
+    Classification, ClassificationLabel, UnmatchedCommit, extract_landed_fields,
 };
 use serde::Serialize;
 
@@ -51,7 +52,7 @@ pub struct BranchScanResult {
     /// Total branches scanned (excluding default branches).
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: ScanCounts,
+    pub counts: Counts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
 }

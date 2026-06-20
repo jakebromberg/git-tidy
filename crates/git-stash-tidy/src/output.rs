@@ -66,7 +66,11 @@ fn write_stash_summary(out: &mut dyn Write, result: &StashScanResult) -> std::io
     writeln!(
         out,
         "\n{} stashes scanned: {} committed, {} orphaned, {} aged, {} active",
-        result.total_scanned, c.committed, c.orphaned, c.aged, c.active,
+        result.total_scanned,
+        c.get("committed"),
+        c.get("orphaned"),
+        c.get("aged"),
+        c.get("active"),
     )
 }
 
@@ -89,6 +93,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     fn make_scan_result() -> StashScanResult {
         StashScanResult {
@@ -123,12 +128,7 @@ mod tests {
                 ],
             }],
             total_scanned: 3,
-            counts: StashCounts {
-                committed: 1,
-                orphaned: 1,
-                aged: 0,
-                active: 1,
-            },
+            counts: Counts::from_pairs(&[("committed", 1), ("orphaned", 1), ("active", 1)]),
             warnings: vec![],
         }
     }
@@ -161,7 +161,7 @@ mod tests {
         let result = StashScanResult {
             repos: vec![],
             total_scanned: 0,
-            counts: StashCounts::default(),
+            counts: Counts::default(),
             warnings: vec!["could not list stashes for /repo/Foo".to_string()],
         };
 

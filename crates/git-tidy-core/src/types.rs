@@ -2,31 +2,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-/// Define a counts struct with `increment` and `total` methods.
-///
-/// Generates a `#[derive(Debug, Clone, Default, Serialize)]` struct with `usize` fields,
-/// an `increment(&mut self, classification: &$classification)` method, and a `total(&self) -> usize` method.
-#[macro_export]
-macro_rules! define_counts {
-    ($name:ident, $classification:ty, { $($variant:pat => $field:ident),+ $(,)? }) => {
-        #[derive(Debug, Clone, Default, serde::Serialize)]
-        pub struct $name {
-            $(pub $field: usize,)+
-        }
-
-        impl $name {
-            pub fn increment(&mut self, classification: &$classification) {
-                match classification {
-                    $($variant => self.$field += 1,)+
-                }
-            }
-
-            pub fn total(&self) -> usize {
-                0 $(+ self.$field)+
-            }
-        }
-    };
-}
+use crate::counts::Counts;
 
 /// Shared interface for classification enums across all git-tidy tools.
 pub trait ClassificationLabel {
@@ -222,15 +198,6 @@ pub struct RepoGroup {
     pub worktrees: Vec<WorktreeInfo>,
 }
 
-define_counts!(ScanCounts, Classification, {
-    Classification::Landed => landed,
-    Classification::LandedStale => landed_stale,
-    Classification::LandedByContent { .. } => landed_content,
-    Classification::LandedPartial { .. } => partial,
-    Classification::Active => active,
-    Classification::Local => local,
-});
-
 /// Flat JSON representation of a worktree matching the spec.
 #[derive(Debug, Serialize)]
 pub struct JsonWorktree {
@@ -285,7 +252,7 @@ pub struct ScanResult {
     /// Total worktrees scanned.
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: ScanCounts,
+    pub counts: Counts,
     /// Repos that were skipped (e.g. no default branch).
     pub warnings: Vec<String>,
 }

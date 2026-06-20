@@ -128,7 +128,9 @@ fn parse_stash_index(stash_ref: &str) -> Option<usize> {
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::testutil::MockGitBuilder;
+    use git_tidy_core::types::ClassificationLabel;
 
     use super::*;
     use crate::types::*;
@@ -138,9 +140,9 @@ mod tests {
     }
 
     fn make_scan_result(stashes: Vec<StashInfo>) -> StashScanResult {
-        let mut counts = StashCounts::default();
+        let mut counts = Counts::default();
         for s in &stashes {
-            counts.increment(&s.classification);
+            counts.increment(s.classification.label());
         }
         StashScanResult {
             repos: vec![StashRepoGroup {

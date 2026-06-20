@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
@@ -61,12 +62,6 @@ pub struct RemoteRepoGroup {
     pub remotes: Vec<RemoteInfo>,
 }
 
-git_tidy_core::define_counts!(RemoteCounts, RemoteClassification, {
-    RemoteClassification::Unreachable => unreachable,
-    RemoteClassification::Orphaned => orphaned,
-    RemoteClassification::Active => active,
-});
-
 /// Result of a full remote scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteScanResult {
@@ -75,7 +70,7 @@ pub struct RemoteScanResult {
     /// Total remotes scanned.
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: RemoteCounts,
+    pub counts: Counts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
 }
@@ -140,14 +135,19 @@ mod tests {
 
     #[test]
     fn counts_increment_and_total() {
-        let mut counts = RemoteCounts::default();
-        counts.increment(&RemoteClassification::Unreachable);
-        counts.increment(&RemoteClassification::Orphaned);
-        counts.increment(&RemoteClassification::Active);
-        counts.increment(&RemoteClassification::Active);
-        assert_eq!(counts.unreachable, 1);
-        assert_eq!(counts.orphaned, 1);
-        assert_eq!(counts.active, 2);
+        // Also guards against label drift: increments via `classification.label()`.
+        let mut counts = Counts::default();
+        for c in [
+            RemoteClassification::Unreachable,
+            RemoteClassification::Orphaned,
+            RemoteClassification::Active,
+            RemoteClassification::Active,
+        ] {
+            counts.increment(c.label());
+        }
+        assert_eq!(counts.get("unreachable"), 1);
+        assert_eq!(counts.get("orphaned"), 1);
+        assert_eq!(counts.get("active"), 2);
         assert_eq!(counts.total(), 4);
     }
 

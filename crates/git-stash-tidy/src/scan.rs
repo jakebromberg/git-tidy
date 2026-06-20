@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::date::days_since_iso_date;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -12,8 +13,7 @@ use git_tidy_core::scan::parallel_classify;
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::types::{
-    StashClassification, StashCounts, StashInfo, StashRepoGroup, StashScanResult,
-    parse_stash_branch,
+    StashClassification, StashInfo, StashRepoGroup, StashScanResult, parse_stash_branch,
 };
 
 /// Classify a single stash entry.
@@ -183,11 +183,11 @@ pub fn run_scan_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = StashCounts::default();
+    let mut counts = Counts::default();
     let mut total_scanned = 0;
     for g in &repos {
         for s in &g.stashes {
-            counts.increment(&s.classification);
+            counts.increment(s.classification.label());
         }
         total_scanned += g.stashes.len();
     }
@@ -433,7 +433,7 @@ mod tests {
         let filter = NameFilter::default();
         let result = run_scan_repos(&git, &[repo()], 90, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.orphaned, 1);
+        assert_eq!(result.counts.get("orphaned"), 1);
     }
 
     #[test]

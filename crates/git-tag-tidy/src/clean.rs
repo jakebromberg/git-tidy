@@ -186,7 +186,9 @@ fn should_clean(classification: &TagClassification, options: &CleanOptions) -> b
 mod tests {
     use std::path::PathBuf;
 
+    use git_tidy_core::counts::Counts;
     use git_tidy_core::testutil::MockGitBuilder;
+    use git_tidy_core::types::ClassificationLabel;
 
     use super::*;
     use crate::types::*;
@@ -196,9 +198,9 @@ mod tests {
     }
 
     fn make_scan_result(tags: Vec<TagInfo>) -> TagScanResult {
-        let mut counts = TagCounts::default();
+        let mut counts = Counts::default();
         for t in &tags {
-            counts.increment(&t.classification);
+            counts.increment(t.classification.label());
         }
         TagScanResult {
             repos: vec![TagRepoGroup {

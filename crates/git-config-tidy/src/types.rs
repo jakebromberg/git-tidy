@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use serde::Serialize;
 
 /// Severity of a config issue.
@@ -89,27 +90,6 @@ pub struct ConfigRepoGroup {
     pub issues: Vec<ConfigIssue>,
 }
 
-/// Summary counts by issue kind.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct IssueCounts {
-    pub orphaned_branch_config: usize,
-    pub alias_shadows_builtin: usize,
-}
-
-impl IssueCounts {
-    pub fn increment(&mut self, kind: IssueKind) {
-        match kind {
-            IssueKind::OrphanedBranchConfig => self.orphaned_branch_config += 1,
-            IssueKind::AliasShadowsBuiltin => self.alias_shadows_builtin += 1,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn total(&self) -> usize {
-        self.orphaned_branch_config + self.alias_shadows_builtin
-    }
-}
-
 /// Result of a full config lint.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConfigLintResult {
@@ -118,7 +98,7 @@ pub struct ConfigLintResult {
     /// Total repos scanned.
     pub total_scanned: usize,
     /// Summary counts by kind.
-    pub counts: IssueCounts,
+    pub counts: Counts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
 }
@@ -201,12 +181,17 @@ mod tests {
 
     #[test]
     fn counts_increment_and_total() {
-        let mut counts = IssueCounts::default();
-        counts.increment(IssueKind::OrphanedBranchConfig);
-        counts.increment(IssueKind::OrphanedBranchConfig);
-        counts.increment(IssueKind::AliasShadowsBuiltin);
-        assert_eq!(counts.orphaned_branch_config, 2);
-        assert_eq!(counts.alias_shadows_builtin, 1);
+        // Also guards against label drift: increments via `kind.label()`.
+        let mut counts = Counts::default();
+        for k in [
+            IssueKind::OrphanedBranchConfig,
+            IssueKind::OrphanedBranchConfig,
+            IssueKind::AliasShadowsBuiltin,
+        ] {
+            counts.increment(k.label());
+        }
+        assert_eq!(counts.get("orphaned_branch_config"), 2);
+        assert_eq!(counts.get("alias_shadows_builtin"), 1);
         assert_eq!(counts.total(), 3);
     }
 

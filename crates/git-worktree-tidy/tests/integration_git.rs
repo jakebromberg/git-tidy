@@ -175,5 +175,5 @@ fn worktree_with_deleted_branch_classifies_as_landed_stale() {
         "worktree with deleted branch ref should be classified as LandedStale"
     );
     assert_eq!(wt_info.branch.as_deref(), Some("feature/stale-branch"));
-    assert_eq!(result.counts.landed_stale, 1);
+    assert_eq!(result.counts.get("landed-stale"), 1);
 }

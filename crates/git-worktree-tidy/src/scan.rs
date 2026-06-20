@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use git_tidy_core::classification;
+use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
@@ -9,7 +10,7 @@ use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
-use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanCounts, ScanResult};
+use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanResult};
 
 use crate::discovery::{self as wt_discovery, DiscoveredWorktree};
 
@@ -175,11 +176,11 @@ pub fn run_scan_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = ScanCounts::default();
+    let mut counts = Counts::default();
     let mut total_scanned = 0;
     for g in &repos {
         for wt in &g.worktrees {
-            counts.increment(&wt.classification);
+            counts.increment(wt.classification.label());
         }
         total_scanned += g.worktrees.len();
     }

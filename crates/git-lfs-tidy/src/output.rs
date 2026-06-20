@@ -114,7 +114,11 @@ fn write_lfs_summary(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Re
     writeln!(
         out,
         "\n{} items scanned: {} untracked, {} missing, {} orphaned, {} healthy",
-        result.total_scanned, c.untracked, c.missing, c.orphaned, c.healthy,
+        result.total_scanned,
+        c.get("untracked"),
+        c.get("missing"),
+        c.get("orphaned"),
+        c.get("healthy"),
     )
 }
 
@@ -144,6 +148,7 @@ mod tests {
 
     use super::*;
     use crate::types::*;
+    use git_tidy_core::counts::Counts;
 
     // --- format_bytes tests ---
 
@@ -208,12 +213,7 @@ mod tests {
                 track_patterns: vec!["*.bin".to_string(), "*.zip".to_string()],
             }],
             total_scanned: 3,
-            counts: LfsCounts {
-                untracked: 1,
-                missing: 1,
-                orphaned: 0,
-                healthy: 1,
-            },
+            counts: Counts::from_pairs(&[("untracked", 1), ("missing", 1), ("healthy", 1)]),
             warnings: vec![],
             lfs_installed: true,
         }
@@ -248,7 +248,7 @@ mod tests {
         let result = LfsScanResult {
             repos: vec![],
             total_scanned: 0,
-            counts: LfsCounts::default(),
+            counts: Counts::default(),
             warnings: vec!["git-lfs is not installed".to_string()],
             lfs_installed: false,
         };
@@ -277,10 +277,7 @@ mod tests {
                 track_patterns: vec![],
             }],
             total_scanned: 1,
-            counts: LfsCounts {
-                healthy: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("healthy", 1)]),
             warnings: vec![],
             lfs_installed: true,
         };
@@ -311,10 +308,7 @@ mod tests {
                 track_patterns: vec![],
             }],
             total_scanned: 1,
-            counts: LfsCounts {
-                missing: 1,
-                ..Default::default()
-            },
+            counts: Counts::from_pairs(&[("missing", 1)]),
             warnings: vec![],
             lfs_installed: true,
         };

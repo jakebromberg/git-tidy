@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
@@ -69,13 +70,6 @@ pub struct TagRepoGroup {
     pub tags: Vec<TagInfo>,
 }
 
-git_tidy_core::define_counts!(TagCounts, TagClassification, {
-    TagClassification::Stale => stale,
-    TagClassification::LocalOnly => local_only,
-    TagClassification::RemoteOnly => remote_only,
-    TagClassification::Synced => synced,
-});
-
 /// Result of a full tag scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct TagScanResult {
@@ -84,7 +78,7 @@ pub struct TagScanResult {
     /// Total tags scanned.
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: TagCounts,
+    pub counts: Counts,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
 }
@@ -171,16 +165,22 @@ mod tests {
 
     #[test]
     fn counts_increment_and_total() {
-        let mut counts = TagCounts::default();
-        counts.increment(&TagClassification::Stale);
-        counts.increment(&TagClassification::LocalOnly);
-        counts.increment(&TagClassification::RemoteOnly);
-        counts.increment(&TagClassification::Synced);
-        counts.increment(&TagClassification::Synced);
-        assert_eq!(counts.stale, 1);
-        assert_eq!(counts.local_only, 1);
-        assert_eq!(counts.remote_only, 1);
-        assert_eq!(counts.synced, 2);
+        // Also guards against label drift: increments via the production path
+        // (`classification.label()`) and asserts the resulting map keys.
+        let mut counts = Counts::default();
+        for c in [
+            TagClassification::Stale,
+            TagClassification::LocalOnly,
+            TagClassification::RemoteOnly,
+            TagClassification::Synced,
+            TagClassification::Synced,
+        ] {
+            counts.increment(c.label());
+        }
+        assert_eq!(counts.get("stale"), 1);
+        assert_eq!(counts.get("local_only"), 1);
+        assert_eq!(counts.get("remote_only"), 1);
+        assert_eq!(counts.get("synced"), 2);
         assert_eq!(counts.total(), 5);
     }
 

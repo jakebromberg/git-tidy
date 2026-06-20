@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use git_tidy_core::counts::Counts;
 use serde::Serialize;
 
 /// Classification of a repository by activity level.
@@ -61,34 +62,6 @@ pub struct RepoInfo {
     pub dirty_file_count: usize,
 }
 
-/// Summary counts for a repo scan.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct RepoCounts {
-    pub stale: usize,
-    pub orphaned: usize,
-    pub active: usize,
-    /// Cross-cutting count: repos with `is_dirty == true`.
-    pub dirty: usize,
-}
-
-impl RepoCounts {
-    pub fn increment(&mut self, classification: RepoClassification, is_dirty: bool) {
-        match classification {
-            RepoClassification::Stale => self.stale += 1,
-            RepoClassification::Orphaned => self.orphaned += 1,
-            RepoClassification::Active => self.active += 1,
-        }
-        if is_dirty {
-            self.dirty += 1;
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn total(&self) -> usize {
-        self.stale + self.orphaned + self.active
-    }
-}
-
 /// Result of a full repo scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct RepoScanResult {
@@ -97,7 +70,11 @@ pub struct RepoScanResult {
     /// Total repos scanned.
     pub total_scanned: usize,
     /// Summary counts by classification.
-    pub counts: RepoCounts,
+    pub counts: Counts,
+    /// Cross-cutting count: repos with meaningful uncommitted changes
+    /// (`is_dirty == true`). Not a classification bucket, so it is tracked
+    /// separately from `counts`.
+    pub dirty: usize,
     /// Warnings encountered during scanning.
     pub warnings: Vec<String>,
     /// Total disk usage of all scanned repos in bytes.
@@ -193,15 +170,21 @@ mod tests {
 
     #[test]
     fn counts_increment_and_total() {
-        let mut counts = RepoCounts::default();
-        counts.increment(RepoClassification::Stale, false);
-        counts.increment(RepoClassification::Orphaned, true);
-        counts.increment(RepoClassification::Active, false);
-        counts.increment(RepoClassification::Active, true);
-        assert_eq!(counts.stale, 1);
-        assert_eq!(counts.orphaned, 1);
-        assert_eq!(counts.active, 2);
-        assert_eq!(counts.dirty, 2);
+        // Also guards against label drift: increments via `classification.label()`.
+        // The cross-cutting `dirty` count now lives on `RepoScanResult`, not in
+        // `Counts`; it is exercised by the scan tests.
+        let mut counts = Counts::default();
+        for c in [
+            RepoClassification::Stale,
+            RepoClassification::Orphaned,
+            RepoClassification::Active,
+            RepoClassification::Active,
+        ] {
+            counts.increment(c.label());
+        }
+        assert_eq!(counts.get("stale"), 1);
+        assert_eq!(counts.get("orphaned"), 1);
+        assert_eq!(counts.get("active"), 2);
         assert_eq!(counts.total(), 4);
     }
 

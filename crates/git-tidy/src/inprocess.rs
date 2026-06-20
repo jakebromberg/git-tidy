@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use git_tidy_core::caching::CachingGitOps;
 use git_tidy_core::config;
+use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery;
 use git_tidy_core::filter::NameFilter;
 use git_tidy_core::git::GitOps;
@@ -218,18 +219,22 @@ fn resolve_noise_patterns() -> Vec<String> {
     noise_config.resolve()
 }
 
-/// Convert a tool scan/lint `Result` into a `ToolResult`, extracting counts
-/// via a closure. Handles the Ok→counts and Err→error paths uniformly.
+/// Convert a tool scan/lint `Result` into a `ToolResult`, reading the result's
+/// generic `Counts`. Handles the Ok→counts and Err→error paths uniformly.
+///
+/// Every scan-shaped tool now exposes its summary as `git_tidy_core::counts::Counts`,
+/// keyed by the same classification labels the audit emits as JSON keys, so each
+/// `get_counts` accessor is simply `|r| &r.counts`. `Counts` only ever holds
+/// non-zero buckets, so no `> 0` filtering is needed.
 fn scan_to_result<T>(
     scan_result: Result<T, git_tidy_core::error::Error>,
     spec: &ToolSpec,
-    extract_counts: impl FnOnce(&T) -> Vec<(&str, usize)>,
+    get_counts: impl FnOnce(&T) -> &Counts,
 ) -> ToolResult {
     match scan_result {
         Ok(r) => {
-            let counts: BTreeMap<String, usize> = extract_counts(&r)
-                .into_iter()
-                .filter(|(_, count)| *count > 0)
+            let counts: BTreeMap<String, usize> = get_counts(&r)
+                .iter()
                 .map(|(label, count)| (label.to_string(), count))
                 .collect();
             let total: usize = counts.values().sum();
@@ -280,16 +285,7 @@ fn run_tool_scan(
                 progress,
             ),
             spec,
-            |r| {
-                vec![
-                    ("landed", r.counts.landed),
-                    ("landed-stale", r.counts.landed_stale),
-                    ("landed-content", r.counts.landed_content),
-                    ("partial", r.counts.partial),
-                    ("active", r.counts.active),
-                    ("local", r.counts.local),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-branch-tidy" => scan_to_result(
             git_branch_tidy::scan::run_scan_repos(
@@ -302,16 +298,7 @@ fn run_tool_scan(
                 progress,
             ),
             spec,
-            |r| {
-                vec![
-                    ("landed", r.counts.landed),
-                    ("landed-stale", r.counts.landed_stale),
-                    ("landed-content", r.counts.landed_content),
-                    ("partial", r.counts.partial),
-                    ("active", r.counts.active),
-                    ("local", r.counts.local),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-stash-tidy" => scan_to_result(
             git_stash_tidy::scan::run_scan_repos(
@@ -323,39 +310,19 @@ fn run_tool_scan(
                 progress,
             ),
             spec,
-            |r| {
-                vec![
-                    ("committed", r.counts.committed),
-                    ("orphaned", r.counts.orphaned),
-                    ("aged", r.counts.aged),
-                    ("active", r.counts.active),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-remote-tidy" => scan_to_result(
             git_remote_tidy::scan::run_scan_repos(
                 git, repo_paths, false, verbose, &filter, progress,
             ),
             spec,
-            |r| {
-                vec![
-                    ("unreachable", r.counts.unreachable),
-                    ("orphaned", r.counts.orphaned),
-                    ("active", r.counts.active),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-tag-tidy" => scan_to_result(
             git_tag_tidy::scan::run_scan_repos(git, repo_paths, false, verbose, &filter, progress),
             spec,
-            |r| {
-                vec![
-                    ("stale", r.counts.stale),
-                    ("local_only", r.counts.local_only),
-                    ("remote_only", r.counts.remote_only),
-                    ("synced", r.counts.synced),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-repo-tidy" => scan_to_result(
             git_repo_tidy::scan::run_scan_repos(
@@ -368,23 +335,12 @@ fn run_tool_scan(
                 progress,
             ),
             spec,
-            |r| {
-                vec![
-                    ("stale", r.counts.stale),
-                    ("orphaned", r.counts.orphaned),
-                    ("active", r.counts.active),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-config-tidy" => scan_to_result(
             git_config_tidy::lint::run_lint_repos(git, repo_paths, verbose, progress),
             spec,
-            |r| {
-                vec![
-                    ("orphaned_branch_config", r.counts.orphaned_branch_config),
-                    ("alias_shadows_builtin", r.counts.alias_shadows_builtin),
-                ]
-            },
+            |r| &r.counts,
         ),
         "git-lfs-tidy" => scan_to_result(
             git_lfs_tidy::scan::run_scan_repos(
@@ -396,14 +352,7 @@ fn run_tool_scan(
                 progress,
             ),
             spec,
-            |r| {
-                vec![
-                    ("untracked", r.counts.untracked),
-                    ("missing", r.counts.missing),
-                    ("orphaned", r.counts.orphaned),
-                    ("healthy", r.counts.healthy),
-                ]
-            },
+            |r| &r.counts,
         ),
         _ => ToolResult {
             name: spec.binary.to_string(),
@@ -429,10 +378,12 @@ mod tests {
 
     #[test]
     fn scan_to_result_omits_zero_counts() {
-        let ok: Result<Vec<(&str, usize)>, git_tidy_core::error::Error> =
-            Ok(vec![("active", 5), ("landed", 0), ("stale", 2)]);
+        // `Counts` only ever holds non-zero buckets, so a never-incremented label
+        // (e.g. "landed") is simply absent from the audit's counts map.
+        let counts = Counts::from_pairs(&[("active", 5), ("stale", 2)]);
+        let ok: Result<Counts, git_tidy_core::error::Error> = Ok(counts);
         let spec = spec_for("git-branch-tidy");
-        let result = scan_to_result(ok, spec, |entries| entries.clone());
+        let result = scan_to_result(ok, spec, |c| c);
         assert_eq!(result.counts.len(), 2);
         assert_eq!(result.counts["active"], 5);
         assert_eq!(result.counts["stale"], 2);
@@ -443,11 +394,11 @@ mod tests {
 
     #[test]
     fn scan_to_result_captures_error() {
-        let err: Result<(), _> = Err(git_tidy_core::error::Error::DirectoryNotFound {
+        let err: Result<Counts, _> = Err(git_tidy_core::error::Error::DirectoryNotFound {
             path: "/test".into(),
         });
         let spec = spec_for("git-branch-tidy");
-        let result = scan_to_result(err, spec, |_| vec![]);
+        let result = scan_to_result(err, spec, |c| c);
         assert_eq!(result.name, "git-branch-tidy");
         assert_eq!(result.total, 0);
         assert!(

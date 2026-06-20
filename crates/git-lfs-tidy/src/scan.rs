@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
@@ -9,7 +10,7 @@ use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
 
-use crate::types::{LfsClassification, LfsCounts, LfsInfo, LfsRepoGroup, LfsScanResult};
+use crate::types::{LfsClassification, LfsInfo, LfsRepoGroup, LfsScanResult};
 
 /// Parse a human-readable size string into bytes.
 ///
@@ -203,11 +204,11 @@ pub fn run_scan_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = LfsCounts::default();
+    let mut counts = Counts::default();
     let mut total_scanned = 0;
     for g in &repos {
         for item in &g.items {
-            counts.increment(item.classification);
+            counts.increment(item.classification.label());
         }
         total_scanned += g.items.len();
     }
@@ -471,6 +472,6 @@ mod tests {
         let p = Progress::disabled();
         let result = run_scan_repos(&git, &[repo()], 1_000_000, 1000, false, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.healthy, 1);
+        assert_eq!(result.counts.get("healthy"), 1);
     }
 }

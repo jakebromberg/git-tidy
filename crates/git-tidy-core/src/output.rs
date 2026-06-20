@@ -7,7 +7,8 @@ use std::path::Path;
 use serde::Serialize;
 use unicode_width::UnicodeWidthStr;
 
-use crate::types::{Classification, ClassificationLabel, ScanCounts, WorktreeInfo};
+use crate::counts::Counts;
+use crate::types::{Classification, ClassificationLabel, WorktreeInfo};
 
 /// Terminal display width in cells (codepoint width per Unicode UAX-11).
 /// Used by `format_table` so multi-byte / wide-character cells stay aligned.
@@ -19,18 +20,18 @@ fn display_width(s: &str) -> usize {
 pub fn write_summary_line(
     out: &mut dyn Write,
     total: usize,
-    counts: &ScanCounts,
+    counts: &Counts,
     item_noun: &str,
 ) -> std::io::Result<()> {
     writeln!(
         out,
         "\n{total} {item_noun} scanned: {} landed, {} stale, {} content, {} partial, {} active, {} local",
-        counts.landed,
-        counts.landed_stale,
-        counts.landed_content,
-        counts.partial,
-        counts.active,
-        counts.local,
+        counts.get("landed"),
+        counts.get("landed-stale"),
+        counts.get("landed-content"),
+        counts.get("partial"),
+        counts.get("active"),
+        counts.get("local"),
     )
 }
 
@@ -465,14 +466,12 @@ mod tests {
 
     #[test]
     fn summary_line_format() {
-        let counts = ScanCounts {
-            landed: 3,
-            landed_stale: 0,
-            landed_content: 1,
-            partial: 0,
-            active: 2,
-            local: 1,
-        };
+        let counts = Counts::from_pairs(&[
+            ("landed", 3),
+            ("landed-content", 1),
+            ("active", 2),
+            ("local", 1),
+        ]);
         let mut buf = Vec::new();
         write_summary_line(&mut buf, 7, &counts, "branches").unwrap();
         let output = String::from_utf8(buf).unwrap();
@@ -484,10 +483,7 @@ mod tests {
 
     #[test]
     fn summary_line_worktrees() {
-        let counts = ScanCounts {
-            landed: 1,
-            ..Default::default()
-        };
+        let counts = Counts::from_pairs(&[("landed", 1)]);
         let mut buf = Vec::new();
         write_summary_line(&mut buf, 1, &counts, "worktrees").unwrap();
         let output = String::from_utf8(buf).unwrap();

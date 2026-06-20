@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 
 use git_tidy_core::classification;
+use git_tidy_core::counts::Counts;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
@@ -11,7 +12,7 @@ use git_tidy_core::landed::{LandedCache, LandedOptions};
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
 use git_tidy_core::scan::parallel_classify;
-use git_tidy_core::types::{ClassificationLabel, ScanCounts};
+use git_tidy_core::types::ClassificationLabel;
 
 use crate::discovery;
 use crate::types::{BranchInfo, BranchRepoGroup, BranchScanResult};
@@ -283,11 +284,11 @@ pub fn run_scan_repos(
     );
     warnings.extend(scan_warnings);
 
-    let mut counts = ScanCounts::default();
+    let mut counts = Counts::default();
     let mut total_scanned = 0;
     for g in &repos {
         for b in &g.branches {
-            counts.increment(&b.classification);
+            counts.increment(b.classification.label());
         }
         total_scanned += g.branches.len();
     }
@@ -449,7 +450,7 @@ mod tests {
         let filter = NameFilter::default();
         let result = run_scan_repos(&git, &[repo()], 100, false, &filter, false, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.landed, 1);
+        assert_eq!(result.counts.get("landed"), 1);
     }
 
     #[test]
@@ -516,7 +517,7 @@ mod tests {
         let filter = NameFilter::default();
         let result = run_scan_repos(&git, &[repo()], 100, false, &filter, true, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
-        assert_eq!(result.counts.landed, 1);
+        assert_eq!(result.counts.get("landed"), 1);
         let branch = &result.repos[0].branches[0];
         assert_eq!(branch.name, "feature/remote-only");
         assert!(branch.remote_only);
