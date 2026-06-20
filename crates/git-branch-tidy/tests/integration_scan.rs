@@ -1,44 +1,8 @@
 mod common;
 
-use common::git;
+use common::{git, set_up_repo_with_remote};
 use git_tidy_core::git::RealGit;
 use git_tidy_core::types::Classification;
-
-/// Set up a repo with a remote so detect_default_branch works.
-/// Returns (scan_dir, repo_path) where scan_dir is the directory to pass to run_scan.
-fn set_up_repo_with_remote() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
-
-    // Create a bare "remote" repo
-    let bare = base.join("remote.git");
-    std::fs::create_dir_all(&bare).unwrap();
-    git(&bare, &["init", "--bare"]);
-
-    // Create the scan directory that holds the working repo
-    let scan_dir = base.join("projects");
-    std::fs::create_dir_all(&scan_dir).unwrap();
-
-    // Create the working repo inside scan_dir
-    let repo = scan_dir.join("my-repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-b", "main"]);
-    git(&repo, &["config", "user.email", "test@test.com"]);
-    git(&repo, &["config", "user.name", "Test"]);
-
-    // Add remote
-    git(&repo, &["remote", "add", "origin", &bare.to_string_lossy()]);
-
-    // Initial commit
-    std::fs::write(repo.join("README.md"), "# Test\n").unwrap();
-    git(&repo, &["add", "README.md"]);
-    git(&repo, &["commit", "-m", "Initial commit"]);
-
-    // Push main to remote so origin/main exists
-    git(&repo, &["push", "-u", "origin", "main"]);
-
-    (dir, repo)
-}
 
 #[test]
 fn scan_real_repo_with_mixed_branches() {

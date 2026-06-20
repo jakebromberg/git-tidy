@@ -1,35 +1,7 @@
 mod common;
 
-use common::git;
+use common::{git, set_up_repo_with_remote};
 use git_tidy_core::git::{GitOps, RealGit};
-
-/// Set up a repo with a remote so detect_default_branch works.
-fn set_up_repo_with_remote() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
-
-    let bare = base.join("remote.git");
-    std::fs::create_dir_all(&bare).unwrap();
-    git(&bare, &["init", "--bare"]);
-
-    let scan_dir = base.join("projects");
-    std::fs::create_dir_all(&scan_dir).unwrap();
-
-    let repo = scan_dir.join("my-repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-b", "main"]);
-    git(&repo, &["config", "user.email", "test@test.com"]);
-    git(&repo, &["config", "user.name", "Test"]);
-
-    git(&repo, &["remote", "add", "origin", &bare.to_string_lossy()]);
-
-    std::fs::write(repo.join("README.md"), "# Test\n").unwrap();
-    git(&repo, &["add", "README.md"]);
-    git(&repo, &["commit", "-m", "Initial commit"]);
-    git(&repo, &["push", "-u", "origin", "main"]);
-
-    (dir, repo)
-}
 
 #[test]
 fn clean_deletes_merged_branch_in_real_repo() {
