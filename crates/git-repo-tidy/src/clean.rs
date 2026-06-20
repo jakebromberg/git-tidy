@@ -3,6 +3,7 @@ use std::io::Write;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::types::{CleanResult, FailedItem};
 
@@ -71,63 +72,62 @@ pub fn run_clean(
     delete_fn: &dyn Fn(&Path) -> io::Result<()>,
     out: &mut dyn Write,
 ) -> Result<RepoCleanResult, Error> {
-    let mut deleted = Vec::new();
-    let mut failed = Vec::new();
-    let mut skipped = 0;
+    // `dirty_blocked` is the one piece of aggregate state the shared pipeline
+    // doesn't model; the `act` closure flips it and we read it back after the run.
     let mut dirty_blocked = false;
 
-    for repo in &scan_result.repos {
-        if !should_clean(repo.classification, options) {
-            skipped += 1;
-            continue;
-        }
+    let result = core_run_clean(
+        &scan_result.repos,
+        |repo| {
+            if should_clean(repo.classification, options) {
+                Decision::Clean
+            } else {
+                Decision::Skip
+            }
+        },
+        |repo, out| {
+            // Dirty safety guard: refuse to delete a dirty repo without --force.
+            if repo.is_dirty && !options.force {
+                writeln!(
+                    out,
+                    "warning: skipping dirty repo {} (use --force to delete)",
+                    repo.name,
+                )?;
+                dirty_blocked = true;
+                return Ok(Outcome::Skipped);
+            }
 
-        // Dirty safety check
-        if repo.is_dirty && !options.force {
-            writeln!(
-                out,
-                "warning: skipping dirty repo {} (use --force to delete)",
-                repo.name,
-            )?;
-            skipped += 1;
-            dirty_blocked = true;
-            continue;
-        }
-
-        if options.dry_run {
-            writeln!(out, "would delete {}", repo.name)?;
-            deleted.push(DeletedRepo {
-                path: repo.path.clone(),
-                name: repo.name.clone(),
-            });
-            continue;
-        }
-
-        match delete_fn(&repo.path) {
-            Ok(()) => {
-                writeln!(out, "deleted {}", repo.name)?;
-                deleted.push(DeletedRepo {
+            if options.dry_run {
+                writeln!(out, "would delete {}", repo.name)?;
+                return Ok(Outcome::Cleaned(DeletedRepo {
                     path: repo.path.clone(),
                     name: repo.name.clone(),
-                });
+                }));
             }
-            Err(e) => {
-                writeln!(out, "error: could not delete {}: {e}", repo.name)?;
-                failed.push(FailedItem {
-                    repo: repo.path.clone(),
-                    name: repo.name.clone(),
-                    reason: e.to_string(),
-                });
+
+            match delete_fn(&repo.path) {
+                Ok(()) => {
+                    writeln!(out, "deleted {}", repo.name)?;
+                    Ok(Outcome::Cleaned(DeletedRepo {
+                        path: repo.path.clone(),
+                        name: repo.name.clone(),
+                    }))
+                }
+                Err(e) => {
+                    writeln!(out, "error: could not delete {}: {e}", repo.name)?;
+                    Ok(Outcome::Failed(FailedItem {
+                        repo: repo.path.clone(),
+                        name: repo.name.clone(),
+                        reason: e.to_string(),
+                    }))
+                }
             }
-        }
-    }
+        },
+        out,
+    )?;
 
     Ok(RepoCleanResult {
-        result: CleanResult {
-            succeeded: deleted,
-            failed,
-            skipped,
-        },
+        result,
         dirty_blocked,
     })
 }
