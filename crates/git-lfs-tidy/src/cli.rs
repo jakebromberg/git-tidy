@@ -11,21 +11,15 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// Directory to scan (default: current directory)
-    #[arg(global = true)]
-    pub directory: Option<PathBuf>,
+    #[command(flatten)]
+    pub common: git_tidy_core::cli::CommonArgs,
 
     /// Show detailed scan reasoning
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// Filter repos by name substring (can be repeated, OR semantics)
-    #[arg(long = "match-repo", global = true)]
-    pub match_repo_patterns: Vec<String>,
-
-    /// Exclude repos by name substring (takes precedence over --match-repo)
-    #[arg(long = "exclude-repo", global = true)]
-    pub exclude_repo_patterns: Vec<String>,
+    #[command(flatten)]
+    pub repo_filter: git_tidy_core::cli::RepoFilterArgs,
 }
 
 #[derive(Subcommand, Debug)]
@@ -83,7 +77,7 @@ pub enum Command {
 impl Cli {
     /// Resolve the target directory, defaulting to the current directory.
     pub fn target_directory(&self) -> PathBuf {
-        git_tidy_core::cli::resolve_directory(self.directory.clone())
+        git_tidy_core::cli::resolve_directory(self.common.directory.clone())
     }
 }
 
@@ -103,7 +97,7 @@ mod tests {
     fn scan_with_directory() {
         let cli = Cli::parse_from(["git-lfs-tidy", "scan", "/tmp/dev"]);
         assert!(matches!(cli.command, Some(Command::Scan { .. })));
-        assert_eq!(cli.directory, Some(PathBuf::from("/tmp/dev")));
+        assert_eq!(cli.common.directory, Some(PathBuf::from("/tmp/dev")));
     }
 
     #[test]
@@ -191,7 +185,13 @@ mod tests {
             "archive",
             "scan",
         ]);
-        assert_eq!(cli.match_repo_patterns, vec!["myproject".to_string()]);
-        assert_eq!(cli.exclude_repo_patterns, vec!["archive".to_string()]);
+        assert_eq!(
+            cli.repo_filter.match_repo_patterns,
+            vec!["myproject".to_string()]
+        );
+        assert_eq!(
+            cli.repo_filter.exclude_repo_patterns,
+            vec!["archive".to_string()]
+        );
     }
 }

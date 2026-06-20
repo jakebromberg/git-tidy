@@ -2,9 +2,48 @@
 
 use std::path::{Path, PathBuf};
 
-use clap::{CommandFactory, Subcommand};
+use clap::{Args, CommandFactory, Subcommand};
 
 use crate::error::Error;
+
+// The shared `[DIRECTORY]` positional, common to every git-tidy binary.
+//
+// Flatten this into a tool's `Cli` with `#[command(flatten)]` to inherit the
+// directory argument without re-declaring it. The flatten preserves clap's
+// `global = true` semantics, so the directory is accepted both before and
+// after a subcommand.
+//
+// NOTE: this uses a plain `//` comment rather than a `///` doc comment on
+// purpose. clap consumes an `Args` struct's doc comment as the *parent*
+// command's `about`/`long_about` when the struct is flattened at the top
+// level, which would rewrite every binary's `--help` header. The per-field
+// doc comments below still become the flag help text.
+#[derive(Args, Debug)]
+pub struct CommonArgs {
+    /// Directory to scan (default: current directory)
+    #[arg(global = true)]
+    pub directory: Option<PathBuf>,
+}
+
+// The shared repo-name filter flags (`--match-repo` / `--exclude-repo`),
+// common to every scan-shaped git-tidy binary.
+//
+// Flatten this into a tool's `Cli` at the position where the repo filters
+// should appear in `--help`; the surrounding tool-specific flags keep their
+// declaration order. The flags carry `global = true`, so they are accepted
+// after a subcommand.
+//
+// NOTE: plain `//` comment on purpose, for the same reason as `CommonArgs`.
+#[derive(Args, Debug)]
+pub struct RepoFilterArgs {
+    /// Filter repos by name substring (can be repeated, OR semantics)
+    #[arg(long = "match-repo", global = true)]
+    pub match_repo_patterns: Vec<String>,
+
+    /// Exclude repos by name substring (takes precedence over --match-repo)
+    #[arg(long = "exclude-repo", global = true)]
+    pub exclude_repo_patterns: Vec<String>,
+}
 
 /// Shared subcommands available in all git-tidy tools.
 #[derive(Subcommand, Debug)]
@@ -84,6 +123,47 @@ mod tests {
         Scan,
         #[command(flatten)]
         Shared(SharedCommands),
+    }
+
+    #[derive(Parser, Debug)]
+    #[command(name = "filter-tool")]
+    struct FilterCli {
+        #[command(subcommand)]
+        command: Option<TestCommand>,
+
+        #[command(flatten)]
+        common: CommonArgs,
+
+        #[command(flatten)]
+        repo_filter: RepoFilterArgs,
+    }
+
+    #[test]
+    fn common_args_directory_before_subcommand() {
+        let cli = FilterCli::parse_from(["filter-tool", "/tmp/dev"]);
+        assert_eq!(cli.common.directory, Some(PathBuf::from("/tmp/dev")));
+    }
+
+    #[test]
+    fn common_args_directory_after_subcommand() {
+        let cli = FilterCli::parse_from(["filter-tool", "scan", "/tmp/dev"]);
+        assert_eq!(cli.common.directory, Some(PathBuf::from("/tmp/dev")));
+        assert!(matches!(cli.command, Some(TestCommand::Scan)));
+    }
+
+    #[test]
+    fn repo_filter_args_global_after_subcommand() {
+        let cli = FilterCli::parse_from([
+            "filter-tool",
+            "scan",
+            "--match-repo",
+            "myproject",
+            "--exclude-repo",
+            "archive",
+        ]);
+        assert_eq!(cli.repo_filter.match_repo_patterns, vec!["myproject"]);
+        assert_eq!(cli.repo_filter.exclude_repo_patterns, vec!["archive"]);
+        assert!(matches!(cli.command, Some(TestCommand::Scan)));
     }
 
     #[test]

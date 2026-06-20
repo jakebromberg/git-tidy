@@ -30,7 +30,10 @@ fn main() {
 
     let git = gix_ops::GixGitOps;
     let progress = Progress::new();
-    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
+    let repo_filter = NameFilter::new(
+        &cli.repo_filter.match_repo_patterns,
+        &cli.repo_filter.exclude_repo_patterns,
+    );
     let entity_filter = NameFilter::new(&cli.match_patterns, &cli.exclude_patterns);
     let mut stdout = io::stdout().lock();
 
