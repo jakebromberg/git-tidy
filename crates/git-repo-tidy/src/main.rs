@@ -46,7 +46,10 @@ fn main() {
     };
     let noise_patterns = noise_config.resolve();
 
-    let repo_filter = NameFilter::new(&cli.match_repo_patterns, &cli.exclude_repo_patterns);
+    let repo_filter = NameFilter::new(
+        &cli.repo_filter.match_repo_patterns,
+        &cli.repo_filter.exclude_repo_patterns,
+    );
 
     let stale_days = cli.stale_threshold_days();
 

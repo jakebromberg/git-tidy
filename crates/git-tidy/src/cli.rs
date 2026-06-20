@@ -29,9 +29,8 @@ Examples:
   git tidy explain partial"
 )]
 pub struct Cli {
-    /// Directory to scan (default: current directory)
-    #[arg(global = true)]
-    pub directory: Option<PathBuf>,
+    #[command(flatten)]
+    pub common: git_tidy_core::cli::CommonArgs,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -75,7 +74,8 @@ pub enum Command {
 impl Cli {
     /// Resolve the target directory, defaulting to the current directory.
     pub fn target_directory(&self) -> PathBuf {
-        self.directory
+        self.common
+            .directory
             .clone()
             .unwrap_or_else(|| std::env::current_dir().expect("cannot determine current directory"))
     }
@@ -91,7 +91,7 @@ mod tests {
     fn default_command_is_none() {
         let cli = Cli::parse_from(["git-tidy"]);
         assert!(cli.command.is_none());
-        assert!(cli.directory.is_none());
+        assert!(cli.common.directory.is_none());
     }
 
     #[test]
@@ -187,14 +187,14 @@ mod tests {
     #[test]
     fn directory_argument() {
         let cli = Cli::parse_from(["git-tidy", "/tmp/dev"]);
-        assert_eq!(cli.directory, Some(PathBuf::from("/tmp/dev")));
+        assert_eq!(cli.common.directory, Some(PathBuf::from("/tmp/dev")));
         assert!(cli.command.is_none());
     }
 
     #[test]
     fn directory_with_audit_subcommand() {
         let cli = Cli::parse_from(["git-tidy", "audit", "--json", "/tmp/dev"]);
-        assert_eq!(cli.directory, Some(PathBuf::from("/tmp/dev")));
+        assert_eq!(cli.common.directory, Some(PathBuf::from("/tmp/dev")));
         assert!(matches!(cli.command, Some(Command::Audit { .. })));
     }
 }
