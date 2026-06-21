@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use git_tidy_core::counts::Counts;
+use git_tidy_core::scan::{Classified, ScanResult};
 use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
@@ -51,39 +51,24 @@ pub struct RemoteInfo {
     pub is_origin: bool,
 }
 
-/// A group of remotes in the same repo.
-#[derive(Debug, Clone, Serialize)]
-pub struct RemoteRepoGroup {
-    /// Path to the repo.
-    pub repo_path: PathBuf,
-    /// Display name (directory basename).
-    pub name: String,
-    /// Remotes belonging to this repo, sorted by classification priority.
-    pub remotes: Vec<RemoteInfo>,
+impl Classified for RemoteInfo {
+    fn classification_label(&self) -> &str {
+        self.classification.label()
+    }
 }
 
 /// Result of a full remote scan.
-#[derive(Debug, Clone, Serialize)]
-pub struct RemoteScanResult {
-    /// Remotes grouped by repo.
-    pub repos: Vec<RemoteRepoGroup>,
-    /// Total remotes scanned.
-    pub total_scanned: usize,
-    /// Summary counts by classification.
-    pub counts: Counts,
-    /// Warnings encountered during scanning.
-    pub warnings: Vec<String>,
-}
+///
+/// Remotes are grouped per repo in `repos` as `RepoGroup<RemoteInfo>` (the
+/// generic core group type); each group's `items` are sorted by classification
+/// priority.
+pub type RemoteScanResult = ScanResult<RemoteInfo>;
 
-impl git_tidy_core::output::FlatJsonItems for RemoteScanResult {
+impl git_tidy_core::output::IntoJsonItem for RemoteInfo {
     type JsonItem = JsonRemote;
 
-    fn to_json_items(&self) -> Vec<JsonRemote> {
-        self.repos
-            .iter()
-            .flat_map(|g| g.remotes.iter())
-            .map(JsonRemote::from)
-            .collect()
+    fn to_json_item(&self) -> JsonRemote {
+        JsonRemote::from(self)
     }
 }
 
@@ -113,6 +98,8 @@ impl From<&RemoteInfo> for JsonRemote {
 
 #[cfg(test)]
 mod tests {
+    use git_tidy_core::counts::Counts;
+
     use super::*;
 
     #[test]

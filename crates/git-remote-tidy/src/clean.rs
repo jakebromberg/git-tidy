@@ -39,7 +39,7 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for remote in &group.remotes {
+        for remote in &group.items {
             if !should_clean(&remote.classification, options) {
                 skipped += 1;
                 continue;
@@ -142,6 +142,7 @@ mod tests {
     use std::path::PathBuf;
 
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::testutil::MockGitBuilder;
     use git_tidy_core::types::ClassificationLabel;
 
@@ -158,10 +159,10 @@ mod tests {
             counts.increment(r.classification.label());
         }
         RemoteScanResult {
-            repos: vec![RemoteRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: repo(),
                 name: "my-repo".to_string(),
-                remotes,
+                items: remotes,
             }],
             total_scanned: 0,
             counts,

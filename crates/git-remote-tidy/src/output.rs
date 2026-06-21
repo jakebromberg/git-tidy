@@ -57,13 +57,13 @@ pub fn write_human(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::R
     shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
-        let noun = if group.remotes.len() == 1 {
+        let noun = if group.items.len() == 1 {
             "remote"
         } else {
             "remotes"
         };
-        writeln!(out, "\n{} ({} {noun})", group.name, group.remotes.len())?;
-        shared::format_table(out, &group.remotes)?;
+        writeln!(out, "\n{} ({} {noun})", group.name, group.items.len())?;
+        shared::format_table(out, &group.items)?;
     }
 
     write_remote_summary(out, result)?;
@@ -98,7 +98,7 @@ pub fn write_json(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Re
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &RemoteScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        shared::format_porcelain(out, &group.remotes)?;
+        shared::format_porcelain(out, &group.items)?;
     }
     Ok(())
 }
@@ -110,13 +110,14 @@ mod tests {
     use super::*;
     use crate::types::*;
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
 
     fn make_scan_result() -> RemoteScanResult {
         RemoteScanResult {
-            repos: vec![RemoteRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/backend"),
                 name: "backend".to_string(),
-                remotes: vec![
+                items: vec![
                     RemoteInfo {
                         repo_path: PathBuf::from("/repos/backend"),
                         name: "origin".to_string(),
@@ -200,10 +201,10 @@ mod tests {
     #[test]
     fn json_output_orphaned_null_url() {
         let result = RemoteScanResult {
-            repos: vec![RemoteRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/test"),
                 name: "test".to_string(),
-                remotes: vec![RemoteInfo {
+                items: vec![RemoteInfo {
                     repo_path: PathBuf::from("/repos/test"),
                     name: "stale".to_string(),
                     classification: RemoteClassification::Orphaned,
@@ -313,10 +314,10 @@ mod tests {
     #[test]
     fn human_output_hides_tracking_column_when_all_zero() {
         let result = RemoteScanResult {
-            repos: vec![RemoteRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/r"),
                 name: "r".to_string(),
-                remotes: vec![
+                items: vec![
                     RemoteInfo {
                         repo_path: PathBuf::from("/repos/r"),
                         name: "a".to_string(),
@@ -378,10 +379,10 @@ mod tests {
     #[test]
     fn human_output_single_remote_noun() {
         let result = RemoteScanResult {
-            repos: vec![RemoteRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/test"),
                 name: "test".to_string(),
-                remotes: vec![RemoteInfo {
+                items: vec![RemoteInfo {
                     repo_path: PathBuf::from("/repos/test"),
                     name: "origin".to_string(),
                     classification: RemoteClassification::Active,

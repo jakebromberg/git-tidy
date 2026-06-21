@@ -32,7 +32,7 @@ fn scan_real_repo_with_reachable_remote() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
 
-    let remote = &result.repos[0].remotes[0];
+    let remote = &result.repos[0].items[0];
     assert_eq!(remote.name, "origin");
     assert_eq!(remote.classification, RemoteClassification::Active);
     assert!(remote.is_origin);
@@ -65,7 +65,7 @@ fn scan_repo_with_unreachable_remote() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
 
-    let remote = &result.repos[0].remotes[0];
+    let remote = &result.repos[0].items[0];
     assert_eq!(remote.name, "origin");
     assert_eq!(remote.classification, RemoteClassification::Unreachable);
 }
@@ -98,7 +98,7 @@ fn scan_repo_with_orphaned_refs() {
 
     // Should detect the orphaned remote
     let orphaned: Vec<_> = result.repos[0]
-        .remotes
+        .items
         .iter()
         .filter(|r| r.classification == RemoteClassification::Orphaned)
         .collect();
@@ -141,7 +141,7 @@ fn scan_entity_filter_includes_matching_remotes() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let names: Vec<&str> = result.repos[0]
-        .remotes
+        .items
         .iter()
         .map(|r| r.name.as_str())
         .collect();
@@ -184,7 +184,7 @@ fn scan_entity_filter_exclude_takes_precedence() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let names: Vec<&str> = result.repos[0]
-        .remotes
+        .items
         .iter()
         .map(|r| r.name.as_str())
         .collect();
@@ -241,7 +241,7 @@ fn scan_offline_mode() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
-    let remote = &result.repos[0].remotes[0];
+    let remote = &result.repos[0].items[0];
     assert_eq!(remote.name, "origin");
     // In offline mode, configured remotes default to Active
     assert_eq!(remote.classification, RemoteClassification::Active);
