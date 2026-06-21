@@ -304,17 +304,6 @@ mod tests {
     // --- run_scan tests ---
 
     #[test]
-    fn scan_empty_repo_no_lfs() {
-        let _git = MockGitBuilder::new()
-            .with_lfs_installed(false)
-            .with_find_large_blobs(&repo(), vec![])
-            .build();
-
-        // discover_repos needs a real directory -- tested in integration tests
-        // Here we test the logic with mock by calling directly
-    }
-
-    #[test]
     fn scan_with_healthy_lfs_files() {
         let git = MockGitBuilder::new()
             .with_lfs_installed(true)

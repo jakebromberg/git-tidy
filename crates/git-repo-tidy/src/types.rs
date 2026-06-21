@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use git_tidy_core::counts::Counts;
+use git_tidy_core::output::{FlatJsonItems, IntoJsonItem};
 use serde::Serialize;
 
 /// Classification of a repository by activity level.
@@ -114,6 +115,26 @@ impl From<&RepoInfo> for JsonRepo {
             is_dirty: r.is_dirty,
             dirty_file_count: r.dirty_file_count,
         }
+    }
+}
+
+impl IntoJsonItem for RepoInfo {
+    type JsonItem = JsonRepo;
+
+    fn to_json_item(&self) -> JsonRepo {
+        JsonRepo::from(self)
+    }
+}
+
+/// `RepoScanResult` is bespoke (flat — no `RepoGroup` — and carries result-level
+/// disk metrics and the cross-cutting `dirty` count), so it cannot use the
+/// blanket `FlatJsonItems for ScanResult<T>` impl in core; it maps its flat
+/// `repos` directly via [`IntoJsonItem`].
+impl FlatJsonItems for RepoScanResult {
+    type JsonItem = JsonRepo;
+
+    fn to_json_items(&self) -> Vec<JsonRepo> {
+        self.repos.iter().map(IntoJsonItem::to_json_item).collect()
     }
 }
 

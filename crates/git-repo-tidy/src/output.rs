@@ -4,7 +4,7 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 
-use crate::types::{JsonRepo, RepoInfo, RepoScanResult, format_disk_size, format_last_commit_age};
+use crate::types::{RepoInfo, RepoScanResult, format_disk_size, format_last_commit_age};
 
 impl TidyItem for RepoInfo {
     const COLUMNS: &'static [ColumnSpec] = &[
@@ -112,8 +112,7 @@ fn write_summary(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Resul
 
 /// Write JSON scan output using the flat format.
 pub fn write_json(out: &mut dyn Write, result: &RepoScanResult) -> std::io::Result<()> {
-    let all_repos: Vec<JsonRepo> = result.repos.iter().map(JsonRepo::from).collect();
-    shared::write_json_pretty(out, &all_repos)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.
