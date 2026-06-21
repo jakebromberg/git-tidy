@@ -52,9 +52,13 @@ pub fn write_human(out: &mut dyn Write, result: &TagScanResult) -> std::io::Resu
     shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
-        let noun = if group.tags.len() == 1 { "tag" } else { "tags" };
-        writeln!(out, "\n{} ({} {noun})", group.name, group.tags.len())?;
-        shared::format_table(out, &group.tags)?;
+        let noun = if group.items.len() == 1 {
+            "tag"
+        } else {
+            "tags"
+        };
+        writeln!(out, "\n{} ({} {noun})", group.name, group.items.len())?;
+        shared::format_table(out, &group.items)?;
     }
 
     write_tag_summary(out, result)?;
@@ -90,7 +94,7 @@ pub fn write_json(out: &mut dyn Write, result: &TagScanResult) -> std::io::Resul
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &TagScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        shared::format_porcelain(out, &group.tags)?;
+        shared::format_porcelain(out, &group.items)?;
     }
     Ok(())
 }
@@ -102,13 +106,14 @@ mod tests {
     use super::*;
     use crate::types::*;
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
 
     fn make_scan_result() -> TagScanResult {
         TagScanResult {
-            repos: vec![TagRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/backend"),
                 name: "backend".to_string(),
-                tags: vec![
+                items: vec![
                     TagInfo {
                         repo_path: PathBuf::from("/repos/backend"),
                         name: "old-experiment".to_string(),
@@ -232,10 +237,10 @@ mod tests {
     #[test]
     fn human_output_single_tag_noun() {
         let result = TagScanResult {
-            repos: vec![TagRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/test"),
                 name: "test".to_string(),
-                tags: vec![TagInfo {
+                items: vec![TagInfo {
                     repo_path: PathBuf::from("/repos/test"),
                     name: "v1.0".to_string(),
                     classification: TagClassification::Synced,
@@ -262,10 +267,10 @@ mod tests {
         // When no tag in the group carries a tagger_date, format_table's
         // all-None auto-hide rule should drop the DATE column entirely.
         let result = TagScanResult {
-            repos: vec![TagRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/r"),
                 name: "r".to_string(),
-                tags: vec![
+                items: vec![
                     TagInfo {
                         repo_path: PathBuf::from("/repos/r"),
                         name: "a".to_string(),
@@ -307,10 +312,10 @@ mod tests {
         // When at least one tag has a tagger_date, the DATE column appears,
         // and rows without a date should still render cleanly.
         let result = TagScanResult {
-            repos: vec![TagRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/r"),
                 name: "r".to_string(),
-                tags: vec![
+                items: vec![
                     TagInfo {
                         repo_path: PathBuf::from("/repos/r"),
                         name: "lightweight-undated".to_string(),

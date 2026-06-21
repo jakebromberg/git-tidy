@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use git_tidy_core::counts::Counts;
+use git_tidy_core::scan::{Classified, ScanResult};
 use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
@@ -55,39 +55,23 @@ pub struct StashInfo {
     pub message: String,
 }
 
-/// A group of stashes in the same repo.
-#[derive(Debug, Clone, Serialize)]
-pub struct StashRepoGroup {
-    /// Path to the repo.
-    pub repo_path: PathBuf,
-    /// Display name (directory basename).
-    pub name: String,
-    /// Stashes belonging to this repo, sorted by classification priority.
-    pub stashes: Vec<StashInfo>,
+impl Classified for StashInfo {
+    fn classification_label(&self) -> &str {
+        self.classification.label()
+    }
 }
 
 /// Result of a full stash scan.
-#[derive(Debug, Clone, Serialize)]
-pub struct StashScanResult {
-    /// Stashes grouped by repo.
-    pub repos: Vec<StashRepoGroup>,
-    /// Total stashes scanned.
-    pub total_scanned: usize,
-    /// Summary counts by classification.
-    pub counts: Counts,
-    /// Warnings encountered during scanning.
-    pub warnings: Vec<String>,
-}
+///
+/// Stashes are grouped per repo in `repos` as `RepoGroup<StashInfo>` (the generic
+/// core group type); each group's `items` are sorted by classification priority.
+pub type StashScanResult = ScanResult<StashInfo>;
 
-impl git_tidy_core::output::FlatJsonItems for StashScanResult {
+impl git_tidy_core::output::IntoJsonItem for StashInfo {
     type JsonItem = JsonStash;
 
-    fn to_json_items(&self) -> Vec<JsonStash> {
-        self.repos
-            .iter()
-            .flat_map(|g| g.stashes.iter())
-            .map(JsonStash::from)
-            .collect()
+    fn to_json_item(&self) -> JsonStash {
+        JsonStash::from(self)
     }
 }
 
@@ -140,6 +124,8 @@ pub fn parse_stash_branch(message: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use git_tidy_core::counts::Counts;
+
     use super::*;
 
     #[test]

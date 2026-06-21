@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use git_tidy_core::counts::Counts;
 use git_tidy_core::date::days_since_iso_date;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
@@ -9,12 +8,10 @@ use git_tidy_core::git::GitOps;
 use git_tidy_core::landed::diff_similarity;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
-use git_tidy_core::scan::parallel_classify;
+use git_tidy_core::scan::{ScanOptions, run_pipeline};
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{
-    StashClassification, StashInfo, StashRepoGroup, StashScanResult, parse_stash_branch,
-};
+use crate::types::{StashClassification, StashInfo, StashScanResult, parse_stash_branch};
 
 /// Classify a single stash entry.
 ///
@@ -102,10 +99,12 @@ pub fn run_scan_repos(
     entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<StashScanResult, Error> {
-    let mut warnings = Vec::new();
-
-    let (repos, scan_warnings) = parallel_classify(
+    let result = run_pipeline(
+        git,
         repo_paths,
+        &ScanOptions { fetch: false },
+        "Scanning stashes",
+        progress,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -116,18 +115,18 @@ pub fn run_scan_repos(
                         "could not list stashes for {}: {e}",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
 
             if stashes.is_empty() {
-                return (None, local_warnings);
+                return (Vec::new(), local_warnings);
             }
 
-            let repo_name = repo_display_name(repo_path);
             let local_branches = git.list_local_branches(repo_path).unwrap_or_default();
 
             if verbose {
+                let repo_name = repo_display_name(repo_path);
                 eprintln!("{repo_name}: {} stash entries", stashes.len());
             }
 
@@ -170,34 +169,11 @@ pub fn run_scan_repos(
 
             classified.sort_by_key(|s| s.classification.priority());
 
-            let group = StashRepoGroup {
-                repo_path: repo_path.to_path_buf(),
-                name: repo_name,
-                stashes: classified,
-            };
-
-            (Some(group), local_warnings)
+            (classified, local_warnings)
         },
-        "Scanning stashes",
-        progress,
     );
-    warnings.extend(scan_warnings);
 
-    let mut counts = Counts::default();
-    let mut total_scanned = 0;
-    for g in &repos {
-        for s in &g.stashes {
-            counts.increment(s.classification.label());
-        }
-        total_scanned += g.stashes.len();
-    }
-
-    Ok(StashScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -434,6 +410,33 @@ mod tests {
         let result = run_scan_repos(&git, &[repo()], 90, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.get("orphaned"), 1);
+    }
+
+    #[test]
+    fn run_scan_repos_skips_repo_when_entity_filter_excludes_all_stashes() {
+        // The shared pipeline drops empty groups: a repo whose every stash is
+        // filtered out by `--match` produces no `RepoGroup` at all (rather than an
+        // empty-bodied group). Guards the one intentional behavior unification from
+        // routing stash-tidy through `run_pipeline`.
+        let git = MockGitBuilder::new()
+            .with_stash_list(
+                &repo(),
+                vec![(
+                    "stash@{0}".to_string(),
+                    "WIP on feature-x: abc Fix".to_string(),
+                    "2020-01-01T12:00:00+00:00".to_string(),
+                )],
+            )
+            .with_local_branches(&repo(), vec!["main".to_string()])
+            .build();
+
+        let p = Progress::disabled();
+        // Include only "other", which the stash's branch "feature-x" does not match.
+        let filter = NameFilter::new(&["other".to_string()], &[]);
+        let result = run_scan_repos(&git, &[repo()], 90, false, &filter, &p).unwrap();
+
+        assert!(result.repos.is_empty());
+        assert_eq!(result.total_scanned, 0);
     }
 
     #[test]

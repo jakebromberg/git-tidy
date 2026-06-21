@@ -30,7 +30,7 @@ fn scan_real_repo_with_stashes() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
 
-    let stash = &result.repos[0].stashes[0];
+    let stash = &result.repos[0].items[0];
     assert_eq!(stash.stash_ref, "stash@{0}");
     assert!(stash.branch.as_deref() == Some("main"));
     // Stash is recent and branch exists, so should be Active
@@ -66,7 +66,7 @@ fn scan_repo_with_orphaned_stash() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
 
-    let stash = &result.repos[0].stashes[0];
+    let stash = &result.repos[0].items[0];
     assert_eq!(stash.classification, StashClassification::Orphaned);
     assert_eq!(stash.branch.as_deref(), Some("temp-feature"));
 }
@@ -108,7 +108,7 @@ fn scan_entity_filter_includes_matching_stashes() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
     assert_eq!(
-        result.repos[0].stashes[0].branch.as_deref(),
+        result.repos[0].items[0].branch.as_deref(),
         Some("feature-alpha")
     );
 }
@@ -151,7 +151,7 @@ fn scan_entity_filter_exclude_takes_precedence() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     assert_eq!(result.total_scanned, 1);
     assert_eq!(
-        result.repos[0].stashes[0].branch.as_deref(),
+        result.repos[0].items[0].branch.as_deref(),
         Some("feature-login")
     );
 }

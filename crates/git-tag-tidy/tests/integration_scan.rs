@@ -37,7 +37,7 @@ fn scan_synced_tag() {
     assert!(result.total_scanned >= 1);
 
     let synced: Vec<_> = result.repos[0]
-        .tags
+        .items
         .iter()
         .filter(|t| t.name == "v1.0.0")
         .collect();
@@ -77,7 +77,7 @@ fn scan_local_only_tag() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
     let local: Vec<_> = result.repos[0]
-        .tags
+        .items
         .iter()
         .filter(|t| t.name == "local-only-tag")
         .collect();
@@ -115,7 +115,7 @@ fn scan_stale_tag() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
     let stale: Vec<_> = result.repos[0]
-        .tags
+        .items
         .iter()
         .filter(|t| t.name == "stale-tag")
         .collect();
@@ -146,7 +146,7 @@ fn scan_annotated_tag() {
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
 
     let annotated: Vec<_> = result.repos[0]
-        .tags
+        .items
         .iter()
         .filter(|t| t.name == "v2.0.0")
         .collect();
@@ -183,7 +183,7 @@ fn scan_entity_filter_includes_matching_tags() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let names: Vec<&str> = result.repos[0]
-        .tags
+        .items
         .iter()
         .map(|t| t.name.as_str())
         .collect();
@@ -220,7 +220,7 @@ fn scan_entity_filter_exclude_takes_precedence() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let names: Vec<&str> = result.repos[0]
-        .tags
+        .items
         .iter()
         .map(|t| t.name.as_str())
         .collect();

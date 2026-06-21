@@ -35,7 +35,7 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for tag in &group.tags {
+        for tag in &group.items {
             if !should_clean(&tag.classification, options) {
                 skipped += 1;
                 continue;
@@ -187,6 +187,7 @@ mod tests {
     use std::path::PathBuf;
 
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::testutil::MockGitBuilder;
     use git_tidy_core::types::ClassificationLabel;
 
@@ -203,10 +204,10 @@ mod tests {
             counts.increment(t.classification.label());
         }
         TagScanResult {
-            repos: vec![TagRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: repo(),
                 name: "my-repo".to_string(),
-                tags,
+                items: tags,
             }],
             total_scanned: 0,
             counts,
