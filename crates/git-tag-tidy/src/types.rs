@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use git_tidy_core::counts::Counts;
+use git_tidy_core::scan::{Classified, ScanResult};
 use git_tidy_core::types::ClassificationLabel;
 use serde::Serialize;
 
@@ -59,39 +59,23 @@ pub struct TagInfo {
     pub remote_names: Vec<String>,
 }
 
-/// A group of tags in the same repo.
-#[derive(Debug, Clone, Serialize)]
-pub struct TagRepoGroup {
-    /// Path to the repo.
-    pub repo_path: PathBuf,
-    /// Display name (directory basename).
-    pub name: String,
-    /// Tags belonging to this repo, sorted by classification priority.
-    pub tags: Vec<TagInfo>,
+impl Classified for TagInfo {
+    fn classification_label(&self) -> &str {
+        self.classification.label()
+    }
 }
 
 /// Result of a full tag scan.
-#[derive(Debug, Clone, Serialize)]
-pub struct TagScanResult {
-    /// Tags grouped by repo.
-    pub repos: Vec<TagRepoGroup>,
-    /// Total tags scanned.
-    pub total_scanned: usize,
-    /// Summary counts by classification.
-    pub counts: Counts,
-    /// Warnings encountered during scanning.
-    pub warnings: Vec<String>,
-}
+///
+/// Tags are grouped per repo in `repos` as `RepoGroup<TagInfo>` (the generic core
+/// group type); each group's `items` are sorted by classification priority.
+pub type TagScanResult = ScanResult<TagInfo>;
 
-impl git_tidy_core::output::FlatJsonItems for TagScanResult {
+impl git_tidy_core::output::IntoJsonItem for TagInfo {
     type JsonItem = JsonTag;
 
-    fn to_json_items(&self) -> Vec<JsonTag> {
-        self.repos
-            .iter()
-            .flat_map(|g| g.tags.iter())
-            .map(JsonTag::from)
-            .collect()
+    fn to_json_item(&self) -> JsonTag {
+        JsonTag::from(self)
     }
 }
 
@@ -146,6 +130,8 @@ pub fn is_release_tag_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use git_tidy_core::counts::Counts;
+
     use super::*;
 
     #[test]

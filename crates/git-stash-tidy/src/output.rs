@@ -50,8 +50,8 @@ pub fn write_human(out: &mut dyn Write, result: &StashScanResult) -> std::io::Re
     shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
-        writeln!(out, "\n{} ({} stashes)", group.name, group.stashes.len())?;
-        shared::format_table(out, &group.stashes)?;
+        writeln!(out, "\n{} ({} stashes)", group.name, group.items.len())?;
+        shared::format_table(out, &group.items)?;
     }
 
     write_stash_summary(out, result)?;
@@ -87,7 +87,7 @@ pub fn write_json(out: &mut dyn Write, result: &StashScanResult) -> std::io::Res
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &StashScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        shared::format_porcelain(out, &group.stashes)?;
+        shared::format_porcelain(out, &group.items)?;
     }
     Ok(())
 }
@@ -99,13 +99,14 @@ mod tests {
     use super::*;
     use crate::types::*;
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
 
     fn make_scan_result() -> StashScanResult {
         StashScanResult {
-            repos: vec![StashRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/my-repo"),
                 name: "my-repo".to_string(),
-                stashes: vec![
+                items: vec![
                     StashInfo {
                         repo_path: PathBuf::from("/repos/my-repo"),
                         stash_ref: "stash@{0}".to_string(),

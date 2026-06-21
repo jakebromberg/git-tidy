@@ -44,7 +44,7 @@ pub fn run_clean(
         // Collect stashes to drop, along with their parsed indices
         let mut to_drop: Vec<(usize, &str, &StashClassification)> = Vec::new();
 
-        for stash in &group.stashes {
+        for stash in &group.items {
             if !should_clean(&stash.classification, options) {
                 skipped += 1;
                 continue;
@@ -129,6 +129,7 @@ mod tests {
     use std::path::PathBuf;
 
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::testutil::MockGitBuilder;
     use git_tidy_core::types::ClassificationLabel;
 
@@ -145,10 +146,10 @@ mod tests {
             counts.increment(s.classification.label());
         }
         StashScanResult {
-            repos: vec![StashRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: repo(),
                 name: "my-repo".to_string(),
-                stashes,
+                items: stashes,
             }],
             total_scanned: 0,
             counts,

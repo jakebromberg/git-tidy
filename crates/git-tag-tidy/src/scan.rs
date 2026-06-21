@@ -1,17 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
-use git_tidy_core::scan::parallel_classify;
+use git_tidy_core::scan::{ScanOptions, run_pipeline};
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{TagClassification, TagInfo, TagRepoGroup, TagScanResult, is_release_tag_name};
+use crate::types::{TagClassification, TagInfo, TagScanResult, is_release_tag_name};
 
 /// Classify a single tag.
 ///
@@ -59,10 +58,12 @@ pub fn run_scan_repos(
     entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<TagScanResult, Error> {
-    let mut warnings = Vec::new();
-
-    let (repos, scan_warnings) = parallel_classify(
+    let result = run_pipeline(
+        git,
         repo_paths,
+        &ScanOptions { fetch: false },
+        "Scanning tags",
+        progress,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -73,7 +74,7 @@ pub fn run_scan_repos(
                         "could not list tags for {}: {e}",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
 
@@ -110,12 +111,11 @@ pub fn run_scan_repos(
                 .collect();
 
             if all_tag_names.is_empty() {
-                return (None, local_warnings);
+                return (Vec::new(), local_warnings);
             }
 
-            let repo_name = repo_display_name(repo_path);
-
             if verbose {
+                let repo_name = repo_display_name(repo_path);
                 eprintln!(
                     "{repo_name}: {} local, {} remote tags",
                     local_tags.len(),
@@ -193,34 +193,11 @@ pub fn run_scan_repos(
                     .then_with(|| a.name.cmp(&b.name))
             });
 
-            let group = TagRepoGroup {
-                repo_path: repo_path.to_path_buf(),
-                name: repo_name,
-                tags: classified,
-            };
-
-            (Some(group), local_warnings)
+            (classified, local_warnings)
         },
-        "Scanning tags",
-        progress,
     );
-    warnings.extend(scan_warnings);
 
-    let mut counts = Counts::default();
-    let mut total_scanned = 0;
-    for g in &repos {
-        for t in &g.tags {
-            counts.increment(t.classification.label());
-        }
-        total_scanned += g.tags.len();
-    }
-
-    Ok(TagScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -381,5 +358,29 @@ mod tests {
         let result = run_scan_repos(&git, &[repo()], true, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.get("synced"), 1);
+    }
+
+    #[test]
+    fn run_scan_repos_skips_repo_when_entity_filter_excludes_all_tags() {
+        // The shared pipeline drops empty groups: a repo whose every tag is
+        // filtered out by `--match` produces no `RepoGroup` at all (rather than an
+        // empty-bodied group). Guards the one intentional behavior unification from
+        // routing tag-tidy through `run_pipeline`.
+        let git = MockGitBuilder::new()
+            .with_local_tags(&repo(), vec!["v1.0".to_string()])
+            .with_list_remotes(&repo(), vec![])
+            .with_tag_commit(&repo(), "v1.0", "abc123")
+            .with_is_commit_reachable(&repo(), "abc123", true)
+            .with_is_tag_annotated(&repo(), "v1.0", true)
+            .with_tag_date(&repo(), "v1.0", Some("2024-06-15T10:00:00+00:00"))
+            .build();
+
+        let p = Progress::disabled();
+        // Include only "v2", which this repo's "v1.0" tag does not match -> filtered out.
+        let filter = NameFilter::new(&["v2".to_string()], &[]);
+        let result = run_scan_repos(&git, &[repo()], true, false, &filter, &p).unwrap();
+
+        assert!(result.repos.is_empty());
+        assert_eq!(result.total_scanned, 0);
     }
 }
