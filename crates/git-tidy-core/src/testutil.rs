@@ -40,6 +40,7 @@ pub struct MockGitBuilder {
     list_remotes_errors: HashMap<PathBuf, String>,
     list_remote_tracking_refs_errors: HashMap<PathBuf, String>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
+    fetch_prune_errors: HashMap<PathBuf, String>,
     fetch_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     remove_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
     remove_force_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
@@ -218,6 +219,12 @@ impl MockGitBuilder {
 
     pub fn with_list_remotes_error(mut self, repo: &Path, error: &str) -> Self {
         self.list_remotes_errors
+            .insert(repo.to_path_buf(), error.to_string());
+        self
+    }
+
+    pub fn with_fetch_prune_error(mut self, repo: &Path, error: &str) -> Self {
+        self.fetch_prune_errors
             .insert(repo.to_path_buf(), error.to_string());
         self
     }
@@ -603,6 +610,7 @@ impl MockGitBuilder {
             list_remotes_errors: self.list_remotes_errors,
             list_remote_tracking_refs_errors: self.list_remote_tracking_refs_errors,
             log_file_history: self.log_file_history,
+            fetch_prune_errors: self.fetch_prune_errors,
             fetch_prune_calls: self.fetch_prune_calls,
             remove_calls: self.remove_calls,
             remove_force_calls: self.remove_force_calls,
@@ -681,6 +689,7 @@ pub struct MockGit {
     list_remotes_errors: HashMap<PathBuf, String>,
     list_remote_tracking_refs_errors: HashMap<PathBuf, String>,
     log_file_history: HashMap<(PathBuf, String, String), Vec<(String, String)>>,
+    fetch_prune_errors: HashMap<PathBuf, String>,
     fetch_prune_calls: std::sync::Mutex<Vec<PathBuf>>,
     remove_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
     remove_force_calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
@@ -799,6 +808,12 @@ impl GitOps for MockGit {
             .lock()
             .unwrap()
             .push(repo.to_path_buf());
+        if let Some(err) = self.fetch_prune_errors.get(&repo.to_path_buf()) {
+            return Err(Error::GitCommand {
+                command: "fetch --prune".to_string(),
+                message: err.clone(),
+            });
+        }
         Ok(())
     }
 
