@@ -4,7 +4,7 @@ use std::io::Write;
 use git_tidy_core::output as shared;
 use git_tidy_core::output::{Cell, ColumnSpec, TidyItem};
 
-use crate::types::{JsonLfsItem, LfsClassification, LfsInfo, LfsScanResult};
+use crate::types::{LfsClassification, LfsInfo, LfsScanResult};
 
 /// Format bytes into a human-readable string.
 pub fn format_bytes(bytes: u64) -> String {
@@ -129,14 +129,7 @@ fn write_lfs_summary(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Re
 
 /// Write JSON scan output using the flat spec format.
 pub fn write_json(out: &mut dyn Write, result: &LfsScanResult) -> std::io::Result<()> {
-    let all_items: Vec<JsonLfsItem> = result
-        .repos
-        .iter()
-        .flat_map(|g| g.items.iter())
-        .map(JsonLfsItem::from)
-        .collect();
-
-    shared::write_json_pretty(out, &all_items)
+    shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.

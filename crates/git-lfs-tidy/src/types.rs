@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use git_tidy_core::counts::Counts;
+use git_tidy_core::output::{FlatJsonItems, IntoJsonItem};
 use serde::Serialize;
 
 /// Classification of an LFS item.
@@ -103,6 +104,29 @@ impl From<&LfsInfo> for JsonLfsItem {
             oid: info.oid.clone(),
             size_bytes: info.size_bytes,
         }
+    }
+}
+
+impl IntoJsonItem for LfsInfo {
+    type JsonItem = JsonLfsItem;
+
+    fn to_json_item(&self) -> JsonLfsItem {
+        JsonLfsItem::from(self)
+    }
+}
+
+/// `LfsScanResult` is bespoke (it carries the result-level `lfs_installed`
+/// flag), so it cannot use the blanket `FlatJsonItems for ScanResult<T>` impl in
+/// core; it flattens its groups' items the same way, via [`IntoJsonItem`].
+impl FlatJsonItems for LfsScanResult {
+    type JsonItem = JsonLfsItem;
+
+    fn to_json_items(&self) -> Vec<JsonLfsItem> {
+        self.repos
+            .iter()
+            .flat_map(|g| g.items.iter())
+            .map(IntoJsonItem::to_json_item)
+            .collect()
     }
 }
 
