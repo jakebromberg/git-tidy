@@ -99,6 +99,22 @@ pub trait FlatJsonItems {
     fn to_json_items(&self) -> Vec<Self::JsonItem>;
 }
 
+/// Conversion from a scan item to its flat JSON representation.
+///
+/// This is the per-item half of the generic `FlatJsonItems` impl for
+/// [`crate::scan::ScanResult`]: a `ScanResult<T>` can flatten itself into JSON
+/// whenever its item type `T` declares how one item becomes a JSON row. The
+/// orphan rule forbids a tool crate from implementing the foreign `FlatJsonItems`
+/// trait for the foreign `ScanResult<T>` type directly, so each tool implements
+/// this local-friendly per-item trait on its own `*Info` type instead.
+pub trait IntoJsonItem {
+    /// The JSON-serializable representation of this item.
+    type JsonItem: Serialize;
+
+    /// Build the JSON representation of this item.
+    fn to_json_item(&self) -> Self::JsonItem;
+}
+
 /// Flatten a scan result into JSON items and write as pretty-printed JSON.
 pub fn write_json_flat<T: FlatJsonItems>(out: &mut dyn Write, result: &T) -> std::io::Result<()> {
     let items = result.to_json_items();

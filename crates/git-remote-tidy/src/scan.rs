@@ -1,17 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery::discover_repos;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
-use git_tidy_core::scan::parallel_classify;
+use git_tidy_core::scan::{ScanOptions, run_pipeline};
 use git_tidy_core::types::ClassificationLabel;
 
-use crate::types::{RemoteClassification, RemoteInfo, RemoteRepoGroup, RemoteScanResult};
+use crate::types::{RemoteClassification, RemoteInfo, RemoteScanResult};
 
 /// Classify a single remote.
 ///
@@ -66,10 +65,12 @@ pub fn run_scan_repos(
     entity_filter: &NameFilter,
     progress: &Progress,
 ) -> Result<RemoteScanResult, Error> {
-    let mut warnings = Vec::new();
-
-    let (repos, scan_warnings) = parallel_classify(
+    let result = run_pipeline(
+        git,
         repo_paths,
+        &ScanOptions { fetch: false },
+        "Scanning remotes",
+        progress,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -80,7 +81,7 @@ pub fn run_scan_repos(
                         "could not list remotes for {}: {e}",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
 
@@ -122,12 +123,11 @@ pub fn run_scan_repos(
             all_remote_names.extend(orphaned);
 
             if all_remote_names.is_empty() {
-                return (None, local_warnings);
+                return (Vec::new(), local_warnings);
             }
 
-            let repo_name = repo_display_name(repo_path);
-
             if verbose {
+                let repo_name = repo_display_name(repo_path);
                 eprintln!(
                     "{repo_name}: {configured_count} configured, {} orphaned",
                     all_remote_names.len() - configured_count
@@ -171,34 +171,11 @@ pub fn run_scan_repos(
 
             classified.sort_by_key(|r| r.classification.priority());
 
-            let group = RemoteRepoGroup {
-                repo_path: repo_path.to_path_buf(),
-                name: repo_name,
-                remotes: classified,
-            };
-
-            (Some(group), local_warnings)
+            (classified, local_warnings)
         },
-        "Scanning remotes",
-        progress,
     );
-    warnings.extend(scan_warnings);
 
-    let mut counts = Counts::default();
-    let mut total_scanned = 0;
-    for g in &repos {
-        for r in &g.remotes {
-            counts.increment(r.classification.label());
-        }
-        total_scanned += g.remotes.len();
-    }
-
-    Ok(RemoteScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -279,6 +256,27 @@ mod tests {
         let result = run_scan_repos(&git, &[repo()], false, false, &filter, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.get("active"), 1);
+    }
+
+    #[test]
+    fn run_scan_repos_skips_repo_when_entity_filter_excludes_all_remotes() {
+        // The shared pipeline drops empty groups: a repo whose every remote is
+        // filtered out by `--match` produces no `RepoGroup` at all (rather than an
+        // empty-bodied group). Guards the one intentional behavior unification from
+        // routing remote-tidy through `run_pipeline`.
+        let git = MockGitBuilder::new()
+            .with_list_remotes(&repo(), vec!["origin".to_string()])
+            .with_ls_remote_check(&repo(), "origin", true)
+            .with_remote_url(&repo(), "origin", "https://example.com/repo.git")
+            .build();
+
+        let p = Progress::disabled();
+        // Include only "upstream", which this repo does not have -> "origin" is filtered out.
+        let filter = NameFilter::new(&["upstream".to_string()], &[]);
+        let result = run_scan_repos(&git, &[repo()], true, false, &filter, &p).unwrap();
+
+        assert!(result.repos.is_empty());
+        assert_eq!(result.total_scanned, 0);
     }
 
     #[test]
