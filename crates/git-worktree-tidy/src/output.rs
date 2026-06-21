@@ -1,23 +1,18 @@
 use std::io::Write;
 
 use git_tidy_core::output as shared;
-use git_tidy_core::types::ScanResult;
+use git_tidy_core::types::WorktreeScanResult;
 
 /// Write human-readable scan output.
 ///
 /// Per-group: heading + `format_table` over the group's `WorktreeInfo`s, which
 /// reads `TidyItem for WorktreeInfo` defined in `git_tidy_core::output`.
-pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
+pub fn write_human(out: &mut dyn Write, result: &WorktreeScanResult) -> std::io::Result<()> {
     shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
-        writeln!(
-            out,
-            "\n{} ({} worktrees)",
-            group.name,
-            group.worktrees.len()
-        )?;
-        shared::format_table(out, &group.worktrees)?;
+        writeln!(out, "\n{} ({} worktrees)", group.name, group.items.len())?;
+        shared::format_table(out, &group.items)?;
     }
 
     shared::write_summary_line(
@@ -33,14 +28,14 @@ pub fn write_human(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<
 }
 
 /// Write JSON scan output using the flat spec format.
-pub fn write_json(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
+pub fn write_json(out: &mut dyn Write, result: &WorktreeScanResult) -> std::io::Result<()> {
     shared::write_json_flat(out, result)
 }
 
 /// Write porcelain (machine-readable, tab-delimited) scan output.
-pub fn write_porcelain(out: &mut dyn Write, result: &ScanResult) -> std::io::Result<()> {
+pub fn write_porcelain(out: &mut dyn Write, result: &WorktreeScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        shared::format_porcelain(out, &group.worktrees)?;
+        shared::format_porcelain(out, &group.items)?;
     }
     Ok(())
 }
@@ -51,14 +46,15 @@ mod tests {
 
     use super::*;
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::types::*;
 
-    fn make_scan_result() -> ScanResult {
-        ScanResult {
+    fn make_scan_result() -> WorktreeScanResult {
+        WorktreeScanResult {
             repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/Backend"),
                 name: "Backend".to_string(),
-                worktrees: vec![
+                items: vec![
                     WorktreeInfo {
                         path: PathBuf::from("/dev/Backend-parallel"),
                         parent_repo: PathBuf::from("/repos/Backend"),
@@ -113,11 +109,11 @@ mod tests {
 
     #[test]
     fn write_human_with_partial_includes_unmatched_extras() {
-        let result = ScanResult {
+        let result = WorktreeScanResult {
             repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/App"),
                 name: "App".to_string(),
-                worktrees: vec![WorktreeInfo {
+                items: vec![WorktreeInfo {
                     path: PathBuf::from("/dev/App-theme"),
                     parent_repo: PathBuf::from("/repos/App"),
                     branch: Some("alternate-icons".to_string()),
@@ -166,7 +162,7 @@ mod tests {
 
     #[test]
     fn write_human_with_warnings() {
-        let result = ScanResult {
+        let result = WorktreeScanResult {
             repos: vec![],
             total_scanned: 0,
             counts: Counts::default(),

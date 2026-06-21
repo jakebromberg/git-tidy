@@ -2,15 +2,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use git_tidy_core::classification;
-use git_tidy_core::counts::Counts;
 use git_tidy_core::discovery;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
-use git_tidy_core::scan::parallel_classify;
-use git_tidy_core::types::{ClassificationLabel, RepoGroup, ScanResult};
+use git_tidy_core::scan::{ScanOptions, run_pipeline};
+use git_tidy_core::types::{ClassificationLabel, WorktreeScanResult};
 
 use crate::discovery::{self as wt_discovery, DiscoveredWorktree};
 
@@ -62,7 +61,7 @@ pub fn run_scan(
     entity_filter: &NameFilter,
     repo_filter: &NameFilter,
     progress: &Progress,
-) -> Result<ScanResult, Error> {
+) -> Result<WorktreeScanResult, Error> {
     let repo_paths = discovery::discover_repos(directory)?;
     let repo_paths = filter_paths(repo_paths, repo_filter);
     let groups = wt_discovery::discover_worktrees(git, &repo_paths);
@@ -81,8 +80,11 @@ pub fn run_scan(
 /// Classify pre-discovered worktree groups.
 ///
 /// Accepts a `BTreeMap` of parent-repo to worktrees (as returned by
-/// [`discovery::discover_worktrees`] and optional filtering), fetches each
-/// repo, classifies every worktree, and returns a [`ScanResult`].
+/// [`discovery::discover_worktrees`] and optional filtering) and runs the shared
+/// [`run_pipeline`] seam over the parent repos with fetch enabled. The per-repo
+/// closure looks each repo's worktrees up from the captured map and classifies
+/// them; the seam fetches every repo first and aggregates the
+/// [`WorktreeScanResult`].
 pub fn run_scan_repos(
     git: &dyn GitOps,
     groups: BTreeMap<PathBuf, Vec<DiscoveredWorktree>>,
@@ -90,19 +92,21 @@ pub fn run_scan_repos(
     verbose: bool,
     noise_patterns: &[String],
     progress: &Progress,
-) -> Result<ScanResult, Error> {
+) -> Result<WorktreeScanResult, Error> {
     let repo_paths: Vec<PathBuf> = groups.keys().cloned().collect();
-    let fetch_paths: Vec<&Path> = repo_paths.iter().map(|p| p.as_path()).collect();
-    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
 
-    let (repos, scan_warnings) = parallel_classify(
+    let result = run_pipeline(
+        git,
         &repo_paths,
+        &ScanOptions { fetch: true },
+        "Scanning worktrees",
+        progress,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
             let worktrees = match groups.get(repo_path) {
                 Some(wts) => wts,
-                None => return (None, vec![]),
+                None => return (Vec::new(), vec![]),
             };
 
             let default_branch = match classification::detect_default_branch(git, repo_path) {
@@ -112,15 +116,14 @@ pub fn run_scan_repos(
                         "could not determine default branch for {} -- skipping",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
 
-            let repo_name = repo_display_name(repo_path);
-
             if verbose {
                 eprintln!(
-                    "{repo_name}: {} worktrees (default_branch={default_branch})",
+                    "{}: {} worktrees (default_branch={default_branch})",
+                    repo_display_name(repo_path),
                     worktrees.len(),
                 );
             }
@@ -159,38 +162,11 @@ pub fn run_scan_repos(
 
             classified.sort_by_key(|wt| wt.classification.priority());
 
-            let group = if classified.is_empty() {
-                None
-            } else {
-                Some(RepoGroup {
-                    repo_path: repo_path.to_path_buf(),
-                    name: repo_name,
-                    worktrees: classified,
-                })
-            };
-
-            (group, local_warnings)
+            (classified, local_warnings)
         },
-        "Scanning worktrees",
-        progress,
     );
-    warnings.extend(scan_warnings);
 
-    let mut counts = Counts::default();
-    let mut total_scanned = 0;
-    for g in &repos {
-        for wt in &g.worktrees {
-            counts.increment(wt.classification.label());
-        }
-        total_scanned += g.worktrees.len();
-    }
-
-    Ok(ScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -333,5 +309,29 @@ mod tests {
         assert_eq!(result.total_scanned, 0);
         assert!(result.repos.is_empty());
         assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn run_scan_repos_drops_repo_when_default_branch_errors() {
+        // Confirms preserved behavior across the run_pipeline migration: a repo
+        // present in the map with a worktree but whose default-branch detection
+        // fails yields no group. The closure returns (Vec::new(), warning) and the
+        // seam drops the now-empty group, exactly as the old manual is_empty check did.
+        let groups = make_groups(&[("/dev/RepoA", vec![make_worktree("RepoA-feature", "RepoA")])]);
+        // No with_symbolic_ref / with_rev_parse_verify stubs, so detect_default_branch fails.
+        let git = MockGitBuilder::new().build();
+        let progress = Progress::disabled();
+        let result = run_scan_repos(&git, groups, 100, false, &[], &progress).unwrap();
+
+        assert!(result.repos.is_empty());
+        assert_eq!(result.total_scanned, 0);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("could not determine default branch")),
+            "expected default-branch warning, got: {:?}",
+            result.warnings,
+        );
     }
 }

@@ -168,7 +168,7 @@ fn worktree_with_deleted_branch_classifies_as_landed_stale() {
 
     assert_eq!(result.total_scanned, 1);
     assert_eq!(result.repos.len(), 1);
-    let wt_info = &result.repos[0].worktrees[0];
+    let wt_info = &result.repos[0].items[0];
     assert_eq!(
         wt_info.classification,
         Classification::LandedStale,
