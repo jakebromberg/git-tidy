@@ -32,7 +32,7 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for branch in &group.branches {
+        for branch in &group.items {
             // Never delete the currently checked-out branch
             if branch.is_current {
                 skipped += 1;
@@ -196,11 +196,12 @@ mod tests {
     use std::path::PathBuf;
 
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::testutil::MockGitBuilder;
     use git_tidy_core::types::ClassificationLabel;
 
     use super::*;
-    use crate::types::{BranchInfo, BranchRepoGroup, BranchScanResult};
+    use crate::types::{BranchInfo, BranchScanResult};
 
     fn repo() -> PathBuf {
         PathBuf::from("/repo")
@@ -212,10 +213,10 @@ mod tests {
             counts.increment(b.classification.label());
         }
         BranchScanResult {
-            repos: vec![BranchRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: repo(),
                 name: "my-repo".to_string(),
-                branches,
+                items: branches,
             }],
             total_scanned: 0,
             counts,
