@@ -99,8 +99,8 @@ pub fn write_human(out: &mut dyn Write, result: &BranchScanResult) -> std::io::R
     shared::write_warnings(out, &result.warnings)?;
 
     for group in &result.repos {
-        writeln!(out, "\n{} ({} branches)", group.name, group.branches.len())?;
-        shared::format_table(out, &group.branches)?;
+        writeln!(out, "\n{} ({} branches)", group.name, group.items.len())?;
+        shared::format_table(out, &group.items)?;
     }
 
     shared::write_summary_line(
@@ -123,7 +123,7 @@ pub fn write_json(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Re
 /// Write porcelain (machine-readable, tab-delimited) scan output.
 pub fn write_porcelain(out: &mut dyn Write, result: &BranchScanResult) -> std::io::Result<()> {
     for group in &result.repos {
-        shared::format_porcelain(out, &group.branches)?;
+        shared::format_porcelain(out, &group.items)?;
     }
     Ok(())
 }
@@ -135,14 +135,15 @@ mod tests {
     use super::*;
     use crate::types::*;
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::types::*;
 
     fn make_scan_result() -> BranchScanResult {
         BranchScanResult {
-            repos: vec![BranchRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/Backend"),
                 name: "Backend".to_string(),
-                branches: vec![
+                items: vec![
                     BranchInfo {
                         repo_path: PathBuf::from("/repos/Backend"),
                         name: "fix/skip-db-init".to_string(),
@@ -219,10 +220,10 @@ mod tests {
     #[test]
     fn human_output_with_partial() {
         let result = BranchScanResult {
-            repos: vec![BranchRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/App"),
                 name: "App".to_string(),
-                branches: vec![BranchInfo {
+                items: vec![BranchInfo {
                     repo_path: PathBuf::from("/repos/App"),
                     name: "alternate-icons".to_string(),
                     default_branch: "main".to_string(),
@@ -306,10 +307,10 @@ mod tests {
     #[test]
     fn human_output_remote_only_annotation() {
         let result = BranchScanResult {
-            repos: vec![BranchRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/App"),
                 name: "App".to_string(),
-                branches: vec![BranchInfo {
+                items: vec![BranchInfo {
                     repo_path: PathBuf::from("/repos/App"),
                     name: "feature/stale".to_string(),
                     default_branch: "main".to_string(),
@@ -338,10 +339,10 @@ mod tests {
     #[test]
     fn porcelain_output_remote_only_annotation() {
         let result = BranchScanResult {
-            repos: vec![BranchRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/App"),
                 name: "App".to_string(),
-                branches: vec![BranchInfo {
+                items: vec![BranchInfo {
                     repo_path: PathBuf::from("/repos/App"),
                     name: "feature/stale-remote".to_string(),
                     default_branch: "main".to_string(),
@@ -370,10 +371,10 @@ mod tests {
     #[test]
     fn json_output_includes_remote_only_field() {
         let result = BranchScanResult {
-            repos: vec![BranchRepoGroup {
+            repos: vec![RepoGroup {
                 repo_path: PathBuf::from("/repos/App"),
                 name: "App".to_string(),
-                branches: vec![BranchInfo {
+                items: vec![BranchInfo {
                     repo_path: PathBuf::from("/repos/App"),
                     name: "feature/stale-remote".to_string(),
                     default_branch: "main".to_string(),

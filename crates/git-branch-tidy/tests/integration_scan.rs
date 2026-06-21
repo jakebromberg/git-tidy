@@ -37,11 +37,11 @@ fn scan_real_repo_with_mixed_branches() {
     let repo_group = &result.repos[0];
 
     // Default branch (main) should be excluded, so we get feature/done and feature/wip
-    assert_eq!(repo_group.branches.len(), 2);
+    assert_eq!(repo_group.items.len(), 2);
 
     // feature/done should be merged (it's at same commit as main)
     let done = repo_group
-        .branches
+        .items
         .iter()
         .find(|b| b.name == "feature/done")
         .expect("should find feature/done");
@@ -49,15 +49,15 @@ fn scan_real_repo_with_mixed_branches() {
 
     // feature/wip should be local (no remote tracking, has unique commits)
     let wip = repo_group
-        .branches
+        .items
         .iter()
         .find(|b| b.name == "feature/wip")
         .expect("should find feature/wip");
     assert_eq!(wip.classification, Classification::Local);
 
     // Sorted by priority: merged first, then local
-    assert_eq!(repo_group.branches[0].name, "feature/done");
-    assert_eq!(repo_group.branches[1].name, "feature/wip");
+    assert_eq!(repo_group.items[0].name, "feature/done");
+    assert_eq!(repo_group.items[1].name, "feature/wip");
 
     // Counts
     assert_eq!(result.total_scanned, 2);
@@ -91,7 +91,7 @@ fn scan_marks_current_branch_in_real_repo() {
     .unwrap();
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
-    let branch = &result.repos[0].branches[0];
+    let branch = &result.repos[0].items[0];
     assert_eq!(branch.name, "my-feature");
     assert!(branch.is_current);
 }
@@ -124,7 +124,7 @@ fn scan_entity_filter_includes_matching_branches() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let names: Vec<&str> = result.repos[0]
-        .branches
+        .items
         .iter()
         .map(|b| b.name.as_str())
         .collect();
@@ -162,7 +162,7 @@ fn scan_entity_filter_exclude_takes_precedence() {
 
     assert_eq!(result.repos.len(), 1, "warnings: {:?}", result.warnings);
     let names: Vec<&str> = result.repos[0]
-        .branches
+        .items
         .iter()
         .map(|b| b.name.as_str())
         .collect();

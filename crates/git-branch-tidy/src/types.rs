@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use git_tidy_core::counts::Counts;
+use git_tidy_core::scan::{Classified, ScanResult};
 use git_tidy_core::types::{
     Classification, ClassificationLabel, UnmatchedCommit, extract_landed_fields,
 };
@@ -33,39 +33,24 @@ pub struct BranchInfo {
     pub remote_only: bool,
 }
 
-/// A group of branches in the same repo.
-#[derive(Debug, Clone, Serialize)]
-pub struct BranchRepoGroup {
-    /// Path to the repo.
-    pub repo_path: PathBuf,
-    /// Display name (directory basename).
-    pub name: String,
-    /// Branches belonging to this repo, sorted by classification priority.
-    pub branches: Vec<BranchInfo>,
+impl Classified for BranchInfo {
+    fn classification_label(&self) -> &str {
+        self.classification.label()
+    }
 }
 
 /// Result of a full branch scan.
-#[derive(Debug, Clone, Serialize)]
-pub struct BranchScanResult {
-    /// Branches grouped by repo.
-    pub repos: Vec<BranchRepoGroup>,
-    /// Total branches scanned (excluding default branches).
-    pub total_scanned: usize,
-    /// Summary counts by classification.
-    pub counts: Counts,
-    /// Warnings encountered during scanning.
-    pub warnings: Vec<String>,
-}
+///
+/// Branches are grouped per repo in `repos` as `RepoGroup<BranchInfo>` (the
+/// generic core group type); each group's `items` are sorted by classification
+/// priority.
+pub type BranchScanResult = ScanResult<BranchInfo>;
 
-impl git_tidy_core::output::FlatJsonItems for BranchScanResult {
+impl git_tidy_core::output::IntoJsonItem for BranchInfo {
     type JsonItem = JsonBranch;
 
-    fn to_json_items(&self) -> Vec<JsonBranch> {
-        self.repos
-            .iter()
-            .flat_map(|g| g.branches.iter())
-            .map(JsonBranch::from)
-            .collect()
+    fn to_json_item(&self) -> JsonBranch {
+        JsonBranch::from(self)
     }
 }
 

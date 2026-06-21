@@ -4,18 +4,17 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 
 use git_tidy_core::classification;
-use git_tidy_core::counts::Counts;
 use git_tidy_core::error::Error;
 use git_tidy_core::filter::{NameFilter, filter_paths};
 use git_tidy_core::git::GitOps;
 use git_tidy_core::landed::{LandedCache, LandedOptions};
 use git_tidy_core::output::repo_display_name;
 use git_tidy_core::progress::Progress;
-use git_tidy_core::scan::parallel_classify;
+use git_tidy_core::scan::{ScanOptions, run_pipeline};
 use git_tidy_core::types::ClassificationLabel;
 
 use crate::discovery;
-use crate::types::{BranchInfo, BranchRepoGroup, BranchScanResult};
+use crate::types::{BranchInfo, BranchScanResult};
 
 /// Scan all repos in `directory` for stale branches.
 ///
@@ -61,15 +60,12 @@ pub fn run_scan_repos(
     include_remote: bool,
     progress: &Progress,
 ) -> Result<BranchScanResult, Error> {
-    let repo_paths_owned: Vec<PathBuf> = repo_paths.to_vec();
-    let fetch_paths: Vec<&Path> = repo_paths_owned
-        .iter()
-        .map(|p: &PathBuf| p.as_path())
-        .collect();
-    let mut warnings = git_tidy_core::fetch::parallel_fetch(git, &fetch_paths, progress);
-
-    let (repos, scan_warnings) = parallel_classify(
-        &repo_paths_owned,
+    let result = run_pipeline(
+        git,
+        repo_paths,
+        &ScanOptions { fetch: true },
+        "Scanning branches",
+        progress,
         |repo_path| {
             let mut local_warnings = Vec::new();
 
@@ -80,7 +76,7 @@ pub fn run_scan_repos(
                         "could not determine default branch for {} -- skipping",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
 
@@ -91,7 +87,7 @@ pub fn run_scan_repos(
                         "could not list branches for {}: {e}",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
 
@@ -104,14 +100,14 @@ pub fn run_scan_repos(
                         "could not determine current branch for {}: {e}",
                         repo_path.display()
                     ));
-                    return (None, local_warnings);
+                    return (Vec::new(), local_warnings);
                 }
             };
-            let repo_name = repo_display_name(repo_path);
 
             if verbose {
                 eprintln!(
-                    "{repo_name}: {} branches (default_branch={default_branch})",
+                    "{}: {} branches (default_branch={default_branch})",
+                    repo_display_name(repo_path),
                     branches.len() - 1,
                 );
             }
@@ -207,7 +203,8 @@ pub fn run_scan_repos(
 
                     if verbose && !remote_only_names.is_empty() {
                         eprintln!(
-                            "{repo_name}: {} remote-only branches",
+                            "{}: {} remote-only branches",
+                            repo_display_name(repo_path),
                             remote_only_names.len(),
                         );
                     }
@@ -267,38 +264,11 @@ pub fn run_scan_repos(
 
             classified.sort_by_key(|b| b.classification.priority());
 
-            let group = if classified.is_empty() {
-                None
-            } else {
-                Some(BranchRepoGroup {
-                    repo_path: repo_path.to_path_buf(),
-                    name: repo_name,
-                    branches: classified,
-                })
-            };
-
-            (group, local_warnings)
+            (classified, local_warnings)
         },
-        "Scanning branches",
-        progress,
     );
-    warnings.extend(scan_warnings);
 
-    let mut counts = Counts::default();
-    let mut total_scanned = 0;
-    for g in &repos {
-        for b in &g.branches {
-            counts.increment(b.classification.label());
-        }
-        total_scanned += g.branches.len();
-    }
-
-    Ok(BranchScanResult {
-        repos,
-        total_scanned,
-        counts,
-        warnings,
-    })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -454,6 +424,31 @@ mod tests {
     }
 
     #[test]
+    fn run_scan_repos_skips_repo_when_entity_filter_excludes_all_branches() {
+        // Regression guard confirming preserved behavior: branch-tidy already
+        // dropped empty groups (its closure returned None when nothing classified),
+        // so routing through `run_pipeline` -- which also drops empty groups -- is a
+        // no-op for this case. A repo whose only candidate branch is excluded by the
+        // entity filter yields no `RepoGroup` at all.
+        // The candidate branch `feature/x` is dropped by the entity filter before
+        // it reaches classification, so no rev-parse/rev-list mock setup is needed
+        // (mirrors the stash-tidy sibling test).
+        let git = MockGitBuilder::new()
+            .with_symbolic_ref(&repo(), Some("main"))
+            .with_local_branches(&repo(), vec!["main".to_string(), "feature/x".to_string()])
+            .with_current_branch(&repo(), Some("main"))
+            .build();
+
+        let p = Progress::disabled();
+        // Include only "other", which the candidate branch "feature/x" does not match.
+        let filter = NameFilter::new(&["other".to_string()], &[]);
+        let result = run_scan_repos(&git, &[repo()], 100, false, &filter, false, &p).unwrap();
+
+        assert!(result.repos.is_empty());
+        assert_eq!(result.total_scanned, 0);
+    }
+
+    #[test]
     fn scan_marks_current_branch() {
         let git = MockGitBuilder::new()
             .with_symbolic_ref(&repo(), Some("main"))
@@ -518,7 +513,7 @@ mod tests {
         let result = run_scan_repos(&git, &[repo()], 100, false, &filter, true, &p).unwrap();
         assert_eq!(result.total_scanned, 1);
         assert_eq!(result.counts.get("landed"), 1);
-        let branch = &result.repos[0].branches[0];
+        let branch = &result.repos[0].items[0];
         assert_eq!(branch.name, "feature/remote-only");
         assert!(branch.remote_only);
         assert!(branch.remote_tracking);
