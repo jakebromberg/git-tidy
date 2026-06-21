@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
-use git_tidy_core::types::{Classification, CleanResult, FailedItem, ScanResult, WorktreeInfo};
+use git_tidy_core::types::{
+    Classification, CleanResult, FailedItem, WorktreeInfo, WorktreeScanResult,
+};
 
 /// Options controlling worktree cleanup behavior.
 pub struct CleanOptions {
@@ -32,7 +34,7 @@ pub struct RemovedWorktree {
 /// Run the clean operation on a scan result.
 pub fn run_clean(
     git: &dyn GitOps,
-    scan_result: &ScanResult,
+    scan_result: &WorktreeScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
 ) -> Result<CleanResult<RemovedWorktree>, Error> {
@@ -41,7 +43,7 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for wt in &group.worktrees {
+        for wt in &group.items {
             // Filter by classification
             if !should_clean(&wt.classification, options) {
                 skipped += 1;
@@ -230,8 +232,9 @@ mod tests {
     use std::path::PathBuf;
 
     use git_tidy_core::counts::Counts;
+    use git_tidy_core::scan::RepoGroup;
     use git_tidy_core::testutil::MockGitBuilder;
-    use git_tidy_core::types::{Annotations, ClassificationLabel, RepoGroup, WorktreeInfo};
+    use git_tidy_core::types::{Annotations, ClassificationLabel, WorktreeInfo};
 
     use super::*;
 
@@ -255,17 +258,17 @@ mod tests {
         }
     }
 
-    fn make_scan(worktrees: Vec<WorktreeInfo>) -> ScanResult {
+    fn make_scan(worktrees: Vec<WorktreeInfo>) -> WorktreeScanResult {
         let mut counts = Counts::default();
         for wt in &worktrees {
             counts.increment(wt.classification.label());
         }
         let total = worktrees.len();
-        ScanResult {
+        WorktreeScanResult {
             repos: vec![RepoGroup {
                 repo_path: repo(),
                 name: "test".to_string(),
-                worktrees,
+                items: worktrees,
             }],
             total_scanned: total,
             counts,

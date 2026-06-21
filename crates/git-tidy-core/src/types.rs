@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::counts::Counts;
+use crate::output::IntoJsonItem;
+use crate::scan::Classified;
 
 /// Shared interface for classification enums across all git-tidy tools.
 pub trait ClassificationLabel {
@@ -187,15 +188,10 @@ pub struct WorktreeInfo {
     pub meaningful_dirty_files: Vec<String>,
 }
 
-/// A group of worktrees sharing the same parent repo.
-#[derive(Debug, Clone, Serialize)]
-pub struct RepoGroup {
-    /// Path to the parent repo.
-    pub repo_path: PathBuf,
-    /// Display name (directory basename).
-    pub name: String,
-    /// Worktrees belonging to this repo, sorted by classification priority.
-    pub worktrees: Vec<WorktreeInfo>,
+impl Classified for WorktreeInfo {
+    fn classification_label(&self) -> &str {
+        self.classification.label()
+    }
 }
 
 /// Flat JSON representation of a worktree matching the spec.
@@ -244,30 +240,20 @@ impl From<&WorktreeInfo> for JsonWorktree {
     }
 }
 
-/// Result of a full scan operation.
-#[derive(Debug, Clone, Serialize)]
-pub struct ScanResult {
-    /// Worktrees grouped by parent repo.
-    pub repos: Vec<RepoGroup>,
-    /// Total worktrees scanned.
-    pub total_scanned: usize,
-    /// Summary counts by classification.
-    pub counts: Counts,
-    /// Repos that were skipped (e.g. no default branch).
-    pub warnings: Vec<String>,
-}
-
-impl crate::output::FlatJsonItems for ScanResult {
+impl IntoJsonItem for WorktreeInfo {
     type JsonItem = JsonWorktree;
 
-    fn to_json_items(&self) -> Vec<JsonWorktree> {
-        self.repos
-            .iter()
-            .flat_map(|g| g.worktrees.iter())
-            .map(JsonWorktree::from)
-            .collect()
+    fn to_json_item(&self) -> JsonWorktree {
+        JsonWorktree::from(self)
     }
 }
+
+/// Result of a full worktree scan.
+///
+/// Worktrees are grouped per parent repo in `repos` as `RepoGroup<WorktreeInfo>`
+/// (the generic core group type); each group's `items` are sorted by
+/// classification priority.
+pub type WorktreeScanResult = crate::scan::ScanResult<WorktreeInfo>;
 
 #[cfg(test)]
 mod tests {
