@@ -48,8 +48,10 @@ pub fn parallel_classify<G: Send>(
 /// A group of classified items sharing the same repo.
 ///
 /// The generic counterpart to each tool's hand-rolled `*RepoGroup`
-/// (`TagRepoGroup`, `StashRepoGroup`, …). `items` holds the repo's classified
-/// rows, sorted by the tool's classification priority before assembly.
+/// (`TagRepoGroup`, `StashRepoGroup`, …). `items` are in the order the classifier
+/// returned them — `run_pipeline` does not reorder. A tool that wants rows sorted
+/// by classification priority sorts inside its own `classify_one` closure (as
+/// remote-tidy does) before returning them.
 #[derive(Debug, Clone, Serialize)]
 pub struct RepoGroup<T> {
     /// Path to the repo.
@@ -342,5 +344,71 @@ mod pipeline_tests {
         assert_eq!(calls.len(), 2);
         assert!(calls.contains(&PathBuf::from("/a")));
         assert!(calls.contains(&PathBuf::from("/b")));
+    }
+
+    #[test]
+    fn fetch_completes_before_classify() {
+        // The seam's load-bearing ordering contract: when fetch is enabled, every
+        // repo is fetched before ANY classify closure runs (parallel_fetch blocks
+        // via thread::scope before parallel_classify dispatches). Each closure
+        // observes that all fetches are already recorded — so a refactor that moved
+        // the fetch after (or into) classification would fail here.
+        let git = MockGitBuilder::new().build();
+        let repos = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+        let observed_fetch_counts = std::sync::Mutex::new(Vec::new());
+
+        let _result = run_pipeline(
+            &git,
+            &repos,
+            &opts(true),
+            "Scanning",
+            &Progress::disabled(),
+            |_| {
+                observed_fetch_counts
+                    .lock()
+                    .unwrap()
+                    .push(git.fetch_prune_calls().len());
+                (vec![TestItem { label: "active" }], vec![])
+            },
+        );
+
+        let observed = observed_fetch_counts.into_inner().unwrap();
+        assert_eq!(observed.len(), 2);
+        assert!(
+            observed.iter().all(|&n| n == 2),
+            "every classify closure should see both fetches already done, got {observed:?}"
+        );
+    }
+
+    #[test]
+    fn fetch_failure_warning_precedes_classify_warnings() {
+        // A failed fetch surfaces a warning, and run_pipeline orders fetch warnings
+        // ahead of classify warnings in the merged result.
+        let git = MockGitBuilder::new()
+            .with_fetch_prune_error(&PathBuf::from("/a"), "network down")
+            .build();
+        let repos = vec![PathBuf::from("/a")];
+
+        let result = run_pipeline(
+            &git,
+            &repos,
+            &opts(true),
+            "Scanning",
+            &Progress::disabled(),
+            |_| {
+                (
+                    vec![TestItem { label: "active" }],
+                    vec!["classify warning".to_string()],
+                )
+            },
+        );
+
+        assert_eq!(result.warnings.len(), 2, "warnings: {:?}", result.warnings);
+        assert!(
+            result.warnings[0].contains("/a") && result.warnings[0].contains("network down"),
+            "first warning should be the fetch failure, got {:?}",
+            result.warnings,
+        );
+        assert_eq!(result.warnings[1], "classify warning");
     }
 }
