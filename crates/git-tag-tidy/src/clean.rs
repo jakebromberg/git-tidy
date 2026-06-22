@@ -1,11 +1,12 @@
 use std::fmt::Write as _;
 use std::io::Write;
 
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::types::{CleanResult, FailedItem, RemovedRef};
 
-use crate::types::{TagClassification, TagScanResult};
+use crate::types::{TagClassification, TagInfo, TagScanResult};
 
 /// Options controlling tag cleanup behavior.
 pub struct CleanOptions {
@@ -24,6 +25,18 @@ pub struct CleanOptions {
 }
 
 /// Run the clean operation on a scan result.
+///
+/// tag-tidy groups tags per repo, so we invoke the shared [`core_run_clean`] loop
+/// once per group (group `name`/`repo_path` drive the human wording) and accumulate
+/// the per-group `CleanResult`s into a single result.
+///
+/// Most tags map cleanly to one [`Outcome`], but the remote fan-out is special: a
+/// single tag can be deleted from several remotes, and an individual remote can fail
+/// while the tag is still recorded as removed. A lone `Outcome` can't carry both a
+/// success record and per-remote failures, so — following the CleanPipeline mapping
+/// doc — `act` pushes each failed remote into a `&mut Vec<FailedItem>` captured here
+/// and still returns `Outcome::Cleaned` for the tag. After every per-group call we
+/// merge those captured failures into the overall `failed` set.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &TagScanResult,
@@ -34,120 +47,140 @@ pub fn run_clean(
     let mut failed = Vec::new();
     let mut skipped = 0;
 
+    // Per-remote fan-out failures: `act` records a tag as `Cleaned` even when some
+    // of its remote deletions fail, so those secondary failures land here and get
+    // merged into `failed` after the run (the same tool-side pattern as repo-tidy's
+    // `dirty_blocked`).
+    let mut fanout_failed: Vec<FailedItem> = Vec::new();
+
     for group in &scan_result.repos {
-        for tag in &group.items {
-            if !should_clean(&tag.classification, options) {
-                skipped += 1;
-                continue;
-            }
-
-            // Release tag protection
-            if tag.is_release_tag && !options.force {
-                writeln!(
-                    out,
-                    "warning: skipping release tag {} in {} (use --force to remove)",
-                    tag.name, group.name,
-                )?;
-                skipped += 1;
-                continue;
-            }
-
-            if options.dry_run {
-                let mut action = format!("would delete tag {} in {}", tag.name, group.name);
-                if options.include_remote && !tag.remote_names.is_empty() {
-                    write!(
-                        action,
-                        " (and from remotes: {})",
-                        tag.remote_names.join(", ")
-                    )
-                    .unwrap();
+        let group_result = core_run_clean(
+            &group.items,
+            |tag: &&TagInfo| {
+                if should_clean(&tag.classification, options) {
+                    Decision::Clean
+                } else {
+                    Decision::Skip
                 }
-                writeln!(out, "{action}")?;
-                succeeded.push(RemovedRef {
-                    repo: group.repo_path.clone(),
-                    name: tag.name.clone(),
-                    remote_deleted: false,
-                });
-                continue;
-            }
-
-            // Delete local tag (for local and synced tags)
-            if tag.classification != TagClassification::RemoteOnly {
-                match git.tag_delete(&group.repo_path, &tag.name) {
-                    Ok(()) => {
-                        writeln!(out, "deleted tag {} in {}", tag.name, group.name)?;
-                    }
-                    Err(e) => {
-                        writeln!(out, "error: could not delete tag {}: {e}", tag.name,)?;
-                        failed.push(FailedItem {
-                            repo: group.repo_path.clone(),
-                            name: tag.name.clone(),
-                            reason: e.to_string(),
-                        });
-                        continue;
-                    }
+            },
+            |tag, out| {
+                // Release tag protection: a printed skip, so it lives in `act`.
+                if tag.is_release_tag && !options.force {
+                    writeln!(
+                        out,
+                        "warning: skipping release tag {} in {} (use --force to remove)",
+                        tag.name, group.name,
+                    )?;
+                    return Ok(Outcome::Skipped);
                 }
-            }
 
-            // Delete remote copies if --include-remote
-            let mut remote_deleted = false;
-            if options.include_remote && !tag.remote_names.is_empty() {
-                for remote_name in &tag.remote_names {
-                    match git.tag_delete_remote(&group.repo_path, remote_name, &tag.name) {
+                if options.dry_run {
+                    let mut action = format!("would delete tag {} in {}", tag.name, group.name);
+                    if options.include_remote && !tag.remote_names.is_empty() {
+                        write!(
+                            action,
+                            " (and from remotes: {})",
+                            tag.remote_names.join(", ")
+                        )
+                        .unwrap();
+                    }
+                    writeln!(out, "{action}")?;
+                    return Ok(Outcome::Cleaned(RemovedRef {
+                        repo: group.repo_path.clone(),
+                        name: tag.name.clone(),
+                        remote_deleted: false,
+                    }));
+                }
+
+                // Delete local tag (for local and synced tags). A local-delete
+                // failure is the tag's single outcome: print, record, and bail.
+                if tag.classification != TagClassification::RemoteOnly {
+                    match git.tag_delete(&group.repo_path, &tag.name) {
                         Ok(()) => {
-                            writeln!(
-                                out,
-                                "deleted tag {} from remote {remote_name} in {}",
-                                tag.name, group.name,
-                            )?;
-                            remote_deleted = true;
+                            writeln!(out, "deleted tag {} in {}", tag.name, group.name)?;
                         }
                         Err(e) => {
-                            writeln!(
-                                out,
-                                "warning: could not delete tag {} from remote {remote_name}: {e}",
-                                tag.name,
-                            )?;
-                        }
-                    }
-                }
-            }
-
-            // For remote-only tags with --all, delete from remotes
-            if tag.classification == TagClassification::RemoteOnly {
-                for remote_name in &tag.remote_names {
-                    match git.tag_delete_remote(&group.repo_path, remote_name, &tag.name) {
-                        Ok(()) => {
-                            writeln!(
-                                out,
-                                "deleted tag {} from remote {remote_name} in {}",
-                                tag.name, group.name,
-                            )?;
-                            remote_deleted = true;
-                        }
-                        Err(e) => {
-                            writeln!(
-                                out,
-                                "error: could not delete tag {} from remote {remote_name}: {e}",
-                                tag.name,
-                            )?;
-                            failed.push(FailedItem {
+                            writeln!(out, "error: could not delete tag {}: {e}", tag.name,)?;
+                            return Ok(Outcome::Failed(FailedItem {
                                 repo: group.repo_path.clone(),
                                 name: tag.name.clone(),
                                 reason: e.to_string(),
-                            });
+                            }));
                         }
                     }
                 }
-            }
 
-            succeeded.push(RemovedRef {
-                repo: group.repo_path.clone(),
-                name: tag.name.clone(),
-                remote_deleted,
-            });
-        }
+                // Delete remote copies if --include-remote. Per-remote failures are
+                // warnings only; they do not fail the tag.
+                let mut remote_deleted = false;
+                if options.include_remote && !tag.remote_names.is_empty() {
+                    for remote_name in &tag.remote_names {
+                        match git.tag_delete_remote(&group.repo_path, remote_name, &tag.name) {
+                            Ok(()) => {
+                                writeln!(
+                                    out,
+                                    "deleted tag {} from remote {remote_name} in {}",
+                                    tag.name, group.name,
+                                )?;
+                                remote_deleted = true;
+                            }
+                            Err(e) => {
+                                writeln!(
+                                    out,
+                                    "warning: could not delete tag {} from remote {remote_name}: {e}",
+                                    tag.name,
+                                )?;
+                            }
+                        }
+                    }
+                }
+
+                // For remote-only tags, delete from remotes. Each remote failure is
+                // a secondary failure recorded into the fan-out vec, but the tag is
+                // still recorded as `Cleaned` below.
+                if tag.classification == TagClassification::RemoteOnly {
+                    for remote_name in &tag.remote_names {
+                        match git.tag_delete_remote(&group.repo_path, remote_name, &tag.name) {
+                            Ok(()) => {
+                                writeln!(
+                                    out,
+                                    "deleted tag {} from remote {remote_name} in {}",
+                                    tag.name, group.name,
+                                )?;
+                                remote_deleted = true;
+                            }
+                            Err(e) => {
+                                writeln!(
+                                    out,
+                                    "error: could not delete tag {} from remote {remote_name}: {e}",
+                                    tag.name,
+                                )?;
+                                fanout_failed.push(FailedItem {
+                                    repo: group.repo_path.clone(),
+                                    name: tag.name.clone(),
+                                    reason: e.to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                Ok(Outcome::Cleaned(RemovedRef {
+                    repo: group.repo_path.clone(),
+                    name: tag.name.clone(),
+                    remote_deleted,
+                }))
+            },
+            out,
+        )?;
+
+        succeeded.extend(group_result.succeeded);
+        failed.extend(group_result.failed);
+        skipped += group_result.skipped;
     }
+
+    // Merge the per-remote fan-out failures captured during the per-group runs.
+    failed.append(&mut fanout_failed);
 
     Ok(CleanResult {
         succeeded,
