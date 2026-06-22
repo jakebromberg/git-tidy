@@ -8,6 +8,31 @@ use crate::types::{
     Annotations, BranchClassification, Classification, ClassificationLabel, WorktreeInfo,
 };
 
+/// Decide whether a branch/worktree classification is eligible for cleanup,
+/// given the shared `--all` / `--strict` flags.
+///
+/// This is the pure classification filter shared verbatim by branch-tidy and
+/// worktree-tidy (each tool's former `should_clean`): `--all` admits everything;
+/// `--strict` admits only structurally-proven [`Classification::Landed`];
+/// otherwise the default admits landed, landed-stale, and landed-by-content.
+pub fn should_clean_landed(classification: &Classification, all: bool, strict: bool) -> bool {
+    if all {
+        return true;
+    }
+
+    if strict {
+        return matches!(classification, Classification::Landed);
+    }
+
+    // Default: landed (structural) + landed-stale + landed-by-content
+    matches!(
+        classification,
+        Classification::Landed
+            | Classification::LandedStale
+            | Classification::LandedByContent { .. }
+    )
+}
+
 /// Detect the default branch for a repo.
 /// 1. Try `git symbolic-ref refs/remotes/origin/HEAD`
 /// 2. Probe for `origin/main`, then `origin/master`
