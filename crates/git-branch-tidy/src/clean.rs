@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use git_tidy_core::classification::should_clean_landed;
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::types::{Classification, CleanResult, FailedItem, RemovedRef};
@@ -21,6 +23,11 @@ pub struct CleanOptions {
 }
 
 /// Run the clean operation on a scan result.
+///
+/// Calls the shared [`core_run_clean`] pipeline once per repo group so each
+/// group's `name` is in scope for the per-item wording and output stays
+/// per-repo-contiguous, accumulating each group's [`CleanResult`] into the
+/// overall succeeded / failed / skipped totals.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &BranchScanResult,
@@ -32,129 +39,135 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for branch in &group.items {
-            // Never delete the currently checked-out branch
-            if branch.is_current {
-                skipped += 1;
-                continue;
-            }
-
-            // Filter by classification
-            if !should_clean(&branch.classification, options) {
-                skipped += 1;
-                continue;
-            }
-
-            // Remote-only branches: delete from origin directly, skip local deletion
-            if branch.remote_only {
-                if options.dry_run {
-                    writeln!(out, "would delete remote {} in {}", branch.name, group.name)?;
-                    succeeded.push(RemovedRef {
-                        repo: branch.repo_path.clone(),
-                        name: branch.name.clone(),
-                        remote_deleted: true,
-                    });
-                    continue;
+        let result = core_run_clean(
+            &group.items,
+            |branch| {
+                // Never delete the currently checked-out branch, then filter by
+                // classification. Both rejections are silent skips.
+                if !branch.is_current
+                    && should_clean_landed(&branch.classification, options.all, options.strict)
+                {
+                    Decision::Clean
+                } else {
+                    Decision::Skip
                 }
-
-                match git.delete_remote_branch(&branch.repo_path, "origin", &branch.name) {
-                    Ok(()) => {
-                        writeln!(out, "deleted remote {}", branch.name)?;
-                        succeeded.push(RemovedRef {
+            },
+            |branch, out| {
+                // Remote-only branches: delete from origin directly, skip local deletion
+                if branch.remote_only {
+                    if options.dry_run {
+                        writeln!(out, "would delete remote {} in {}", branch.name, group.name)?;
+                        return Ok(Outcome::Cleaned(RemovedRef {
                             repo: branch.repo_path.clone(),
                             name: branch.name.clone(),
                             remote_deleted: true,
-                        });
+                        }));
+                    }
+
+                    return match git.delete_remote_branch(&branch.repo_path, "origin", &branch.name)
+                    {
+                        Ok(()) => {
+                            writeln!(out, "deleted remote {}", branch.name)?;
+                            Ok(Outcome::Cleaned(RemovedRef {
+                                repo: branch.repo_path.clone(),
+                                name: branch.name.clone(),
+                                remote_deleted: true,
+                            }))
+                        }
+                        Err(e) => {
+                            writeln!(out, "error: could not delete remote {}: {e}", branch.name)?;
+                            Ok(Outcome::Failed(FailedItem {
+                                repo: branch.repo_path.clone(),
+                                name: branch.name.clone(),
+                                reason: e.to_string(),
+                            }))
+                        }
+                    };
+                }
+
+                if options.dry_run {
+                    write!(out, "would delete {}", branch.name)?;
+                    if options.include_remote && branch.remote_tracking && !branch.remote_deleted {
+                        write!(out, " (and remote)")?;
+                    }
+                    writeln!(out, " in {}", group.name)?;
+                    return Ok(Outcome::Cleaned(RemovedRef {
+                        repo: branch.repo_path.clone(),
+                        name: branch.name.clone(),
+                        remote_deleted: false,
+                    }));
+                }
+
+                // Delete the local branch.
+                // Use force-delete for branches our analysis has confirmed as landed,
+                // since git's built-in merge check doesn't understand squash merges.
+                let force_delete = options.force
+                    || matches!(
+                        branch.classification,
+                        Classification::Landed
+                            | Classification::LandedStale
+                            | Classification::LandedByContent { .. }
+                    );
+                let delete_result = if force_delete {
+                    git.branch_delete(&branch.repo_path, &branch.name)
+                } else {
+                    git.branch_delete_safe(&branch.repo_path, &branch.name)
+                };
+
+                match delete_result {
+                    Ok(()) => {
+                        let mut remote_deleted = false;
+
+                        // Delete remote branch if requested
+                        if options.include_remote
+                            && branch.remote_tracking
+                            && !branch.remote_deleted
+                            && let Some(remote) =
+                                derive_remote_name(git, &branch.repo_path, &branch.name)
+                        {
+                            match git.delete_remote_branch(&branch.repo_path, &remote, &branch.name)
+                            {
+                                Ok(()) => {
+                                    remote_deleted = true;
+                                }
+                                Err(e) => {
+                                    writeln!(
+                                        out,
+                                        "warning: could not delete remote branch {}/{}: {e}",
+                                        remote, branch.name
+                                    )?;
+                                }
+                            }
+                        }
+
+                        writeln!(
+                            out,
+                            "deleted {}{}",
+                            branch.name,
+                            if remote_deleted { " (and remote)" } else { "" }
+                        )?;
+                        Ok(Outcome::Cleaned(RemovedRef {
+                            repo: branch.repo_path.clone(),
+                            name: branch.name.clone(),
+                            remote_deleted,
+                        }))
                     }
                     Err(e) => {
-                        writeln!(out, "error: could not delete remote {}: {e}", branch.name)?;
-                        failed.push(FailedItem {
+                        writeln!(out, "error: could not delete {}: {e}", branch.name)?;
+                        Ok(Outcome::Failed(FailedItem {
                             repo: branch.repo_path.clone(),
                             name: branch.name.clone(),
                             reason: e.to_string(),
-                        });
+                        }))
                     }
                 }
-                continue;
-            }
+            },
+            out,
+        )?;
 
-            if options.dry_run {
-                write!(out, "would delete {}", branch.name)?;
-                if options.include_remote && branch.remote_tracking && !branch.remote_deleted {
-                    write!(out, " (and remote)")?;
-                }
-                writeln!(out, " in {}", group.name)?;
-                succeeded.push(RemovedRef {
-                    repo: branch.repo_path.clone(),
-                    name: branch.name.clone(),
-                    remote_deleted: false,
-                });
-                continue;
-            }
-
-            // Delete the local branch.
-            // Use force-delete for branches our analysis has confirmed as landed,
-            // since git's built-in merge check doesn't understand squash merges.
-            let force_delete = options.force
-                || matches!(
-                    branch.classification,
-                    Classification::Landed
-                        | Classification::LandedStale
-                        | Classification::LandedByContent { .. }
-                );
-            let delete_result = if force_delete {
-                git.branch_delete(&branch.repo_path, &branch.name)
-            } else {
-                git.branch_delete_safe(&branch.repo_path, &branch.name)
-            };
-
-            match delete_result {
-                Ok(()) => {
-                    let mut remote_deleted = false;
-
-                    // Delete remote branch if requested
-                    if options.include_remote
-                        && branch.remote_tracking
-                        && !branch.remote_deleted
-                        && let Some(remote) =
-                            derive_remote_name(git, &branch.repo_path, &branch.name)
-                    {
-                        match git.delete_remote_branch(&branch.repo_path, &remote, &branch.name) {
-                            Ok(()) => {
-                                remote_deleted = true;
-                            }
-                            Err(e) => {
-                                writeln!(
-                                    out,
-                                    "warning: could not delete remote branch {}/{}: {e}",
-                                    remote, branch.name
-                                )?;
-                            }
-                        }
-                    }
-
-                    writeln!(
-                        out,
-                        "deleted {}{}",
-                        branch.name,
-                        if remote_deleted { " (and remote)" } else { "" }
-                    )?;
-                    succeeded.push(RemovedRef {
-                        repo: branch.repo_path.clone(),
-                        name: branch.name.clone(),
-                        remote_deleted,
-                    });
-                }
-                Err(e) => {
-                    writeln!(out, "error: could not delete {}: {e}", branch.name)?;
-                    failed.push(FailedItem {
-                        repo: branch.repo_path.clone(),
-                        name: branch.name.clone(),
-                        reason: e.to_string(),
-                    });
-                }
-            }
-        }
+        succeeded.extend(result.succeeded);
+        failed.extend(result.failed);
+        skipped += result.skipped;
     }
 
     Ok(CleanResult {
@@ -162,25 +175,6 @@ pub fn run_clean(
         failed,
         skipped,
     })
-}
-
-/// Determine if a branch should be cleaned based on its classification and options.
-fn should_clean(classification: &Classification, options: &CleanOptions) -> bool {
-    if options.all {
-        return true;
-    }
-
-    if options.strict {
-        return matches!(classification, Classification::Landed);
-    }
-
-    // Default: landed (structural) + landed-stale + landed-by-content
-    matches!(
-        classification,
-        Classification::Landed
-            | Classification::LandedStale
-            | Classification::LandedByContent { .. }
-    )
 }
 
 /// Derive the remote name from a branch's upstream tracking info.

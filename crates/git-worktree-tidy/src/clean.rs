@@ -1,6 +1,8 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use git_tidy_core::classification::should_clean_landed;
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::types::{
@@ -32,6 +34,11 @@ pub struct RemovedWorktree {
 }
 
 /// Run the clean operation on a scan result.
+///
+/// Calls the shared [`core_run_clean`] pipeline once per repo group so each
+/// group's `name` is in scope for the per-item wording and output stays
+/// per-repo-contiguous, accumulating each group's [`CleanResult`] into the
+/// overall succeeded / failed / skipped totals.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &WorktreeScanResult,
@@ -43,81 +50,86 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for wt in &group.items {
-            // Filter by classification
-            if !should_clean(&wt.classification, options) {
-                skipped += 1;
-                continue;
-            }
-
-            let dir_name = worktree_display_name(wt);
-
-            // Check if dirty and not forced
-            if wt.annotations.dirty && !options.force {
-                // LandedStale dirty is always a stale-index artifact — safe to clean
-                if matches!(wt.classification, Classification::LandedStale) {
-                    // Fall through to removal
+        let result = core_run_clean(
+            &group.items,
+            |wt| {
+                if should_clean(&wt.classification, options) {
+                    Decision::Clean
                 } else {
-                    // Check if working tree matches default branch
-                    let diff_ref = format!("origin/{}", wt.default_branch);
-                    let diff_files = git
-                        .diff_working_tree_files(&wt.path, &diff_ref)
-                        .or_else(|_| git.diff_working_tree_files(&wt.path, &wt.default_branch));
+                    Decision::Skip
+                }
+            },
+            |wt, out| {
+                let dir_name = worktree_display_name(wt);
 
-                    match diff_files {
-                        Ok(files) if files.is_empty() => {
-                            // Working tree matches main — dirty is informational
-                        }
-                        _ => {
-                            writeln!(
-                                out,
-                                "skipped {dir_name}: dirty ({} files), use --force to remove",
-                                wt.annotations.dirty_file_count
-                            )?;
-                            skipped += 1;
-                            continue;
+                // Check if dirty and not forced
+                if wt.annotations.dirty && !options.force {
+                    // LandedStale dirty is always a stale-index artifact — safe to clean
+                    if matches!(wt.classification, Classification::LandedStale) {
+                        // Fall through to removal
+                    } else {
+                        // Check if working tree matches default branch
+                        let diff_ref = format!("origin/{}", wt.default_branch);
+                        let diff_files = git
+                            .diff_working_tree_files(&wt.path, &diff_ref)
+                            .or_else(|_| git.diff_working_tree_files(&wt.path, &wt.default_branch));
+
+                        match diff_files {
+                            Ok(files) if files.is_empty() => {
+                                // Working tree matches main — dirty is informational
+                            }
+                            _ => {
+                                writeln!(
+                                    out,
+                                    "skipped {dir_name}: dirty ({} files), use --force to remove",
+                                    wt.annotations.dirty_file_count
+                                )?;
+                                return Ok(Outcome::Skipped);
+                            }
                         }
                     }
                 }
-            }
 
-            if options.dry_run {
-                write!(out, "would remove {dir_name}")?;
-                if options.delete_branches
-                    && let Some(branch) = &wt.branch
-                {
-                    write!(out, " (and branch {branch})")?;
+                if options.dry_run {
+                    write!(out, "would remove {dir_name}")?;
+                    if options.delete_branches
+                        && let Some(branch) = &wt.branch
+                    {
+                        write!(out, " (and branch {branch})")?;
+                    }
+                    writeln!(out, " in {}", group.name)?;
+                    return Ok(Outcome::Cleaned(RemovedWorktree {
+                        repo: wt.parent_repo.clone(),
+                        path: wt.path.clone(),
+                        branch: wt.branch.clone(),
+                        branch_deleted: false,
+                    }));
                 }
-                writeln!(out, " in {}", group.name)?;
-                succeeded.push(RemovedWorktree {
-                    repo: wt.parent_repo.clone(),
-                    path: wt.path.clone(),
-                    branch: wt.branch.clone(),
-                    branch_deleted: false,
-                });
-                continue;
-            }
 
-            // Three-tier removal strategy
-            match remove_worktree(git, wt, options, out) {
-                Ok(branch_deleted) => {
-                    succeeded.push(RemovedWorktree {
+                // Three-tier removal strategy
+                match remove_worktree(git, wt, options, out) {
+                    Ok(branch_deleted) => Ok(Outcome::Cleaned(RemovedWorktree {
                         repo: wt.parent_repo.clone(),
                         path: wt.path.clone(),
                         branch: wt.branch.clone(),
                         branch_deleted,
-                    });
+                    })),
+                    Err(e) => {
+                        writeln!(out, "error: could not remove {dir_name}: {e}")?;
+                        Ok(Outcome::Failed(FailedItem {
+                            repo: wt.parent_repo.clone(),
+                            name: dir_name,
+                            reason: e.to_string(),
+                        }))
+                    }
                 }
-                Err(e) => {
-                    writeln!(out, "error: could not remove {dir_name}: {e}")?;
-                    failed.push(FailedItem {
-                        repo: wt.parent_repo.clone(),
-                        name: dir_name,
-                        reason: e.to_string(),
-                    });
-                }
-            }
-        }
+            },
+            out,
+        )?;
+
+        succeeded.extend(result.succeeded);
+        failed.extend(result.failed);
+        skipped += result.skipped;
     }
 
     Ok(CleanResult {
@@ -128,22 +140,10 @@ pub fn run_clean(
 }
 
 /// Determine if a worktree should be cleaned based on its classification and options.
+///
+/// Thin wrapper over the shared [`should_clean_landed`] filter.
 fn should_clean(classification: &Classification, options: &CleanOptions) -> bool {
-    if options.all {
-        return true;
-    }
-
-    if options.strict {
-        return matches!(classification, Classification::Landed);
-    }
-
-    // Default: landed (structural) + landed-stale + landed-by-content
-    matches!(
-        classification,
-        Classification::Landed
-            | Classification::LandedStale
-            | Classification::LandedByContent { .. }
-    )
+    should_clean_landed(classification, options.all, options.strict)
 }
 
 /// Extract the directory basename for display.
