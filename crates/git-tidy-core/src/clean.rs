@@ -69,6 +69,14 @@ pub enum Outcome<S> {
 ///   then wrap the returned [`CleanResult<S>`] in a tool-specific result (see
 ///   `RepoCleanResult`). The seam owns iterate/filter/act/aggregate, not per-group
 ///   output.
+/// - **Actions that fan out** — each admitted item maps to exactly one
+///   [`Outcome`] by design, but one item can drive several sub-operations that
+///   fail independently. tag-tidy deletes one tag from several remotes, where a
+///   remote can fail while the tag still counts as removed. `act` returns the
+///   item's single primary outcome (here `Cleaned`) and pushes the secondary
+///   [`FailedItem`]s into an `act`-captured `&mut Vec`, merged into the result
+///   after the run — the same tool-side pattern as `dirty_blocked`. Fan-out
+///   failures live beside the per-item `Outcome`, not inside it.
 pub fn run_clean<I, S>(
     items: impl IntoIterator<Item = I>,
     decide: impl Fn(&I) -> Decision,
