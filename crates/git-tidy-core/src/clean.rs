@@ -48,6 +48,22 @@ pub enum Outcome<S> {
 /// errors (an `out` write failure, a hard removal failure) — those short-circuit
 /// the loop. A delete that fails but should not abort the run is
 /// `Ok(Outcome::Failed(..))`.
+///
+/// # Mapping a tool onto this seam
+///
+/// The loop is deliberately flat and per-item; tools adapt at the call site
+/// rather than the seam growing hooks:
+/// - **Grouped scans** — every tool except repo-tidy stores `Vec<RepoGroup<T>>`.
+///   Flatten to `(group, item)` pairs and let `I` carry whatever group context
+///   `act`'s wording needs (e.g. `group.name`), for example
+///   `groups.iter().flat_map(|g| g.items.iter().map(move |i| (g, i)))`.
+/// - **Order-sensitive deletes** — stash must drop in descending index order.
+///   Sort the flattened items at the call site before passing them in; the loop
+///   preserves input order.
+/// - **Aggregate state the result doesn't model** — repo-tidy's `dirty_blocked`,
+///   lfs-tidy's per-group recommendations. Keep it tool-side: have `act` update a
+///   captured `&mut`, or compute it alongside the call, then wrap the returned
+///   [`CleanResult<S>`] in a tool-specific result (see `RepoCleanResult`).
 pub fn run_clean<I, S>(
     items: impl IntoIterator<Item = I>,
     decide: impl Fn(&I) -> Decision,
@@ -238,5 +254,72 @@ mod tests {
         assert!(result.succeeded.is_empty());
         assert!(result.failed.is_empty());
         assert_eq!(result.skipped, 0);
+    }
+
+    #[test]
+    fn mixed_outcomes_route_to_distinct_buckets() {
+        // A single run producing all three outcomes must keep them separate: a
+        // failed item is never also counted as skipped, a cleaned item never
+        // lands in `failed`, etc. The per-outcome tests above can't catch
+        // cross-bucket contamination because each runs one outcome in isolation.
+        let mut out = Vec::new();
+        let result = run_clean(
+            [1, 2, 3, 4],
+            // Reject 4 via the pure filter.
+            |item| {
+                if *item == 4 {
+                    Decision::Skip
+                } else {
+                    Decision::Clean
+                }
+            },
+            // 1 -> cleaned, 2 -> act-skip (IO guard), 3 -> failed.
+            |item, _out| match *item {
+                1 => Ok(Outcome::Cleaned(10)),
+                2 => Ok(Outcome::Skipped),
+                _ => Ok(Outcome::Failed(failed("3"))),
+            },
+            &mut out,
+        )
+        .unwrap();
+
+        assert_eq!(result.succeeded, vec![10]);
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.failed[0].name, "3");
+        // 1 decide-skip (4) + 1 act-skip (2); the failed item (3) is NOT skipped.
+        assert_eq!(result.skipped, 2);
+    }
+
+    #[test]
+    fn act_write_failure_propagates_and_short_circuits() {
+        // The documented fatal path: a `writeln!(out, ..)?` inside `act` that
+        // fails must surface as `Err` and stop the loop. The other error test
+        // hand-returns `Err`; this exercises the real write-failure route.
+        struct FailingWriter;
+        impl Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("disk full"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut out = FailingWriter;
+        let mut calls = 0usize;
+        let result = run_clean(
+            [1, 2, 3],
+            |_| Decision::Clean,
+            |item, out| -> Result<Outcome<i32>, Error> {
+                calls += 1;
+                writeln!(out, "did {item}")?;
+                Ok(Outcome::Cleaned(*item))
+            },
+            &mut out,
+        );
+
+        assert!(result.is_err());
+        // Short-circuited on the first item's failed write; 2 and 3 not reached.
+        assert_eq!(calls, 1);
     }
 }
