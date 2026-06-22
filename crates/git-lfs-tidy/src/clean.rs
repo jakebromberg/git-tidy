@@ -29,7 +29,8 @@ pub struct LfsCleanResult {
     pub result: CleanResult<PrunedRepo>,
     /// Recommendations printed to the user (e.g. `git lfs migrate`). Already
     /// emitted inline during the pass; retained here for tests and future JSON
-    /// output. A candidate to drop once lfs moves onto the shared CleanPipeline.
+    /// output. Computed tool-side around the per-group `run_clean` call, since the
+    /// shared pipeline does not model per-group aggregate extras.
     #[allow(dead_code)]
     pub recommendations: Vec<String>,
 }
