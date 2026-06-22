@@ -19,6 +19,7 @@ use crate::types::{CleanResult, FailedItem};
 /// It never prints and never counts more than one: a rejected item is silently
 /// counted as skipped, matching every tool's current `skipped += 1; continue;`.
 /// IO-dependent guards that print a warning belong in `act` (see [`Outcome::Skipped`]).
+#[derive(Debug)]
 pub enum Decision {
     /// Admit this item; the pipeline will call `act`.
     Clean,
@@ -27,6 +28,7 @@ pub enum Decision {
 }
 
 /// Result of running `act` on one admitted item.
+#[derive(Debug)]
 pub enum Outcome<S> {
     /// Cleaned (or, in dry-run, would have been). Carries the success record.
     Cleaned(S),
@@ -51,19 +53,22 @@ pub enum Outcome<S> {
 ///
 /// # Mapping a tool onto this seam
 ///
-/// The loop is deliberately flat and per-item; tools adapt at the call site
-/// rather than the seam growing hooks:
-/// - **Grouped scans** — every tool except repo-tidy stores `Vec<RepoGroup<T>>`.
-///   Flatten to `(group, item)` pairs and let `I` carry whatever group context
-///   `act`'s wording needs (e.g. `group.name`), for example
-///   `groups.iter().flat_map(|g| g.items.iter().map(move |i| (g, i)))`.
+/// The loop is deliberately flat and per-item. repo-tidy has a flat scan result
+/// (`Vec<RepoInfo>`) so it calls `run_clean` once over everything. The other six
+/// tools group by repo (`Vec<RepoGroup<T>>`); the natural fit is to call
+/// `run_clean` once per group, which keeps each repo's output contiguous and
+/// leaves room for per-group work around the call:
+/// - **Per-group context** — pass one group's items as `items`, and let `I` carry
+///   whatever `act`'s wording needs (e.g. the group name), so the loop stays
+///   oblivious to grouping.
 /// - **Order-sensitive deletes** — stash must drop in descending index order.
-///   Sort the flattened items at the call site before passing them in; the loop
-///   preserves input order.
-/// - **Aggregate state the result doesn't model** — repo-tidy's `dirty_blocked`,
-///   lfs-tidy's per-group recommendations. Keep it tool-side: have `act` update a
-///   captured `&mut`, or compute it alongside the call, then wrap the returned
-///   [`CleanResult<S>`] in a tool-specific result (see `RepoCleanResult`).
+///   Sort that group's items before the call; the loop preserves input order.
+/// - **Per-group emission / aggregate extras** — lfs-tidy's per-group
+///   recommendation lines, repo-tidy's `dirty_blocked`. Emit or accumulate these
+///   around the call (between per-group calls, or via an `act`-captured `&mut`),
+///   then wrap the returned [`CleanResult<S>`] in a tool-specific result (see
+///   `RepoCleanResult`). The seam owns iterate/filter/act/aggregate, not per-group
+///   output.
 pub fn run_clean<I, S>(
     items: impl IntoIterator<Item = I>,
     decide: impl Fn(&I) -> Decision,
