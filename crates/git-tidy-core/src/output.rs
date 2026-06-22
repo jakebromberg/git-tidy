@@ -77,12 +77,6 @@ pub fn format_ahead_behind(ahead: usize, behind: usize) -> String {
     }
 }
 
-/// Format a comma-separated annotation list from string slices.
-/// Returns empty string when the list is empty.
-pub fn format_annotations(annotations: &[&str]) -> String {
-    annotations.join(", ")
-}
-
 /// Extract a display name from a repo path (last path component, or full path as fallback).
 pub fn repo_display_name(path: &Path) -> String {
     path.file_name()
@@ -555,19 +549,6 @@ mod tests {
     #[test]
     fn ahead_behind_zero() {
         assert_eq!(format_ahead_behind(0, 0), "");
-    }
-
-    #[test]
-    fn annotations_basic() {
-        assert_eq!(
-            format_annotations(&["diverged", "remote deleted"]),
-            "diverged, remote deleted"
-        );
-    }
-
-    #[test]
-    fn annotations_empty() {
-        assert_eq!(format_annotations(&[]), "");
     }
 
     #[test]

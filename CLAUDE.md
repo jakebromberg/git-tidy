@@ -35,13 +35,15 @@ This is a Cargo workspace with a shared core library and seven binary crates.
 
 - **`GitOps` trait** (`git-tidy-core/src/git.rs`): All git operations go through this trait (`Send + Sync` for thread safety). `RealGit` shells out to `git`; `MockGit` (in `testutil.rs`) returns canned data. `MockGit` uses `Mutex` for call-tracking fields.
 - **Output to `&mut dyn Write`**: Enables unit testing output formatters without process capture.
-- **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `write_warnings`, `write_explain_hint`, `format_ahead_behind`, `format_annotations`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`. All tools call these to avoid duplicating formatting logic.
+- **Shared output helpers** (`git-tidy-core/src/output.rs`): `write_summary_line`, `format_summary_buckets`, `write_warnings`, `write_explain_hint`, `format_ahead_behind`, `format_landed_ratio`, `repo_display_name`, `write_json_pretty`, and `write_json_flat` (flat-array `--json` writer driven by the `FlatJsonItems` trait, which uniform tools satisfy generically via per-item `IntoJsonItem`). All tools call these to avoid duplicating formatting logic.
 - **Shared CLI utilities** (`git-tidy-core/src/cli.rs`): `resolve_directory` for resolving optional directory arguments, `SharedCommands` enum (hidden `completions` subcommand flattened into all tools via `#[command(flatten)]`), used by all tools.
 - **Shared error handling** (`git-tidy-core/src/error.rs`): `exit_with_error` for consistent error-exit behavior across all tools.
 - **Shared type helpers** (`git-tidy-core/src/types.rs`): `extract_landed_fields` for extracting landed ratio/total/unmatched from `Classification` for JSON serialization.
 - **`thiserror`** for errors: Known, finite variants with exit code mapping (1=error, 2=dirty-blocked).
 - **`TidyItem` trait** (`git-tidy-core/src/output.rs`): Each scan-shaped tool implements `TidyItem` on its row type (e.g., `WorktreeInfo`, `BranchInfo`). The trait declares a static `COLUMNS: &[ColumnSpec]` schema plus four methods: `row()` returns one `Option<Cell>` per column (`None` everywhere hides the column), `row_extras()` returns lines printed indented under the row, `annotations()` returns human-only tokens joined with `", "` and appended as a row suffix (empty tokens are filtered), and `porcelain_fields()` returns ordered tab-delimited fields. **Porcelain contract**: `porcelain_fields()[0]` is the row's primary path identifier — `repo_path.display().to_string()` for most tools. The lone exception is `WorktreeInfo`: `[0]` is the worktree directory and `[1]` is the parent repo, preserving the historical `worktree-tidy --porcelain` shape. Field count and order are part of each tool's public porcelain interface and must remain stable across releases. `format_table` renders a group as a padded human table; column widths are measured in Unicode UAX-11 cells so wide-character data (CJK, emoji) stays aligned. `format_porcelain` renders the items as tab-delimited rows. In debug builds, `format_table` panics if `row().len()` differs from `T::COLUMNS.len()` to catch impl drift early. **Impl location convention**: each tool's `TidyItem` impl lives in the tool crate's `output.rs` (not `types.rs`) to avoid `output → types` import cycles. The lone exception is `WorktreeInfo`, whose type lives in `git-tidy-core::types`; per Rust's orphan rule its impl lives in `git-tidy-core::output`. `git-config-tidy` does not use `TidyItem` because it emits lint findings, not item rows.
-- **Parallel fetch** (`git-tidy-core/src/fetch.rs`): `parallel_fetch` runs `git fetch --prune` concurrently across repos using `thread::scope`. Used by worktree-tidy and branch-tidy before classification.
+- **Parallel fetch** (`git-tidy-core/src/fetch.rs`): `parallel_fetch` runs `git fetch --prune` concurrently across repos using `thread::scope`. Invoked by `run_pipeline` when `ScanOptions.fetch` is set (worktree- and branch-tidy).
+- **Scan pipeline seam** (`git-tidy-core/src/scan.rs`): Two layers. **Layer 1** `parallel_classify<G>(repo_paths, classify_fn, label, progress)` runs a per-repo classifier closure in parallel (rayon) with progress + warning collection over any group type `G`; used directly by `git-repo-tidy`, `git-lfs-tidy`, and `git-config-tidy`. **Layer 2** `run_pipeline<T: Classified + Send>(...)` is the high-level seam for the five uniform tools (remote, tag, stash, branch, worktree): optional `parallel_fetch` (gated by `ScanOptions { fetch }`), `parallel_classify` dispatch wrapping each non-empty `Vec<T>` into a `RepoGroup<T>` (empty groups dropped), `Counts` aggregation via `Classified::classification_label`, and `ScanResult<T>` assembly. Generic `RepoGroup<T>`/`ScanResult<T>` replace each uniform tool's former hand-rolled `*RepoGroup`/`*ScanResult` (exposed per tool as `pub type *ScanResult = ScanResult<*Info>`). The two exception tools keep bespoke results (repo-tidy flat with disk metrics + a cross-cutting `dirty` count; lfs-tidy with `LfsRepoGroup`/`lfs_installed`) and stay on Layer 1.
+- **Generic counts** (`git-tidy-core/src/counts.rs`): one `Counts` newtype over `BTreeMap<String, usize>` (`increment`/`get`/`total`/`iter`/`from_pairs`) replaces all per-tool `*Counts` structs and the `define_counts!` macro; keyed by `ClassificationLabel::label()` strings (also the audit-JSON keys). `output::write_summary_line` renders a tool's human summary from a `Counts` plus an ordered `&[(display_word, count_key)]` spec.
 - **Library-first design**: `scan.rs` and `clean.rs` are library functions; `main.rs` is thin dispatch. Enables `git-tidy` to call each tool's scan/lint as a library.
 - **`CachingGitOps`** (`git-tidy-core/src/caching.rs`): `GitOps` wrapper that memoizes read-only queries (`fetch_prune`, `symbolic_ref_origin_head`, `rev_parse_verify`, `list_local_branches`, `list_remotes`, `ls_remote_check`, `list_builtin_commands`, `lfs_installed`, `log_grep`, `diff_commit`, `diff_commit_files`, `diff_commit_on_ref`) via `Mutex<HashMap>`. Used by the in-process audit runner to avoid redundant git calls across tools. A `delegate_git_ops!` macro forwards uncached methods to the inner `GitOps`.
 
@@ -95,20 +97,26 @@ crates/
       integration.rs                          # End-to-end with FakeToolRunner
   git-tidy-core/                              # Shared library
     src/
-      lib.rs                                  # Module exports
-      cli.rs                                  # Shared CLI utilities (resolve_directory, SharedCommands)
-      git.rs                                  # GitOps trait + RealGit implementation
-      types.rs                                # Classification, BranchClassification, WorktreeInfo, etc.
-      error.rs                                # thiserror Error enum + exit_with_error
-      fetch.rs                               # parallel_fetch: concurrent git fetch --prune via thread::scope
+      caching.rs                              # CachingGitOps: memoizing GitOps wrapper + delegate macro
       classification.rs                       # classify_branch + classify_worktree
+      cli.rs                                  # Shared CLI utilities (resolve_directory, SharedCommands)
       config.rs                               # Noise pattern configuration (file + CLI + defaults)
+      counts.rs                               # Generic Counts newtype over BTreeMap<String, usize>
+      date.rs                                 # Date/age parsing helpers
       dirty.rs                                # Status parsing with noise filtering
       discovery.rs                            # Repo discovery (shared by all tools)
+      error.rs                                # thiserror Error enum + exit_with_error
+      fetch.rs                                # parallel_fetch: concurrent git fetch --prune via thread::scope
+      filter.rs                               # NameFilter (--match) + filter_paths
+      git.rs                                  # GitOps trait + RealGit implementation
+      gix_ops.rs                              # gitoxide-backed GitOps operations
       landed.rs                               # Subject matching, fuzzy, patch similarity
+      lib.rs                                  # Module exports
       output.rs                               # Shared output helpers (summary, warnings, formatting, JSON)
+      progress.rs                             # Progress bar abstraction (terminal vs disabled)
+      scan.rs                                 # Scan pipeline: parallel_classify (L1), run_pipeline (L2), RepoGroup<T>/ScanResult<T>, Classified, ScanOptions
       testutil.rs                             # MockGitBuilder, MockGit, TestRepo, git() helper
-      caching.rs                              # CachingGitOps: memoizing GitOps wrapper + delegate macro
+      types.rs                                # Classification, BranchClassification, WorktreeInfo, WorktreeScanResult, + Classified/IntoJsonItem impls for WorktreeInfo
   git-worktree-tidy/                          # Worktree scanner/cleaner binary
     src/
       main.rs                                 # CLI dispatch
@@ -131,7 +139,7 @@ crates/
       scan.rs                                 # Branch enumeration and classification
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Branch deletion with safety guards
-      types.rs                                # BranchInfo, BranchRepoGroup, BranchScanResult
+      types.rs                                # BranchInfo, BranchScanResult (= ScanResult<BranchInfo>), JsonBranch
     tests/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with branch scanning
@@ -144,7 +152,7 @@ crates/
       scan.rs                                 # Stash classification and scanning
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Stash drop logic (descending index order)
-      types.rs                                # StashInfo, StashRepoGroup, StashScanResult
+      types.rs                                # StashClassification, StashInfo, StashScanResult (= ScanResult<StashInfo>), JsonStash
     tests/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with stash scanning
@@ -157,7 +165,7 @@ crates/
       scan.rs                                 # Remote classification and scanning
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Remote removal and ref pruning logic
-      types.rs                                # RemoteInfo, RemoteRepoGroup, RemoteScanResult
+      types.rs                                # RemoteClassification, RemoteInfo, RemoteScanResult (= ScanResult<RemoteInfo>), JsonRemote
     tests/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with remote scanning
@@ -170,13 +178,12 @@ crates/
       scan.rs                                 # Tag classification and scanning
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Tag deletion with safety guards
-      types.rs                                # TagInfo, TagRepoGroup, TagScanResult
+      types.rs                                # TagClassification, TagInfo, TagScanResult (= ScanResult<TagInfo>), JsonTag
     tests/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with tag scanning
       integration_clean.rs                    # Real git repos with tag cleanup
   git-repo-tidy/                             # Repo scanner/cleaner binary
-  git-lfs-tidy/                              # LFS health scanner/cleaner binary
     src/
       main.rs                                 # CLI dispatch
       lib.rs                                  # Public module exports for integration tests
@@ -184,7 +191,7 @@ crates/
       scan.rs                                 # Repo classification and scanning (with injectable du_fn)
       output.rs                               # Human-readable, JSON, porcelain formatters
       clean.rs                                # Repo deletion with delete_fn injection
-      types.rs                                # RepoInfo, RepoCounts, RepoScanResult
+      types.rs                                # RepoClassification, RepoInfo, RepoScanResult, JsonRepo
     tests/
       common/mod.rs                           # Re-exports from git_tidy_core::testutil
       integration_scan.rs                     # Real git repos with repo scanning
