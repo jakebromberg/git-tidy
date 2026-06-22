@@ -1,11 +1,12 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::types::{CleanResult, FailedItem};
 
-use crate::types::{StashClassification, StashScanResult};
+use crate::types::{StashClassification, StashInfo, StashScanResult};
 
 /// Options controlling stash cleanup behavior.
 pub struct CleanOptions {
@@ -29,7 +30,11 @@ pub struct DroppedStash {
 /// Run the clean operation on a scan result.
 ///
 /// Key design: drops stashes in descending index order per repo to prevent
-/// index renumbering side effects.
+/// index renumbering side effects. Because the shared [`core_run_clean`] loop
+/// preserves input order, each group's stashes are pre-sorted by descending
+/// stash index *before* the call (see [`order_group_items`]); the loop then
+/// drops them high-index-first while [`should_clean`] (as the `decide` filter)
+/// counts the rest as skipped.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &StashScanResult,
@@ -40,52 +45,55 @@ pub fn run_clean(
     let mut failed = Vec::new();
     let mut skipped = 0;
 
+    // One `core_run_clean` call per group keeps each repo's output contiguous
+    // and lets the per-group descending-index pre-sort do the ordering work.
     for group in &scan_result.repos {
-        // Collect stashes to drop, along with their parsed indices
-        let mut to_drop: Vec<(usize, &str, &StashClassification)> = Vec::new();
+        let ordered = order_group_items(&group.items, options);
 
-        for stash in &group.items {
-            if !should_clean(&stash.classification, options) {
-                skipped += 1;
-                continue;
-            }
+        let result = core_run_clean(
+            ordered,
+            |stash| {
+                if should_clean(&stash.classification, options) {
+                    Decision::Clean
+                } else {
+                    Decision::Skip
+                }
+            },
+            |stash, out| {
+                let stash_ref = stash.stash_ref.as_str();
 
-            if let Some(idx) = parse_stash_index(&stash.stash_ref) {
-                to_drop.push((idx, &stash.stash_ref, &stash.classification));
-            }
-        }
-
-        // Sort by descending index to prevent renumbering
-        to_drop.sort_by_key(|b| std::cmp::Reverse(b.0));
-
-        for (_, stash_ref, _) in &to_drop {
-            if options.dry_run {
-                writeln!(out, "would drop {} in {}", stash_ref, group.name)?;
-                succeeded.push(DroppedStash {
-                    repo: group.repo_path.clone(),
-                    stash_ref: stash_ref.to_string(),
-                });
-                continue;
-            }
-
-            match git.stash_drop(&group.repo_path, stash_ref) {
-                Ok(()) => {
-                    writeln!(out, "dropped {} in {}", stash_ref, group.name)?;
-                    succeeded.push(DroppedStash {
+                if options.dry_run {
+                    writeln!(out, "would drop {} in {}", stash_ref, group.name)?;
+                    return Ok(Outcome::Cleaned(DroppedStash {
                         repo: group.repo_path.clone(),
                         stash_ref: stash_ref.to_string(),
-                    });
+                    }));
                 }
-                Err(e) => {
-                    writeln!(out, "error: could not drop {}: {e}", stash_ref)?;
-                    failed.push(FailedItem {
-                        repo: group.repo_path.clone(),
-                        name: stash_ref.to_string(),
-                        reason: e.to_string(),
-                    });
+
+                match git.stash_drop(&group.repo_path, stash_ref) {
+                    Ok(()) => {
+                        writeln!(out, "dropped {} in {}", stash_ref, group.name)?;
+                        Ok(Outcome::Cleaned(DroppedStash {
+                            repo: group.repo_path.clone(),
+                            stash_ref: stash_ref.to_string(),
+                        }))
+                    }
+                    Err(e) => {
+                        writeln!(out, "error: could not drop {}: {e}", stash_ref)?;
+                        Ok(Outcome::Failed(FailedItem {
+                            repo: group.repo_path.clone(),
+                            name: stash_ref.to_string(),
+                            reason: e.to_string(),
+                        }))
+                    }
                 }
-            }
-        }
+            },
+            out,
+        )?;
+
+        succeeded.extend(result.succeeded);
+        failed.extend(result.failed);
+        skipped += result.skipped;
     }
 
     Ok(CleanResult {
@@ -93,6 +101,37 @@ pub fn run_clean(
         failed,
         skipped,
     })
+}
+
+/// Order one group's stashes for the shared clean loop.
+///
+/// The shared loop preserves input order, so the descending-index drop order is
+/// established here. Admitted, drop-eligible stashes are those that both pass
+/// [`should_clean`] and carry a parseable `stash@{N}` index; they are sorted by
+/// descending index so that dropping a higher index never renumbers a lower one
+/// still pending. Stashes rejected by [`should_clean`] are retained so the loop
+/// still counts them as skipped (their relative order is irrelevant). Stashes
+/// that would be cleaned but whose ref does not parse are dropped from the
+/// list entirely — matching the original loop, which silently ignored them
+/// (never counting them as succeeded, failed, or skipped).
+fn order_group_items<'a>(items: &'a [StashInfo], options: &CleanOptions) -> Vec<&'a StashInfo> {
+    let mut ordered: Vec<&StashInfo> = items
+        .iter()
+        .filter(|stash| {
+            // Keep skip candidates regardless of parseability; for admitted
+            // stashes, keep only those with a parseable index.
+            !should_clean(&stash.classification, options)
+                || parse_stash_index(&stash.stash_ref).is_some()
+        })
+        .collect();
+
+    // Descending stash index. Skip candidates (no admitted index needed) sort by
+    // their own parsed index or 0; their position only affects skip ordering,
+    // which the result does not observe.
+    ordered
+        .sort_by_key(|stash| std::cmp::Reverse(parse_stash_index(&stash.stash_ref).unwrap_or(0)));
+
+    ordered
 }
 
 /// Determine if a stash should be cleaned based on its classification and options.
