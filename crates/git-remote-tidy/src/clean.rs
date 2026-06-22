@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::types::{CleanResult, FailedItem};
@@ -28,6 +29,16 @@ pub struct RemovedRemote {
 }
 
 /// Run the clean operation on a scan result.
+///
+/// Remotes are grouped per repo, so the shared [`core_run_clean`] seam is invoked
+/// once per group (each group's `name`/`repo_path` are stable for that call's
+/// `act` closure) and the per-group [`CleanResult`]s are accumulated. `decide` is
+/// the pure [`should_clean`] classification filter; `act` owns the two distinct
+/// actions — orphaned remotes get their tracking refs pruned via
+/// [`GitOps::prune_remote_refs`], configured/unreachable remotes get the remote
+/// removed via [`GitOps::remote_remove`] — plus the origin-protection guard
+/// (removing `origin` requires `--force`, otherwise it prints a warning and
+/// skips) and the dry-run branching.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &RemoteScanResult,
@@ -39,84 +50,93 @@ pub fn run_clean(
     let mut skipped = 0;
 
     for group in &scan_result.repos {
-        for remote in &group.items {
-            if !should_clean(&remote.classification, options) {
-                skipped += 1;
-                continue;
-            }
-
-            // Origin safety check
-            if remote.is_origin && !options.force {
-                writeln!(
-                    out,
-                    "warning: skipping origin remote in {} (use --force to remove)",
-                    group.name,
-                )?;
-                skipped += 1;
-                continue;
-            }
-
-            if options.dry_run {
-                let action = if remote.classification == RemoteClassification::Orphaned {
-                    "would prune refs for"
+        let group_result = core_run_clean(
+            &group.items,
+            |remote| {
+                if should_clean(&remote.classification, options) {
+                    Decision::Clean
                 } else {
-                    "would remove"
-                };
-                writeln!(out, "{action} {} in {}", remote.name, group.name)?;
-                succeeded.push(RemovedRemote {
-                    repo: group.repo_path.clone(),
-                    name: remote.name.clone(),
-                    refs_pruned: 0,
-                });
-                continue;
-            }
+                    Decision::Skip
+                }
+            },
+            |remote, out| {
+                // Origin safety check: removing origin requires --force. Prints a
+                // warning then skips, so it is an `act`-level guard, not `decide`.
+                if remote.is_origin && !options.force {
+                    writeln!(
+                        out,
+                        "warning: skipping origin remote in {} (use --force to remove)",
+                        group.name,
+                    )?;
+                    return Ok(Outcome::Skipped);
+                }
 
-            // Orphaned remotes: prune refs (no config to remove)
-            if remote.classification == RemoteClassification::Orphaned {
-                match git.prune_remote_refs(&group.repo_path, &remote.name) {
-                    Ok(count) => {
-                        writeln!(
-                            out,
-                            "pruned {count} refs for {} in {}",
-                            remote.name, group.name,
-                        )?;
-                        succeeded.push(RemovedRemote {
-                            repo: group.repo_path.clone(),
-                            name: remote.name.clone(),
-                            refs_pruned: count,
-                        });
+                if options.dry_run {
+                    let action = if remote.classification == RemoteClassification::Orphaned {
+                        "would prune refs for"
+                    } else {
+                        "would remove"
+                    };
+                    writeln!(out, "{action} {} in {}", remote.name, group.name)?;
+                    return Ok(Outcome::Cleaned(RemovedRemote {
+                        repo: group.repo_path.clone(),
+                        name: remote.name.clone(),
+                        refs_pruned: 0,
+                    }));
+                }
+
+                // Orphaned remotes: prune refs (no config to remove)
+                if remote.classification == RemoteClassification::Orphaned {
+                    match git.prune_remote_refs(&group.repo_path, &remote.name) {
+                        Ok(count) => {
+                            writeln!(
+                                out,
+                                "pruned {count} refs for {} in {}",
+                                remote.name, group.name,
+                            )?;
+                            Ok(Outcome::Cleaned(RemovedRemote {
+                                repo: group.repo_path.clone(),
+                                name: remote.name.clone(),
+                                refs_pruned: count,
+                            }))
+                        }
+                        Err(e) => {
+                            writeln!(out, "error: could not prune refs for {}: {e}", remote.name,)?;
+                            Ok(Outcome::Failed(FailedItem {
+                                repo: group.repo_path.clone(),
+                                name: remote.name.clone(),
+                                reason: e.to_string(),
+                            }))
+                        }
                     }
-                    Err(e) => {
-                        writeln!(out, "error: could not prune refs for {}: {e}", remote.name,)?;
-                        failed.push(FailedItem {
-                            repo: group.repo_path.clone(),
-                            name: remote.name.clone(),
-                            reason: e.to_string(),
-                        });
+                } else {
+                    // Configured remotes: git remote remove
+                    match git.remote_remove(&group.repo_path, &remote.name) {
+                        Ok(()) => {
+                            writeln!(out, "removed {} in {}", remote.name, group.name)?;
+                            Ok(Outcome::Cleaned(RemovedRemote {
+                                repo: group.repo_path.clone(),
+                                name: remote.name.clone(),
+                                refs_pruned: 0,
+                            }))
+                        }
+                        Err(e) => {
+                            writeln!(out, "error: could not remove {}: {e}", remote.name)?;
+                            Ok(Outcome::Failed(FailedItem {
+                                repo: group.repo_path.clone(),
+                                name: remote.name.clone(),
+                                reason: e.to_string(),
+                            }))
+                        }
                     }
                 }
-            } else {
-                // Configured remotes: git remote remove
-                match git.remote_remove(&group.repo_path, &remote.name) {
-                    Ok(()) => {
-                        writeln!(out, "removed {} in {}", remote.name, group.name)?;
-                        succeeded.push(RemovedRemote {
-                            repo: group.repo_path.clone(),
-                            name: remote.name.clone(),
-                            refs_pruned: 0,
-                        });
-                    }
-                    Err(e) => {
-                        writeln!(out, "error: could not remove {}: {e}", remote.name)?;
-                        failed.push(FailedItem {
-                            repo: group.repo_path.clone(),
-                            name: remote.name.clone(),
-                            reason: e.to_string(),
-                        });
-                    }
-                }
-            }
-        }
+            },
+            out,
+        )?;
+
+        succeeded.extend(group_result.succeeded);
+        failed.extend(group_result.failed);
+        skipped += group_result.skipped;
     }
 
     Ok(CleanResult {
