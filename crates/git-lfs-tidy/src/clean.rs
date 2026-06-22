@@ -2,12 +2,13 @@ use std::io::Write;
 use std::ops::Deref;
 use std::path::PathBuf;
 
+use git_tidy_core::clean::{Decision, Outcome, run_clean as core_run_clean};
 use git_tidy_core::error::Error;
 use git_tidy_core::git::GitOps;
 use git_tidy_core::types::{CleanResult, FailedItem};
 
 use crate::output::format_bytes;
-use crate::types::{LfsClassification, LfsScanResult};
+use crate::types::{LfsClassification, LfsInfo, LfsScanResult};
 
 /// Options controlling LFS cleanup behavior.
 pub struct CleanOptions {
@@ -52,92 +53,121 @@ pub struct PrunedRepo {
     pub dry_run: bool,
 }
 
+/// Determine if an LFS item should be acted on by `act`.
+///
+/// Only orphaned objects are prunable, and only when `--prune` is set. Every
+/// other classification (untracked, missing, healthy) is skipped here; the
+/// pipeline counts the rejection as a skip, matching the historical
+/// `skipped += 1; continue;`. Untracked/missing items still drive per-group
+/// recommendations, which are detected tool-side around the per-group call.
+fn should_clean(item: &LfsInfo, options: &CleanOptions) -> bool {
+    matches!(item.classification, LfsClassification::Orphaned) && options.prune
+}
+
 /// Run the clean operation on a scan result.
+///
+/// lfs groups items by repo. We call the shared [`core_run_clean`] loop once per
+/// group over that group's items, accumulating each group's [`CleanResult`] into
+/// a single aggregate. The per-group health recommendations are not modeled by the
+/// pipeline, so they stay tool-side: we detect `has_untracked` / `has_missing`
+/// from the group's classifications and emit the recommendation lines *after* that
+/// group's `core_run_clean` call. This keeps a group's prune lines, then its
+/// recommendation lines, contiguous before the next group is processed.
 pub fn run_clean(
     git: &dyn GitOps,
     scan_result: &LfsScanResult,
     options: &CleanOptions,
     out: &mut dyn Write,
 ) -> Result<LfsCleanResult, Error> {
-    let mut pruned = Vec::new();
+    let mut succeeded = Vec::new();
     let mut failed = Vec::new();
-    let mut skipped = 0;
+    let mut skipped = 0usize;
     let mut recommendations = Vec::new();
 
     for group in &scan_result.repos {
-        let mut has_untracked = false;
-        let mut has_missing = false;
+        // The seam owns iterate/filter/act/aggregate for this group's items; the
+        // per-group recommendations below are the aggregate extra it doesn't model.
+        let result = core_run_clean(
+            &group.items,
+            |item| {
+                if should_clean(item, options) {
+                    Decision::Clean
+                } else {
+                    Decision::Skip
+                }
+            },
+            |item, out| {
+                let count = item
+                    .path
+                    .trim_start_matches('<')
+                    .split_once(' ')
+                    .and_then(|(n, _)| n.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let bytes = item.size_bytes.unwrap_or(0);
 
-        for item in &group.items {
-            match item.classification {
-                LfsClassification::Orphaned if options.prune => {
-                    let count = item
-                        .path
-                        .trim_start_matches('<')
-                        .split_once(' ')
-                        .and_then(|(n, _)| n.parse::<usize>().ok())
-                        .unwrap_or(0);
-                    let bytes = item.size_bytes.unwrap_or(0);
+                if options.dry_run {
+                    writeln!(
+                        out,
+                        "would prune {} orphaned LFS objects ({}) in {}",
+                        count,
+                        format_bytes(bytes),
+                        group.name,
+                    )?;
+                    return Ok(Outcome::Cleaned(PrunedRepo {
+                        repo: group.repo_path.clone(),
+                        objects_pruned: count,
+                        bytes_freed: bytes,
+                        dry_run: true,
+                    }));
+                }
 
-                    if options.dry_run {
+                match git.lfs_prune(&group.repo_path) {
+                    Ok(()) => {
                         writeln!(
                             out,
-                            "would prune {} orphaned LFS objects ({}) in {}",
+                            "pruned {} orphaned LFS objects ({}) in {}",
                             count,
                             format_bytes(bytes),
                             group.name,
                         )?;
-                        pruned.push(PrunedRepo {
+                        Ok(Outcome::Cleaned(PrunedRepo {
                             repo: group.repo_path.clone(),
                             objects_pruned: count,
                             bytes_freed: bytes,
-                            dry_run: true,
-                        });
-                    } else {
-                        match git.lfs_prune(&group.repo_path) {
-                            Ok(()) => {
-                                writeln!(
-                                    out,
-                                    "pruned {} orphaned LFS objects ({}) in {}",
-                                    count,
-                                    format_bytes(bytes),
-                                    group.name,
-                                )?;
-                                pruned.push(PrunedRepo {
-                                    repo: group.repo_path.clone(),
-                                    objects_pruned: count,
-                                    bytes_freed: bytes,
-                                    dry_run: false,
-                                });
-                            }
-                            Err(e) => {
-                                writeln!(
-                                    out,
-                                    "error: could not prune LFS objects in {}: {e}",
-                                    group.name,
-                                )?;
-                                failed.push(FailedItem {
-                                    repo: group.repo_path.clone(),
-                                    name: group.name.clone(),
-                                    reason: e.to_string(),
-                                });
-                            }
-                        }
+                            dry_run: false,
+                        }))
+                    }
+                    Err(e) => {
+                        writeln!(
+                            out,
+                            "error: could not prune LFS objects in {}: {e}",
+                            group.name,
+                        )?;
+                        Ok(Outcome::Failed(FailedItem {
+                            repo: group.repo_path.clone(),
+                            name: group.name.clone(),
+                            reason: e.to_string(),
+                        }))
                     }
                 }
-                LfsClassification::Untracked => {
-                    has_untracked = true;
-                    skipped += 1;
-                }
-                LfsClassification::Missing => {
-                    has_missing = true;
-                    skipped += 1;
-                }
-                _ => {
-                    skipped += 1;
-                }
-            }
-        }
+            },
+            out,
+        )?;
+
+        succeeded.extend(result.succeeded);
+        failed.extend(result.failed);
+        skipped += result.skipped;
+
+        // Per-group recommendations: emitted after this group's prune lines so a
+        // group's output stays contiguous, then collected for tests/JSON.
+        let has_untracked = group
+            .items
+            .iter()
+            .any(|i| i.classification == LfsClassification::Untracked);
+        let has_missing = group
+            .items
+            .iter()
+            .any(|i| i.classification == LfsClassification::Missing);
 
         if has_untracked {
             let msg = format!(
@@ -159,7 +189,7 @@ pub fn run_clean(
 
     Ok(LfsCleanResult {
         result: CleanResult {
-            succeeded: pruned,
+            succeeded,
             failed,
             skipped,
         },
