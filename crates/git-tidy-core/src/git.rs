@@ -271,6 +271,68 @@ fn parse_worktree_list_porcelain(text: &str) -> Vec<(PathBuf, Option<String>)> {
     result
 }
 
+/// Maximum length, in bytes, of the command string recorded in
+/// [`Error::GitCommand`]. Some git invocations carry thousands of pathspecs; if
+/// the command fails to even spawn (`E2BIG`), echoing the full argument list
+/// would emit megabytes of text. The arguments past the first few are never
+/// diagnostically useful, so the recorded command is truncated with a summary.
+const MAX_COMMAND_DISPLAY_LEN: usize = 2_000;
+
+/// Conservative byte budget for the pathspec portion of a single `git` command
+/// line. macOS `ARG_MAX` is ~1 MiB and is shared with the environment block;
+/// 100 KiB per batch leaves ample headroom while keeping the batch count small.
+const PATHSPEC_ARG_BUDGET: usize = 100_000;
+
+/// Build the `git -C <repo> <args>` string recorded in error messages,
+/// truncating pathologically long argument lists so one failed command can't
+/// emit megabytes of text.
+fn cmd_display(repo: &Path, args: &[&str]) -> String {
+    truncate_command(
+        format!("git -C {} {}", repo.display(), args.join(" ")),
+        args.len(),
+    )
+}
+
+/// Truncate `full` to [`MAX_COMMAND_DISPLAY_LEN`] at a char boundary, appending a
+/// summary of how much was elided. Short commands pass through unchanged.
+fn truncate_command(full: String, arg_count: usize) -> String {
+    if full.len() <= MAX_COMMAND_DISPLAY_LEN {
+        return full;
+    }
+    let mut end = MAX_COMMAND_DISPLAY_LEN;
+    while !full.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{} … [truncated: {} args, {} bytes total]",
+        &full[..end],
+        arg_count,
+        full.len()
+    )
+}
+
+/// Split `files` into batches whose joined byte length stays under `budget`, so
+/// no single `git` invocation overflows the OS argument-length limit. Each batch
+/// holds at least one path, even if that lone path already exceeds `budget`.
+fn chunk_pathspecs(files: &[String], budget: usize) -> Vec<Vec<&str>> {
+    let mut chunks: Vec<Vec<&str>> = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    let mut current_len = 0usize;
+    for f in files {
+        let cost = f.len() + 1; // +1 for the separating space
+        if !current.is_empty() && current_len + cost > budget {
+            chunks.push(std::mem::take(&mut current));
+            current_len = 0;
+        }
+        current.push(f.as_str());
+        current_len += cost;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
 /// Real git implementation that shells out to the `git` binary.
 pub struct RealGit;
 
@@ -282,7 +344,7 @@ impl RealGit {
             .args(args)
             .output()
             .map_err(|e| Error::GitCommand {
-                command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                command: cmd_display(repo, args),
                 message: e.to_string(),
             })?;
         Ok(output)
@@ -293,7 +355,7 @@ impl RealGit {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             return Err(Error::GitCommand {
-                command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                command: cmd_display(repo, args),
                 message: stderr,
             });
         }
@@ -314,7 +376,7 @@ impl RealGit {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| Error::GitCommand {
-                command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                command: cmd_display(repo, args),
                 message: e.to_string(),
             })?;
 
@@ -323,7 +385,7 @@ impl RealGit {
             match child.try_wait() {
                 Ok(Some(_status)) => {
                     let output = child.wait_with_output().map_err(|e| Error::GitCommand {
-                        command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                        command: cmd_display(repo, args),
                         message: e.to_string(),
                     })?;
                     return Ok(Some(output));
@@ -338,7 +400,7 @@ impl RealGit {
                 }
                 Err(e) => {
                     return Err(Error::GitCommand {
-                        command: format!("git -C {} {}", repo.display(), args.join(" ")),
+                        command: cmd_display(repo, args),
                         message: e.to_string(),
                     });
                 }
@@ -352,7 +414,7 @@ impl RealGit {
             .args(args)
             .output()
             .map_err(|e| Error::GitCommand {
-                command: format!("git {}", args.join(" ")),
+                command: truncate_command(format!("git {}", args.join(" ")), args.len()),
                 message: e.to_string(),
             })?;
         Ok(output)
@@ -365,7 +427,7 @@ impl RealGit {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             return Err(Error::GitCommand {
-                command: format!("git {}", args.join(" ")),
+                command: truncate_command(format!("git {}", args.join(" ")), args.len()),
                 message: stderr,
             });
         }
@@ -497,12 +559,36 @@ impl GitOps for RealGit {
         ref_spec: &str,
         files: &[String],
     ) -> GitResult<Vec<(String, String)>> {
-        let mut args = vec!["log", ref_spec, "--oneline", "-20", "--"];
-        let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
-        args.extend(file_refs);
-        let output = Self::run(repo, &args)?;
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(Self::parse_log_oneline(&text))
+        // `git log` has no `--pathspec-from-file`, so a worktree with a very
+        // large diff would overflow `ARG_MAX` if every changed path were passed
+        // on one command line (E2BIG). Batch the pathspecs under a byte budget
+        // and union the newest-first candidates each batch reports, deduping by
+        // commit hash and preserving the original `-20` ceiling on the merged
+        // set (the candidate list feeds bounded patch-similarity comparisons,
+        // where order is irrelevant and more candidates only mean more matches).
+        if files.is_empty() {
+            let output = Self::run(repo, &["log", ref_spec, "--oneline", "-20", "--"])?;
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            return Ok(Self::parse_log_oneline(&text));
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        let mut results: Vec<(String, String)> = Vec::new();
+        for chunk in chunk_pathspecs(files, PATHSPEC_ARG_BUDGET) {
+            let mut args = vec!["log", ref_spec, "--oneline", "-20", "--"];
+            args.extend(chunk);
+            let output = Self::run(repo, &args)?;
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            for (hash, subject) in Self::parse_log_oneline(&text) {
+                if seen.insert(hash.clone()) {
+                    results.push((hash, subject));
+                    if results.len() >= 20 {
+                        return Ok(results);
+                    }
+                }
+            }
+        }
+        Ok(results)
     }
 
     fn diff_commit_on_ref(&self, repo: &Path, commit_hash: &str) -> GitResult<String> {
@@ -1266,5 +1352,57 @@ prunable gitdir file points to non-existent location
 ";
         let result = parse_worktree_list_porcelain(porcelain);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn chunk_pathspecs_keeps_batches_under_budget() {
+        let files: Vec<String> = (0..100).map(|i| format!("path/file_{i}.txt")).collect();
+        let chunks = chunk_pathspecs(&files, 60);
+        assert!(chunks.len() > 1, "expected multiple batches");
+        for chunk in &chunks {
+            let bytes: usize = chunk.iter().map(|p| p.len() + 1).sum();
+            // A batch may exceed the budget only when it holds a single path
+            // (the helper never emits an empty batch).
+            assert!(
+                bytes <= 60 || chunk.len() == 1,
+                "batch over budget: {bytes}"
+            );
+        }
+        let total: usize = chunks.iter().map(|c| c.len()).sum();
+        assert_eq!(total, files.len(), "no paths dropped");
+    }
+
+    #[test]
+    fn chunk_pathspecs_oversized_single_path_gets_its_own_batch() {
+        let files = vec!["x".repeat(500), "y".to_string()];
+        let chunks = chunk_pathspecs(&files, 10);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0], vec![files[0].as_str()]);
+        assert_eq!(chunks[1], vec!["y"]);
+    }
+
+    #[test]
+    fn chunk_pathspecs_empty_input_yields_no_batches() {
+        let files: Vec<String> = Vec::new();
+        assert!(chunk_pathspecs(&files, 100).is_empty());
+    }
+
+    #[test]
+    fn truncate_command_passes_short_commands_through() {
+        let cmd = "git -C /repo log main".to_string();
+        assert_eq!(truncate_command(cmd.clone(), 3), cmd);
+    }
+
+    #[test]
+    fn truncate_command_caps_huge_argument_lists() {
+        let args: Vec<String> = (0..50_000).map(|i| format!("path/{i:08}.json")).collect();
+        let full = format!("git -C /repo log main -- {}", args.join(" "));
+        let original_len = full.len();
+        assert!(original_len > MAX_COMMAND_DISPLAY_LEN);
+
+        let truncated = truncate_command(full, args.len());
+        assert!(truncated.len() < MAX_COMMAND_DISPLAY_LEN + 100);
+        assert!(truncated.contains("… [truncated:"));
+        assert!(truncated.contains(&original_len.to_string()));
     }
 }
