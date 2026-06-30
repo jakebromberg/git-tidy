@@ -437,8 +437,10 @@ fn log_touching_files_passthrough() {
 
 /// A worktree with a very large diff against the default branch yields a huge
 /// pathspec list. Passing it on the command line overflows `ARG_MAX` and the
-/// `execve` fails with `E2BIG` ("Argument list too long"). `log_touching_files`
-/// must stream pathspecs via stdin so an arbitrarily large file set still works.
+/// `execve` fails with `E2BIG` ("Argument list too long"). `git log` has no
+/// `--pathspec-from-file`, so `log_touching_files` must batch the pathspecs
+/// under a byte budget and union the per-batch results, keeping every single
+/// `git` invocation under the limit so an arbitrarily large file set still works.
 #[test]
 fn log_touching_files_handles_arg_max_overflow() {
     let t = TestRepo::new();
