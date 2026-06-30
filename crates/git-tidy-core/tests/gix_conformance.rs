@@ -435,6 +435,34 @@ fn log_touching_files_passthrough() {
     assert!(expected.len() >= 2);
 }
 
+/// A worktree with a very large diff against the default branch yields a huge
+/// pathspec list. Passing it on the command line overflows `ARG_MAX` and the
+/// `execve` fails with `E2BIG` ("Argument list too long"). `log_touching_files`
+/// must stream pathspecs via stdin so an arbitrarily large file set still works.
+#[test]
+fn log_touching_files_handles_arg_max_overflow() {
+    let t = TestRepo::new();
+    t.commit_file(&t.main_repo, "real.txt", "v1", "first version");
+
+    // ~30k long, non-matching paths — comfortably past ARG_MAX (1 MiB on macOS)
+    // so the old command-line implementation would fail to spawn `git`.
+    let huge: Vec<String> = (0..30_000)
+        .map(|i| format!("deeply/nested/generated/path/segment/number/{i:08}/file_{i:08}.json"))
+        .collect();
+
+    let real = RealGit;
+    let result = real.log_touching_files(&t.main_repo, "main", &huge);
+
+    // None of the fake paths were touched, so the result is empty — but the call
+    // must succeed rather than erroring on a too-long argument list.
+    assert!(
+        result.is_ok(),
+        "log_touching_files overflowed ARG_MAX: {:?}",
+        result.err()
+    );
+    assert!(result.unwrap().is_empty());
+}
+
 #[test]
 fn diff_commit_on_ref_passthrough() {
     let t = TestRepo::new();
