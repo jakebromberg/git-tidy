@@ -60,6 +60,32 @@ Scans a directory of Git repos for LFS health issues: large blobs not tracked by
 
 ## Installation
 
+### Prebuilt binaries
+
+Every `v*` tag publishes archives for macOS (Apple Silicon and Intel) and Linux (x86_64 and arm64, statically linked against musl). No Rust toolchain required.
+
+```bash
+# Download the latest release, verify its checksum, install to ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/jakebromberg/git-tidy/main/install.sh | bash -s -- --prebuilt
+
+# Or from a clone, pinning a version and choosing where the binaries land
+./install.sh --prebuilt --version v0.1.0 --prefix /usr/local/bin
+```
+
+`--prebuilt` downloads the archive plus `SHA256SUMS`, refuses to install on a checksum mismatch, and then generates zsh completions from the binaries it installed. Releases are at [github.com/jakebromberg/git-tidy/releases](https://github.com/jakebromberg/git-tidy/releases); archives can also be downloaded and unpacked by hand.
+
+Options:
+
+| Flag | Meaning |
+| --- | --- |
+| `--prebuilt` | Download prebuilt binaries instead of compiling |
+| `--version <tag>` | Release tag to install (default: latest) |
+| `--prefix <dir>` | Install directory (default: `~/.local/bin`) |
+
+`GIT_TIDY_TARGET` overrides target-triple detection, `GIT_TIDY_COMPLETIONS_DIR` overrides where completions are written, and `GIT_TIDY_PREFIX` sets the default prefix.
+
+### From source
+
 Requires Rust 1.93.0 or later (edition 2024).
 
 ```bash
