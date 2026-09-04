@@ -7,7 +7,8 @@ set -euo pipefail
 
 # Falls back to $0 when the script is piped into bash (curl ... | bash -s --),
 # where BASH_SOURCE is unset. Only source installs use ROOT.
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
+self="${BASH_SOURCE[0]:-$0}"
+ROOT="$(cd "$(dirname "$self")" 2>/dev/null && pwd)" || ROOT="$PWD"
 
 REPO="${GIT_TIDY_REPO:-jakebromberg/git-tidy}"
 DOWNLOAD_BASE_URL="${GIT_TIDY_BASE_URL:-https://github.com/${REPO}/releases/download}"
