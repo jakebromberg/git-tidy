@@ -6,7 +6,16 @@
 cargo build --workspace
 cargo test --workspace
 cargo test --workspace -- --test-threads=1  # if tests interfere with each other
+./scripts/test-install-prebuilt.sh          # install.sh --prebuilt, against a fake file:// release
 ```
+
+## Releases
+
+`.github/workflows/release.yml` runs on `v*` tags. It builds `cargo build --workspace --release` for four targets on native runners — `aarch64-apple-darwin` and `x86_64-apple-darwin` (macos-latest), `x86_64-unknown-linux-musl` (ubuntu-latest), `aarch64-unknown-linux-musl` (ubuntu-24.04-arm) — packages every binary crate plus `README.md` into `git-tidy-<tag>-<target>.tar.gz`, and publishes the archives and a `SHA256SUMS` file to a GitHub release. musl needs no cross toolchain because the workspace is pure Rust (no `openssl-sys`, no `libgit2-sys`); `musl-tools` supplies only the linker driver. Running the workflow manually (`workflow_dispatch`) builds the same archives as run artifacts and skips publishing.
+
+To cut a release: bump the crate versions, `git tag v0.2.0`, `git push origin v0.2.0`.
+
+`install.sh --prebuilt` is the consumer side: it detects the target triple, downloads the archive and `SHA256SUMS`, verifies, installs into `--prefix` (default `~/.local/bin`), then generates completions. Its packaging assumptions (archive name, top-level directory, sums format) are pinned by `scripts/test-install-prebuilt.sh`, which stages a fake release over `file://` URLs — no network, no cargo. CI runs it alongside `shellcheck`.
 
 ## Git Hooks
 
@@ -81,6 +90,12 @@ All tools follow a similar CLI shape:
 
 ```
 Cargo.toml                                    # Workspace root
+install.sh                                    # Installer: cargo build (default) or --prebuilt download
+scripts/
+  test-install-prebuilt.sh                    # Tests install.sh --prebuilt against a fake file:// release
+.github/workflows/
+  ci.yml                                      # fmt/clippy/test, cargo-audit, MSRV, install-script checks
+  release.yml                                 # Tag-triggered multi-target build + GitHub release
 crates/
   git-tidy/                                   # Audit runner + dispatch binary
     src/

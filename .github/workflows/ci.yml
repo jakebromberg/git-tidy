@@ -25,6 +25,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D clippy::all
       - run: cargo test --workspace
 
+  install-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: shellcheck install.sh scripts/*.sh
+      - run: ./scripts/test-install-prebuilt.sh
+
   audit:
     runs-on: ubuntu-latest
     steps:
