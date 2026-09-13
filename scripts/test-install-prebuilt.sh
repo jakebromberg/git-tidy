@@ -44,6 +44,7 @@ STUB
       chmod +x "$stage/$bin"
     done
     cp "$ROOT/README.md" "$stage/README.md"
+    cp "$ROOT/LICENSE" "$stage/LICENSE"
     tar -czf "$base/$VERSION/git-tidy-$VERSION-$target.tar.gz" \
       -C "$WORK/stage" "git-tidy-$VERSION-$target"
   done
@@ -85,6 +86,7 @@ for bin in $BINARIES; do
 done
 assert "installed binary runs" sh -c "'$prefix/git-tidy' audit | grep -q 'git-tidy audit'"
 assert "README.md was not installed as a binary" test ! -e "$prefix/README.md"
+assert "LICENSE was not installed as a binary" test ! -e "$prefix/LICENSE"
 
 echo
 echo "case: --prebuilt resolving the latest tag from the API"

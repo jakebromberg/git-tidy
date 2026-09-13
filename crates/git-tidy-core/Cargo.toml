@@ -3,6 +3,7 @@ name = "git-tidy-core"
 version = "0.1.0"
 edition = "2024"
 description = "Shared classification logic and git abstraction for git-worktree-tidy and git-branch-tidy"
+license.workspace = true
 
 [features]
 testutil = ["dep:tempfile"]

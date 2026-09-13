@@ -438,3 +438,7 @@ crates/
   git-config-tidy/        Config linter/fixer binary
   git-lfs-tidy/           LFS health scanner/cleaner binary
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

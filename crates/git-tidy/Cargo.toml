@@ -3,6 +3,7 @@ name = "git-tidy"
 version = "0.1.0"
 edition = "2024"
 description = "Audit runner for git-tidy tools"
+license.workspace = true
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

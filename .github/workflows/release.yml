@@ -78,6 +78,7 @@ jobs:
             cp "target/${{ matrix.target }}/release/$name" "dist/$stage/$name"
           done
           cp README.md "dist/$stage/README.md"
+          cp LICENSE "dist/$stage/LICENSE"
 
           tar -czf "dist/${stage}.tar.gz" -C dist "$stage"
           echo "archive=${stage}.tar.gz" >> "$GITHUB_OUTPUT"

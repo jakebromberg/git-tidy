@@ -3,6 +3,7 @@ name = "git-branch-tidy"
 version = "0.1.0"
 edition = "2024"
 description = "Scan, classify, and interactively remove stale local Git branches"
+license.workspace = true
 
 [dependencies]
 git-tidy-core = { path = "../git-tidy-core" }

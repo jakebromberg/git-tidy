@@ -3,6 +3,7 @@ name = "git-stash-tidy"
 version = "0.1.0"
 edition = "2024"
 description = "Scan, classify, and interactively drop stale Git stashes"
+license.workspace = true
 
 [dependencies]
 git-tidy-core = { path = "../git-tidy-core" }

@@ -3,6 +3,7 @@ name = "git-lfs-tidy"
 version = "0.1.0"
 edition = "2024"
 description = "Scan repos for LFS health issues and clean up orphaned LFS objects"
+license.workspace = true
 
 [dependencies]
 git-tidy-core = { path = "../git-tidy-core" }

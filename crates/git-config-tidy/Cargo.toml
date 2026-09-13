@@ -3,6 +3,7 @@ name = "git-config-tidy"
 version = "0.1.0"
 edition = "2024"
 description = "Lint and fix common Git config issues"
+license.workspace = true
 
 [dependencies]
 git-tidy-core = { path = "../git-tidy-core" }
