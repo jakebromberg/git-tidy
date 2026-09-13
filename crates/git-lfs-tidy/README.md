@@ -2,6 +2,13 @@
 
 Scan a directory of Git repos for LFS health issues and clean up orphaned LFS objects.
 
+## Installation
+
+```bash
+cargo install git-lfs-tidy   # from crates.io
+cargo install --path .       # from a clone
+```
+
 ## Classifications
 
 | Classification | Meaning | Clean action |

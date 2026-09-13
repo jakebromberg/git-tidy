@@ -60,6 +60,19 @@ Scans a directory of Git repos for LFS health issues: large blobs not tracked by
 
 ## Installation
 
+### From crates.io
+
+```bash
+# The whole suite, including the unified `git tidy` entry point
+cargo install git-tidy-cli
+
+# Or just the tools you want
+cargo install git-branch-tidy
+cargo install git-worktree-tidy
+```
+
+The suite is published as `git-tidy-cli` because the `git-tidy` crate name was taken in 2021. The installed binary is still named `git-tidy`, so `git tidy` works as a Git subcommand.
+
 ### Prebuilt binaries
 
 Every `v*` tag publishes archives for macOS (Apple Silicon and Intel) and Linux (x86_64 and arm64, statically linked against musl). No Rust toolchain required.

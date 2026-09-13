@@ -1,12 +1,16 @@
 [package]
 name = "git-branch-tidy"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Scan, classify, and interactively remove stale local Git branches"
 license.workspace = true
+repository.workspace = true
+keywords = ["git", "branch", "cleanup", "stale", "tidy"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-git-tidy-core = { path = "../git-tidy-core" }
+git-tidy-core.workspace = true
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
@@ -15,7 +19,7 @@ dialoguer = "0.12"
 console = "0.16"
 
 [dev-dependencies]
-git-tidy-core = { path = "../git-tidy-core", features = ["testutil"] }
+git-tidy-core = { workspace = true, features = ["testutil"] }
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"

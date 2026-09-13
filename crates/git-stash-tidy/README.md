@@ -5,7 +5,8 @@ Scan, classify, and interactively drop stale Git stashes across multiple reposit
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install git-stash-tidy   # from crates.io
+cargo install --path .         # from a clone
 ```
 
 ## Usage

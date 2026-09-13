@@ -5,7 +5,8 @@ Scan, classify, and interactively remove stale local Git branches across multipl
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install git-branch-tidy   # from crates.io
+cargo install --path .          # from a clone
 ```
 
 ## Usage

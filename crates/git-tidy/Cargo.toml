@@ -1,9 +1,24 @@
 [package]
-name = "git-tidy"
-version = "0.1.0"
-edition = "2024"
+# Published as `git-tidy-cli` because the `git-tidy` name was taken on
+# crates.io in 2021. The binary and library below keep the `git-tidy` name,
+# so `cargo install git-tidy-cli` still yields the `git tidy` subcommand.
+name = "git-tidy-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Audit runner for git-tidy tools"
 license.workspace = true
+repository.workspace = true
+keywords = ["git", "cleanup", "audit", "tidy", "maintenance"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "git_tidy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "git-tidy"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -14,16 +29,16 @@ indicatif = "0.18"
 which = "8"
 
 # In-process audit dependencies
-git-tidy-core = { path = "../git-tidy-core" }
-git-worktree-tidy = { path = "../git-worktree-tidy" }
-git-branch-tidy = { path = "../git-branch-tidy" }
-git-stash-tidy = { path = "../git-stash-tidy" }
-git-remote-tidy = { path = "../git-remote-tidy" }
-git-tag-tidy = { path = "../git-tag-tidy" }
-git-repo-tidy = { path = "../git-repo-tidy" }
-git-config-tidy = { path = "../git-config-tidy" }
-git-lfs-tidy = { path = "../git-lfs-tidy" }
+git-tidy-core.workspace = true
+git-worktree-tidy.workspace = true
+git-branch-tidy.workspace = true
+git-stash-tidy.workspace = true
+git-remote-tidy.workspace = true
+git-tag-tidy.workspace = true
+git-repo-tidy.workspace = true
+git-config-tidy.workspace = true
+git-lfs-tidy.workspace = true
 
 [dev-dependencies]
-git-tidy-core = { path = "../git-tidy-core", features = ["testutil"] }
+git-tidy-core = { workspace = true, features = ["testutil"] }
 tempfile = "3"

@@ -4,6 +4,13 @@ Scan, classify, and remove stale Git repositories.
 
 This is the most destructive tool in the git-tidy suite -- it performs `rm -rf` on entire repos. Safety guards include dirty detection, `--force` requirements, `--dry-run`, and confirmation prompts.
 
+## Installation
+
+```bash
+cargo install git-repo-tidy   # from crates.io
+cargo install --path .        # from a clone
+```
+
 ## Classification
 
 | Classification | Trigger |

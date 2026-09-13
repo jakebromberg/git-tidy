@@ -7,8 +7,11 @@ By default, the audit runs **in-process**: it calls each tool's scan/lint functi
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install git-tidy-cli   # from crates.io
+cargo install --path .       # from a clone
 ```
+
+Published as `git-tidy-cli` because the `git-tidy` crate name was taken in 2021. The installed binary is named `git-tidy`, so it works as a `git` subcommand.
 
 ## Usage
 

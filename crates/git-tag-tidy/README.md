@@ -5,7 +5,8 @@ Scan, classify, and remove stale Git tags across multiple repositories.
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install git-tag-tidy   # from crates.io
+cargo install --path .       # from a clone
 ```
 
 ## Usage

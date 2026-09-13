@@ -32,5 +32,6 @@ git-config-tidy fix ~/Developer --yes           # skip confirmation
 ## Installation
 
 ```bash
-cargo install --path crates/git-config-tidy
+cargo install git-config-tidy   # from crates.io
+cargo install --path .          # from a clone
 ```

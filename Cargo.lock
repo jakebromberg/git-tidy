@@ -684,7 +684,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-tidy"
+name = "git-tidy-cli"
 version = "0.1.0"
 dependencies = [
  "clap",

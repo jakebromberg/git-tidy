@@ -5,7 +5,8 @@ Scan, classify, and remove stale Git remotes and orphaned tracking refs across m
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install git-remote-tidy   # from crates.io
+cargo install --path .          # from a clone
 ```
 
 ## Usage
